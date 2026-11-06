@@ -28,7 +28,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, .item-row:focus
 .mode-toggle {display:grid;grid-template-columns:1fr 1fr;gap:2px;margin:17px auto 0;background:rgba(66,19,13,.15);border-radius:16px;padding:3px;width:210px}
 .mode-toggle button {color:rgba(255,255,255,.84);border:0;background:transparent;font-size:13px;font-weight:650;padding:7px 12px;border-radius:13px;transition:background .18s}
 .mode-toggle button[aria-selected="true"] {background:rgba(255,255,255,.94);color:#c84631;box-shadow:0 1px 8px #a2351c25}
-.composer {flex:0 0 auto;background:linear-gradient(90deg,#e87548,#f4a75a);padding:0;z-index:2;border-bottom:1px solid rgba(255,255,255,.18)}
+.composer {flex:0 0 auto;background:linear-gradient(90deg,#e87548,#f4a75a);padding:0;z-index:2;border-bottom:1px solid rgba(255,255,255,.18);touch-action:pan-x;overscroll-behavior:contain}
 .composer form {display:flex;align-items:center;min-height:64px;padding:0 21px}
 .composer input {display:block;min-width:0;flex:1;width:100%;height:64px;padding:0;background:transparent;border:0;border-radius:0;color:#29231d;font-size:19px;font-weight:540;letter-spacing:-.32px;outline:none;box-shadow:none;caret-color:#44251a;appearance:none;-webkit-appearance:none}
 .composer input::placeholder {color:rgba(45,31,24,.52)}
@@ -400,7 +400,8 @@ $('item-input').addEventListener('blur',()=>{
   if(composerOpen)closeComposer();
 });
 document.addEventListener('pointerdown',e=>{
-  if(composerOpen&&!e.target.closest('#composer')&&!e.target.closest('#add-button')){
+  // Touch gestures are resolved on touchend so pulling the list does not close the editor.
+  if(e.pointerType!=='touch'&&composerOpen&&!e.target.closest('#composer')&&!e.target.closest('#add-button')){
     closeComposer();
   }
 },true);
@@ -554,9 +555,10 @@ $('list-footer').addEventListener('click',e=>{
 /* Gestures: swipe right = bought/restore; left = delete. Long-hold in List = reorder.
    Touch events are used to support iOS pull-down at top without interfering with regular scrolling. */
 const scroller=$('list-scroller');
+const composer=$('composer');
 function gestureStart(target,x,y,isTouch){
   const row=target.closest?.('[data-item-id]');
-  gesture={row,id:row?.dataset.itemId||null,startX:x,startY:y,x,y,kind:'',moved:false,isTouch,dragTargetId:null,longTimer:null};
+  gesture={row,fromComposer:composer.contains(target),id:row?.dataset.itemId||null,startX:x,startY:y,x,y,kind:'',moved:false,isTouch,dragTargetId:null,longTimer:null};
   if(row&&mode==='planning'&&!state.items.find(i=>i.id===row.dataset.itemId)?.complete){
     gesture.longTimer=setTimeout(()=>{if(gesture&&!gesture.kind&&!gesture.moved){gesture.kind='reorder';gesture.row.classList.add('dragging');navigator.vibrate?.(12);}},480);
   }
@@ -582,7 +584,7 @@ function gestureMove(x,y,event){
   }
   if(!gesture.kind){
     if(Math.abs(dx)>12&&Math.abs(dx)>Math.abs(dy)*1.2&&gesture.row){gesture.kind='swipe';gesture.moved=true;clearLongPress();}
-    else if(dy>12&&scroller.scrollTop<=2&&Math.abs(dy)>Math.abs(dx)*1.1){gesture.kind='pull';gesture.moved=true;clearLongPress();}
+    else if(dy>12&&(gesture.fromComposer||scroller.scrollTop<=2)&&Math.abs(dy)>Math.abs(dx)*1.1){gesture.kind='pull';gesture.moved=true;clearLongPress();}
     else if(Math.abs(dy)>14||Math.abs(dx)>14){gesture.moved=true;clearLongPress();}
   }
   if(gesture.kind==='swipe'){
@@ -611,6 +613,23 @@ function gestureFinish(cancelled=false){
   }else if(kind==='pull'&&dy>75)openComposer();
   else if(kind==='reorder'&&id&&dragTargetId)reorderItem(id,dragTargetId);
 }
+// The active entry is outside the scrolling list: capture its downward gesture directly.
+composer.addEventListener('touchstart',e=>{
+  if(!composerOpen||currentSheet||e.touches.length!==1)return;
+  const t=e.touches[0];
+  gestureStart(e.target,t.clientX,t.clientY,true);
+},{passive:true});
+composer.addEventListener('touchmove',e=>{
+  if(!composerOpen||!gesture?.isTouch||e.touches.length!==1)return;
+  const t=e.touches[0];
+  gestureMove(t.clientX,t.clientY,e);
+},{passive:false});
+composer.addEventListener('touchend',()=>{
+  if(gesture?.isTouch)gestureFinish();
+},{passive:true});
+composer.addEventListener('touchcancel',()=>{
+  if(gesture?.isTouch)gestureFinish(true);
+},{passive:true});
 scroller.addEventListener('touchstart',e=>{if(currentSheet)return;const t=e.touches[0];if(t)gestureStart(e.target,t.clientX,t.clientY,true);},{passive:true});
 scroller.addEventListener('touchmove',e=>{if(!gesture?.isTouch)return;const t=e.touches[0];if(t)gestureMove(t.clientX,t.clientY,e);},{passive:false});
 scroller.addEventListener('touchend',()=>{if(gesture?.isTouch)gestureFinish();},{passive:true});
