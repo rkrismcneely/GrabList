@@ -99,7 +99,7 @@ function candidateCard(candidate,index,item){
      '<div class="source-price-small">Check: '+safe(candidate.mismatchReasons.join(', '))+'</div>':'';
   return '<article class="source-price-card"><div class="source-price-head"><strong>'+safe(candidate.storeName)+'</strong><b>≈'+money(candidate.price)+'</b></div>'+
     '<div class="source-price-small"><strong>'+safe(candidate.productName||'Reference product')+'</strong>'+
-      (size?' · '+safe(size):' · size not reported')+(candidate.city?' · '+safe(candidate.city):'')+'</div>'+
+      (size?' · '+safe(size)+(candidate.sizeEvidence==='requested_exact_catalog_line'?' (requested size; retailer pack unverified)':''):' · size not reported')+(candidate.city?' · '+safe(candidate.city):'')+'</div>'+
     '<div class="source-price-small">'+safe(explanation)+confidence+(mismatch?' · Different pack size':'')+unit+'</div>'+reasons+
     '<div class="source-price-foot">'+safe(candidate.date||'Date not reported')+' · '+safe(candidate.source)+
      (candidate.url?' · <a target="_blank" rel="noopener noreferrer" href="'+safe(candidate.url)+'">Source</a>':'')+
@@ -338,6 +338,8 @@ status.addEventListener('click',event=>{
   if(choice.confidence==='low'||choice.confidence==='unverified name match'){
     if(!confirm('This match is not confirmed. Have you checked the exact product and size, and do you want to use this estimate?'))return;
   }
+  if(choice.sizeEvidence==='requested_exact_catalog_line'&&
+     !confirm('This price comes from an exact catalogue query, but the source did not independently report the package size. Use it as an estimate for '+(choice.packageSize||'this item')+'?'))return;
   // Explicit selection may override a manual/demo price, with confirmation.
   if(item.priceSource==='manual'||item.priceSource==='demo'){
     if(!confirm('Replace your existing price with this unverified reference estimate?'))return;
