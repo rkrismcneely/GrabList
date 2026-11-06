@@ -245,7 +245,10 @@ function sanitizeItem(raw,index){
     name:raw.name.trim().slice(0,110), quantity:String(raw.quantity||'1').slice(0,16),
     size:String(raw.size||'').slice(0,40), brand:String(raw.brand||'').slice(0,75),
     department:normalizeDepartment(raw.department)||detectDepartment(raw.name),
-    storeId,price:Number.isFinite(price)&&price>=0&&price<=99999?Math.round(price*100)/100:null,
+    storeId,storeAutoAssigned:Boolean(raw.storeAutoAssigned&&storeId),
+    // Preserve a deliberate "Needs a store" choice made in Edit.
+    storeManuallyCleared:Boolean(raw.storeManuallyCleared&&!storeId),
+    price:Number.isFinite(price)&&price>=0&&price<=99999?Math.round(price*100)/100:null,
     priceSource:['manual','demo'].includes(raw.priceSource)?raw.priceSource:null,
     complete:Boolean(raw.complete), order:Number.isFinite(Number(raw.order))?Number(raw.order):index+1,
     createdAt:Number.isFinite(Number(raw.createdAt))?Number(raw.createdAt):Date.now()
@@ -267,7 +270,24 @@ function loadState(){try{return sanitizeState(JSON.parse(localStorage.getItem(ST
 let state=loadState();
 let mode='planning',showCompleted=true,composerOpen=false,currentSheet=null,toastTimeout=null,toastUndo=null,suppressClickUntil=0,gesture=null,dragTargetId=null;
 function save(){try{localStorage.setItem(STORAGE_KEY,JSON.stringify(state))}catch{showToast('Storage unavailable on this device. Export a backup before closing.')}}
-function update(){save();render()}
+function autoAssignUnpricedItems(){
+  const enabled=state.enabledStoreIds.filter(id=>STORES.some(store=>store.id===id));
+  if(!enabled.length)return;
+  const counts=new Map(enabled.map(id=>[id,0]));
+  // Count already-assigned, uncompleted items first; never change an existing store choice.
+  state.items.filter(item=>!item.complete).forEach(item=>{
+    if(counts.has(item.storeId))counts.set(item.storeId,counts.get(item.storeId)+1);
+  });
+  // Fill unassigned, unpriced entries with the busiest enabled store.
+  // Ties use the existing enabled-store order for stable, predictable results.
+  for(const item of [...state.items].filter(i=>!i.complete&&!i.storeId&&i.price===null&&!i.storeManuallyCleared).sort((a,b)=>a.order-b.order)){
+    const busiest=enabled.reduce((best,id)=>counts.get(id)>counts.get(best)?id:best,enabled[0]);
+    item.storeId=busiest;
+    item.storeAutoAssigned=true;
+    counts.set(busiest,counts.get(busiest)+1);
+  }
+}
+function update(){autoAssignUnpricedItems();save();render()}
 function itemQty(item){const n=parseFloat(item.quantity);return Number.isFinite(n)&&n>0?n:1}
 function knownTotal(items){return items.reduce((sum,i)=>sum+(i.price===null?0:i.price*itemQty(i)),0)}
 function knownCount(items){return items.filter(i=>i.price!==null).length}
@@ -303,7 +323,7 @@ function detectDepartment(value){
 function newItem(raw){
   const parsed=parseEntry(raw);
   const profile=state.profiles[normalizedKey(parsed.name)]||{};
-  const item={id:uid(),name:parsed.name,quantity:'1',size:parsed.size||profile.size||'',brand:parsed.brand||'',department:profile.department||detectDepartment(parsed.name),storeId:null,price:null,priceSource:null,complete:false,order:state.nextOrder++,createdAt:Date.now()};
+  const item={id:uid(),name:parsed.name,quantity:'1',size:parsed.size||profile.size||'',brand:parsed.brand||'',department:profile.department||detectDepartment(parsed.name),storeId:null,storeAutoAssigned:false,storeManuallyCleared:false,price:null,priceSource:null,complete:false,order:state.nextOrder++,createdAt:Date.now()};
   state.items.unshift(item);
   update();
   return item;
@@ -466,10 +486,10 @@ function openItemSheet(id){
   const item=state.items.find(i=>i.id===id);if(!item)return;
   openSheet('item');
   $('edit-id').value=item.id;$('edit-name').value=item.name;$('edit-quantity').value=item.quantity;$('edit-size').value=item.size;$('edit-brand').value=item.brand;
-  fillSelect($('edit-store'),[{value:'',label:'Needs a store'},...state.enabledStoreIds.map(id=>storeById(id)).filter(Boolean).map(s=>({value:s.id,label:s.name})),...(item.storeId&&!state.enabledStoreIds.includes(item.storeId)?[{value:item.storeId,label:`${storeById(item.storeId)?.name} (disabled)`}]:[])],item.storeId||'');
+  fillSelect($('edit-store'),[{value:'',label:'Needs a store (manual)'},...state.enabledStoreIds.map(id=>storeById(id)).filter(Boolean).map(s=>({value:s.id,label:s.name})),...(item.storeId&&!state.enabledStoreIds.includes(item.storeId)?[{value:item.storeId,label:`${storeById(item.storeId)?.name} (disabled)`}]:[])],item.storeId||'');
   fillSelect($('edit-department'),DEPARTMENTS.map(d=>({value:d,label:d})),item.department);
   $('edit-price').value=item.price===null?'':item.price.toFixed(2);
-  $('edit-source-note').textContent=item.priceSource==='demo'?'This is an example price, not a live price. Changing it saves a manual price.':item.priceSource==='manual'?'This price was entered manually, not checked against a store.':'No price provider is connected. Enter a manual price if you know one.';
+  $('edit-source-note').textContent=item.priceSource==='demo'?'This is an example price, not a live price. Changing it saves a manual price.':item.priceSource==='manual'?'This price was entered manually, not checked against a store.':item.storeAutoAssigned?'Price unknown. Store was automatically chosen because it has the most items; you can change it above.':'No price provider is connected. Enter a manual price if you know one.';
 }
 $('edit-store').addEventListener('change',()=>{
   const previous=state.items.find(i=>i.id===$('edit-id').value);
@@ -483,7 +503,7 @@ $('edit-form').addEventListener('submit',e=>{
   const storeId=$('edit-store').value||null;
   const price=priceText===''?null:Number(priceText);
   if(price!==null&&(!Number.isFinite(price)||price<0||price>99999)){showToast('Enter a valid price');return;}
-  item.name=name;item.quantity=quantity;item.size=$('edit-size').value.trim();item.brand=$('edit-brand').value.trim();item.storeId=storeId;item.department=$('edit-department').value;
+  item.name=name;item.quantity=quantity;item.size=$('edit-size').value.trim();item.brand=$('edit-brand').value.trim();item.storeId=storeId;item.storeAutoAssigned=false;item.storeManuallyCleared=!storeId;item.department=$('edit-department').value;
   item.price=price===null?null:Math.round(price*100)/100;
   item.priceSource=item.price===null?null:(item.priceSource==='demo'&&item.price===previousPrice&&item.storeId===previousStore?'demo':'manual');
   state.profiles[normalizedKey(item.name)]={department:item.department,size:item.size};
@@ -674,7 +694,7 @@ window.addEventListener('keydown',e=>{
   if((e.key==='n'||e.key==='/')&&!currentSheet&&!composerOpen&&!['INPUT','TEXTAREA','SELECT'].includes(document.activeElement?.tagName)){e.preventDefault();openComposer();}
 });
 
-render();
+autoAssignUnpricedItems();save();render();
 if('serviceWorker' in navigator && (location.protocol==='https:' || location.hostname==='localhost')){
   window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(()=>{}));
 }
