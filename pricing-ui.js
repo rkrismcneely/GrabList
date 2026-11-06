@@ -383,7 +383,7 @@ planButton.addEventListener('click',async()=>{
 // then another enabled store. Never invent a product, price or local branch.
 let autoReferencePending=false;
 const attempted=new Map();
-const AUTO_RETRY_MS=20*60*1000;
+const AUTO_RETRY_MS=5*60*1000;
 const autoStatus=$id('auto-price-status');
 let autoDone=0,autoFound=0,autoTotal=0;
 function setAutoStatus(message,refresh=false){
@@ -405,6 +405,9 @@ function compatibleAuto(item,candidate){
  if(item.size){
    if(!candidate.packageSize)return false;
    if(GrabListComparison.normalizedSize(item.size)!==GrabListComparison.normalizedSize(candidate.packageSize))return false;
+ } else if(candidate.source==='GroceryPulse'&&!candidate.packageSize){
+   // A reference-market item without a reported pack size is an estimate,
+   // never a verified 4 L/2 L match. The list must not invent a size.
  }
  if(candidate.storeId&&!state.enabledStoreIds.includes(candidate.storeId))return false;
  return true;
@@ -416,7 +419,8 @@ function autoPick(item,candidates){
  // reference rather than an equally-priced offer at another chain.
  const priority=id=>{const i=state.storeOrderIds?.indexOf(id)??-1;return i<0?999:i;};
  const scope=c=>c.scope==='covered_postal_area'?0:c.scope==='nearest_reference_city'?1:
-   c.scope==='province_reference'?2:c.scope==='canadian_reference'?3:c.scope==='national_average'?4:5;
+   c.scope==='province_reference'?2:c.scope==='canadian_reference'?3:c.scope==='reference_city'?3:
+   c.scope==='national_average'?4:5;
  good.sort((a,b)=>scope(a)-scope(b)||
    Number(b.storeId===item.storeId)-Number(a.storeId===item.storeId)||
    a.price-b.price||priority(a.storeId)-priority(b.storeId));
