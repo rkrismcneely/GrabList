@@ -136,6 +136,13 @@ body.sheet-open {overflow:hidden}
 .compare-card p {font-size:12px;color:#775d50;margin:6px 0 0}
 .compare-summary {font-size:13px;line-height:1.5;color:#70584b;margin-bottom:10px}
 .source-price-card {border:1px solid #ebddcc;background:#fff;border-radius:10px;padding:10px 12px;margin:7px 0}
+.source-price-use {background:#d65b43;color:#fff;border:0;border-radius:8px;min-height:37px;padding:6px 12px;font-weight:750;font-size:12px;margin-top:8px}
+.source-price-small strong {color:#64483b}
+.savvi-lookup-button {align-self:flex-end;border:1px solid #e2c2af;border-radius:10px;padding:11px;background:#fff6eb;color:#a34a36;font-size:13px;font-weight:700}
+.savvi-token-actions {display:flex;gap:8px}
+.savvi-token-actions button {flex:1;border:1px solid #e2c2af;border-radius:9px;min-height:40px;background:#fff4e8;color:#81513b;font-weight:700;font-size:12px}
+#apify-token-input {height:42px;width:100%;border:1px solid #e5cfc3;border-radius:10px;padding:0 11px;font-size:15px}
+#lookup-item-results {max-height:35dvh;overflow-y:auto;overscroll-behavior:contain}
 .source-price-head {display:flex;align-items:baseline;justify-content:space-between;gap:10px;font-size:13px}
 .source-price-head b {white-space:nowrap;font-size:15px;color:#a84432}
 .source-price-small {font-size:11px;line-height:1.4;color:#756154;margin-top:4px}
@@ -206,6 +213,7 @@ body.sheet-open {overflow:hidden}
       <label>Price (CAD) <span class="label-extra">Manual or approximate reference</span><input id="edit-price" inputmode="decimal" type="number" min="0" step="0.01" placeholder="Unknown" /></label>
       <p id="edit-source-note" class="sheet-help">Prices entered here are manual, not live quotes.</p>
       <button type="button" id="look-up-item-price">Search public prices</button>
+      <button type="button" id="look-up-savvi-price" class="savvi-lookup-button">Search Savvi (your Apify credits)</button>
       <div id="lookup-item-results" aria-live="polite"></div>
       <div class="sheet-actions"><button type="button" id="delete-item" class="button-danger">Delete</button><button type="submit" class="button-primary">Save item</button></div>
     </form>
@@ -225,6 +233,16 @@ body.sheet-open {overflow:hidden}
       <h3>My stores</h3>
       <p class="sheet-help">Check the stores you use. Move your favourites to the top; this order breaks price ties and orders stores in Shop mode.</p>
       <div id="store-options" class="store-options"></div>
+      <h3>Optional Savvi price source</h3>
+      <p class="sheet-help">Savvi uses your own Apify account and may consume credits. Supports No Frills and Independent here. A token is kept only in this browser tab, not exported with your grocery list.</p>
+      <label class="settings-label" for="apify-token-input">Apify API token
+        <input id="apify-token-input" type="password" autocomplete="off" placeholder="Paste your Apify token" />
+      </label>
+      <div class="savvi-token-actions">
+        <button type="button" id="save-apify-token">Use for this session</button>
+        <button type="button" id="clear-apify-token">Disconnect</button>
+      </div>
+      <p id="apify-token-status" class="sheet-help" role="status" aria-live="polite">Not connected</p>
       <h3>Shopping preferences</h3>
       <label class="settings-label" for="savings-input">Savings needed to add another store</label>
       <div class="input-row"><span>$</span><input id="savings-input" type="number" min="0" max="100" step="0.50" value="5" inputmode="decimal" /><span>CAD</span></div>
