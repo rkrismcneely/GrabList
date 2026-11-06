@@ -78,7 +78,7 @@ test('uncovered postal codes fall back to a plainly labelled province reference 
      assert.equal(body.postalCode,'K9J');
      return response({error:{code:'postal_code_not_covered',message:'Not covered'}},400);
    }
-   assert.equal(body.city,'Toronto');
+   assert.equal(body.city,'toronto');
    return response({city:{name:'Toronto',province:'ON'},lines:[{status:'exact'}],
       stores:[{key:'nofrills',name:'No Frills',totalCad:4.83,totalScope:'complete_requested_list',itemObservationDates:[{observedAt:'2026-11-04'}]}]});
  };
