@@ -29,7 +29,15 @@ A mobile-first, swipe-driven grocery shopping Progressive Web App. Hosted on Clo
 - The preview never reassigns stores until you tap **Apply suggestions**.
 - Example/demo prices never count toward savings.
 
-**Not yet implemented:** automatic live retailer prices, local branch selection/geocoding, barcode product matching, discounts requiring membership, automatic price freshness updates, or synchronized accounts. The location settings and matching policy are foundations, not live price discovery. A manual quote is **not** a live verified store price.
+### Phase 2B — public-source discovery (on-demand)
+
+- Tap **Search public prices** in an item's Edit screen: enter an optional barcode for a precise lookup, or search by the item's name. GrabList queries the free **Open Prices** public API and shows observed Canadian CAD prices from identifiable individual stores.
+- The observations are sorted by relevance: same postal code, same postal-code prefix, other branches in the same province, other Canadian locations. Every result includes its store, source, observed date and product details when available.
+- In Shop mode, tap **Compare store prices**, then **Check Canadian online prices** to request a GroceryPulse comparison of the actual list at your postal-code area. GroceryPulse only covers 16 specified Canadian cities and 50 reference products; it refuses unsupported areas, including Peterborough. Chain medians never count as confirmed prices at a particular branch.
+- Price searches require a deliberate tap. API requests go through `worker.js` using hardcoded provider hosts, so the browser does not need third-party CORS access or any API keys.
+- Public observations are **references for review**, not prices silently inserted into your checkout total or existing savings engine. Automatic matching/confirmation, exact branch selection, tax/promotion eligibility and authoritative national shelf-price feeds are not available yet.
+
+**Not yet implemented:** retailer-authorized direct live inventory/regular-price feeds, local branch selection/geocoding, barcodes scanned with the camera, automatic synchronization, or automatic substitution. No coverage, matching or price is invented to fill an API gap. A manual quote is **not** a live verified store price.
 
 ## Supported retailers
 
@@ -39,7 +47,7 @@ The app does not imply coverage at every retailer; enabled stores are *shopping 
 
 ## Price integration design
 
-See [providers/CONTRACT.md](providers/CONTRACT.md). The price comparison engine is a standalone, provider-neutral module, [comparison.js](comparison.js). Providers will need to attach source, product identity, exact size, observed date, store/region scope and eligibility restrictions. Missing matches remain unknown.
+See [providers/CONTRACT.md](providers/CONTRACT.md). The price comparison engine is a standalone, provider-neutral module, [comparison.js](comparison.js), and geographic matching is in [location.js](location.js). Public lookup routes are implemented in [worker.js](worker.js). Providers will need to attach source, product identity, exact size, observed date, store/region scope and eligibility restrictions. Missing matches remain unknown.
 
 Possible sources are under evaluation. Open Prices is open community data but may have sparse Canadian coverage. Other APIs can have account and licensing constraints. **Never put provider API keys in client-side code or GitHub.**
 
@@ -54,6 +62,7 @@ Tests exercise the comparison and location-matching engines without external cal
 ## Deployment
 
 - Cloudflare **Workers Builds**, linked to `main` of `rkrismcneely/GrabList`
+- `worker.js` handles bounded public price inquiries; static files are served using Cloudflare's `ASSETS` binding.
 - Deploy command: `npx wrangler deploy`
 - Asset-only Worker configuration: [wrangler.jsonc](wrangler.jsonc)
 - Production URL: https://grablist.rkrismcneely.workers.dev
