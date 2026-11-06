@@ -819,6 +819,14 @@ function deliverySaved(store,service){
 function renderDeliveryTools(resetStore=false){
  const item=state.items.find(i=>i.id===$id('edit-id').value);
  if(!item)return;
+ const priorities=state.deliveryOrder||['doordash','ubereats','instacart'];
+ const enabled=state.deliveryEnabled||priorities;
+ const available=priorities.filter(id=>enabled.includes(id));
+ const previously=deliveryUi.service.value;
+ deliveryUi.service.innerHTML=(available.length?available:priorities).map(id=>
+   '<option value="'+safe(id)+'">'+safe(GrabListDelivery.SERVICES[id].label)+'</option>').join('');
+ deliveryUi.service.value=available.includes(previously)?previously:
+   available[0]||priorities[0];
  const service=deliveryUi.service.value;
  const options=STORES;
  const prev=deliveryUi.store.value;
@@ -840,6 +848,7 @@ function renderDeliveryTools(resetStore=false){
  deliveryUi.current.textContent=chosen?'Saved: '+(chosen.label||storeById(storeId)?.name||storeId):
    'No specific branch link saved for '+provider.label+'. You can still check a price and record its street address without a URL.';
  deliveryUi.link.placeholder=chosen?.url||'https://…';
+ deliveryUi.branch.value=state.deliveryBranches?.[storeId+':'+service]||'';
  const examples=String(state.postalCode||'').toUpperCase().startsWith('K9')?
    (GrabListDelivery.EXAMPLES[storeId]||[]).filter(x=>x.service===service):[];
  deliveryUi.suggestions.innerHTML=examples.length?
@@ -855,13 +864,16 @@ function renderDeliveryTools(resetStore=false){
    deliveryUi.price.value='';
    deliveryUi.product.value='';
    deliveryUi.source.value='';
-   deliveryUi.branch.value='';
    deliveryUi.confirm.checked=false;
    deliveryUi.size.value=$id('edit-size').value.trim();
    deliveryUi.status.textContent='';
  }
 }
-globalThis.GrabListDeliverySync=()=>renderDeliveryTools(true);
+globalThis.GrabListDeliverySync=()=>{
+ const preferred=(state.deliveryOrder||[]).find(id=>state.deliveryEnabled?.includes(id));
+ if(preferred)deliveryUi.service.value=preferred;
+ renderDeliveryTools(true);
+};
 function resetDeliveryForNewSource(){
  deliveryUi.link.value='';
  deliveryUi.copied.value='';
