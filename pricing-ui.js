@@ -85,12 +85,13 @@ planButton.addEventListener('click',async()=>{
     const lines=Array.isArray(plan.lines)?plan.lines:[],stores=Array.isArray(plan.stores)?plan.stores:[];
     const counted=lines.filter(line=>line.status==='exact').length;
     const excluded=lines.length-counted;
-    const storesWithTotals=stores.filter(store=>Number.isFinite(store.totalCad)).slice(0,8);
+    const enabled=new Set(state.enabledStoreIds.map(id=>id==='independent'?'yourindependentgrocer':id));
+    const storesWithTotals=stores.filter(store=>enabled.has(String(store.key||'').toLowerCase())&&Number.isFinite(store.totalCad)).slice(0,8);
     const candidates=storesWithTotals.map(store=>'<div class="source-price-card"><div class="source-price-head"><strong>'+safe(store.name||store.key)+'</strong><b>'+money(store.totalCad)+'</b></div><div class="source-price-small">City-level chain median · '+safe(store.totalScope||'Coverage varies')+'</div>'+(store.oldest?'<div class="source-price-small">Observations from '+safe(store.oldest)+' to '+safe(store.newest||store.oldest)+'</div>':'')+'</div>').join('');
     planStatus.innerHTML='<p class="sheet-help"><strong>'+safe(city)+' reference prices</strong> · Checked '+safe(plan.evaluatedOn||'date unavailable')+'. This is not a price quote at your nearest branch.</p>'+
       '<p class="sheet-help">'+counted+' exact matches; '+excluded+' items unmatched or requiring review. Totals may exclude unmatched items.</p>'+
-      (rec.explanation?'<p class="sheet-help">'+safe(rec.explanation)+'</p>':'')+
-      candidates+(excluded?'<p class="sheet-help">Items without exact matches stay unpriced. No substitutions were applied.</p>':'')+
+      (rec.explanation?'<p class="sheet-help">GroceryPulse all-chain summary: '+safe(rec.explanation)+'</p>':'')+
+      (storesWithTotals.length?candidates:'<p class="sheet-help">No eligible totals for your selected stores in this source.</p>')+(excluded?'<p class="sheet-help">Items without exact matches stay unpriced. No substitutions were applied.</p>':'')+
       '<p class="sheet-help">Source: <a href="https://grocerypulse.ca/agents" target="_blank" rel="noopener noreferrer">GroceryPulse</a>. No store assignments or prices were changed.</p>';
   }catch(error){
     const uncovered=/postal_code_not_covered|does not cover|outside|not covered|unsupported_city/i.test(error.message);
