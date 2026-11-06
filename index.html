@@ -28,11 +28,12 @@ button:focus-visible, input:focus-visible, select:focus-visible, .item-row:focus
 .mode-toggle {display:grid;grid-template-columns:1fr 1fr;gap:2px;margin:17px auto 0;background:rgba(66,19,13,.15);border-radius:16px;padding:3px;width:210px}
 .mode-toggle button {color:rgba(255,255,255,.84);border:0;background:transparent;font-size:13px;font-weight:650;padding:7px 12px;border-radius:13px;transition:background .18s}
 .mode-toggle button[aria-selected="true"] {background:rgba(255,255,255,.94);color:#c84631;box-shadow:0 1px 8px #a2351c25}
-.composer {flex:0 0 auto;background:#fee6cb;padding:10px 9px;box-shadow:0 2px 8px rgba(60,28,17,.1);z-index:2}
-.composer form {display:flex;gap:6px}
-.composer input {min-width:0;flex:1;height:44px;border-radius:9px;padding:0 12px;background:white;border:1px solid #e6b5a1;font-size:16px}
-.composer button {border:0;border-radius:8px;padding:0 13px;color:white;background:#c64431;font-weight:650}
-.composer #composer-close {background:#ead2c4;color:#613e32;font-size:24px;padding:0 11px;font-weight:400}
+.composer {flex:0 0 auto;background:linear-gradient(90deg,#e87548,#f4a75a);padding:0;z-index:2;border-bottom:1px solid rgba(255,255,255,.18)}
+.composer form {display:flex;align-items:center;min-height:64px;padding:0 21px}
+.composer input {display:block;min-width:0;flex:1;width:100%;height:64px;padding:0;background:transparent;border:0;border-radius:0;color:#29231d;font-size:19px;font-weight:540;letter-spacing:-.32px;outline:none;box-shadow:none;caret-color:#44251a;appearance:none;-webkit-appearance:none}
+.composer input::placeholder {color:rgba(45,31,24,.52)}
+.composer input:focus {outline:none}
+.composer [hidden] {display:none}
 .pull-hint {flex:0 0 auto;height:0;overflow:hidden;display:flex;align-items:center;justify-content:center;color:#956455;background:#f6d6bc;transition:height .13s ease-out;letter-spacing:.3px;font-size:13px;font-weight:650}
 .pull-hint.active {background:#f8c697;color:#8f3e28}
 .list-scroller {flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;overscroll-behavior-y:contain;-webkit-overflow-scrolling:touch;scrollbar-width:thin;scrollbar-color:#d9baab transparent;background:#f7f0e8}
@@ -135,9 +136,7 @@ body.sheet-open {overflow:hidden}
 
     <div id="composer" class="composer" hidden>
       <form id="add-form" autocomplete="off">
-        <input id="item-input" type="text" name="item" placeholder="Milk, coffee, bread…" enterkeyhint="done" maxlength="110" aria-label="Grocery item" required />
-        <button type="submit" id="add-submit" aria-label="Add item">Add</button>
-        <button type="button" id="composer-close" aria-label="Cancel adding">×</button>
+        <input id="item-input" type="text" name="item" placeholder="New item…" enterkeyhint="next" maxlength="110" aria-label="New grocery item" />
       </form>
     </div>
 
@@ -353,11 +352,47 @@ function render(){
   $('list-footer').innerHTML=completed.length?`<button type="button" id="toggle-completed">${showCompleted?'Hide':'Show'} bought items (${completed.length})</button><button type="button" id="clear-completed">Clear bought</button>`:'';
 }
 
-function openComposer(){closeSheet();composerOpen=true;$('composer').hidden=false;$('item-input').focus();$('item-input').select();}
-function closeComposer(){composerOpen=false;$('composer').hidden=true;$('item-input').value='';$('add-button').focus();}
+function saveDraft(){
+  const input=$('item-input'),raw=input.value.trim();
+  input.value='';
+  if(!raw)return null;
+  const item=newItem(raw);
+  $('list-scroller').scrollTop=0;
+  return item;
+}
+function openComposer(){
+  if(currentSheet)closeSheet();
+  if(composerOpen)saveDraft();
+  composerOpen=true;
+  $('composer').hidden=false;
+  const input=$('item-input');
+  input.value='';
+  input.focus({preventScroll:true});
+}
+function closeComposer(){
+  if(!composerOpen)return;
+  saveDraft();
+  composerOpen=false;
+  $('composer').hidden=true;
+  $('item-input').blur();
+}
 $('add-button').addEventListener('click',openComposer);
-$('composer-close').addEventListener('click',closeComposer);
-$('add-form').addEventListener('submit',e=>{e.preventDefault();const raw=$('item-input').value.trim();if(!raw)return;const item=newItem(raw);closeComposer();$('list-scroller').scrollTo({top:0,behavior:'smooth'});showToast(`${item.name} added${mode==='shopping'?' · assign a store to place it':''}`,'Edit',()=>openItemSheet(item.id));});
+$('add-form').addEventListener('submit',e=>{
+  e.preventDefault();
+  if(!composerOpen)return;
+  saveDraft();
+  // Keep editing and the keyboard visible; Return means next item.
+  $('item-input').focus({preventScroll:true});
+});
+$('item-input').addEventListener('blur',()=>{
+  // Tapping outside completes the current entry and dismisses the composer.
+  if(composerOpen)closeComposer();
+});
+document.addEventListener('pointerdown',e=>{
+  if(composerOpen&&!e.target.closest('#composer')&&!e.target.closest('#add-button')){
+    closeComposer();
+  }
+},true);
 function switchMode(next){if(next===mode)return;mode=next;showCompleted=false;render();$('list-scroller').scrollTop=0;}
 $('planning-tab').addEventListener('click',()=>switchMode('planning'));
 $('shopping-tab').addEventListener('click',()=>switchMode('shopping'));
@@ -397,7 +432,7 @@ function openSheet(which){
   document.body.classList.add('sheet-open');
 }
 function closeSheet(){currentSheet=null;$('modal-backdrop').hidden=true;$('item-sheet').hidden=true;$('settings-sheet').hidden=true;document.body.classList.remove('sheet-open');}
-function closeComposerSilently(){composerOpen=false;$('composer').hidden=true;$('item-input').value='';}
+function closeComposerSilently(){if(composerOpen)closeComposer();}
 $('modal-backdrop').addEventListener('click',closeSheet);
 document.querySelectorAll('[data-close-sheet]').forEach(el=>el.addEventListener('click',closeSheet));
 function fillSelect(select,options,value){select.innerHTML=options.map(o=>`<option value="${escapeHTML(o.value)}" ${o.value===value?'selected':''}>${escapeHTML(o.label)}</option>`).join('');}
@@ -565,11 +600,11 @@ function gestureFinish(cancelled=false){
   }else if(kind==='pull'&&dy>75)openComposer();
   else if(kind==='reorder'&&id&&dragTargetId)reorderItem(id,dragTargetId);
 }
-scroller.addEventListener('touchstart',e=>{if(currentSheet||composerOpen)return;const t=e.touches[0];if(t)gestureStart(e.target,t.clientX,t.clientY,true);},{passive:true});
+scroller.addEventListener('touchstart',e=>{if(currentSheet)return;const t=e.touches[0];if(t)gestureStart(e.target,t.clientX,t.clientY,true);},{passive:true});
 scroller.addEventListener('touchmove',e=>{if(!gesture?.isTouch)return;const t=e.touches[0];if(t)gestureMove(t.clientX,t.clientY,e);},{passive:false});
 scroller.addEventListener('touchend',()=>{if(gesture?.isTouch)gestureFinish();},{passive:true});
 scroller.addEventListener('touchcancel',()=>{if(gesture?.isTouch)gestureFinish(true);},{passive:true});
-scroller.addEventListener('pointerdown',e=>{if(e.pointerType==='touch'||e.button!==0||currentSheet||composerOpen)return;gestureStart(e.target,e.clientX,e.clientY,false);},{passive:true});
+scroller.addEventListener('pointerdown',e=>{if(e.pointerType==='touch'||e.button!==0||currentSheet)return;gestureStart(e.target,e.clientX,e.clientY,false);},{passive:true});
 window.addEventListener('pointermove',e=>{if(gesture&&!gesture.isTouch)gestureMove(e.clientX,e.clientY,e);},{passive:false});
 window.addEventListener('pointerup',e=>{if(gesture&&!gesture.isTouch)gestureFinish();});
 window.addEventListener('pointercancel',()=>{if(gesture&&!gesture.isTouch)gestureFinish(true);});
