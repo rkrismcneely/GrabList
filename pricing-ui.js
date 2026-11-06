@@ -172,6 +172,25 @@ function fromNational(payload,item){
     matchStatus:r.matchStatus
   })).filter(r=>Number.isFinite(r.price)&&r.price>0);
 }
+function fromEpiceries(payload,item){
+ const results=Array.isArray(payload?.results)?payload.results:[];
+ return results.map(r=>({
+  price:Number(r.price),source:'Épiceries.ca',
+  date:r.date||r.observedAt||null,
+  storeId:r.storeId||null,
+  storeName:r.storeName||'Québec grocery reference',
+  city:'Québec grocery price · NOT Peterborough',
+  scope:'quebec_reference',
+  url:r.sourceUrl||'https://epiceries.ca/developers',
+  productName:r.productName||item.name,
+  brand:r.brand||'',
+  packageSize:r.packageSize||'',
+  sizeEvidence:r.sizeEvidence||'catalogue_reported',
+  pricePer:'UNIT',confidence:'high',
+  barcode:r.barcode||'',matchType:r.matchType||'verified_search',
+  priceStore:r.priceStore||''
+ })).filter(r=>Number.isFinite(r.price)&&r.price>0);
+}
 async function getPulse(item){
   const list=[item.name,item.size,item.brand].filter(Boolean).join(' ').slice(0,120);
   return requestJson('/api/pricing/grocerypulse-plan',{
@@ -737,6 +756,18 @@ async function lookupComparisonCandidates(lookup){
    choices.push(...(Array.isArray(responses[2].value?.results)?responses[2].value.results:[])
      .map(result=>fromOpenPrice(lookup,result)).filter(Boolean));
  const noPaidBest=autoPick(lookup,choices);
+ // Fill genuine product gaps from the free Québec catalogue, never
+ // pretending these are Ontario shelf prices. Only use it if no better
+ // compatible Canadian reference or observation exists.
+ if(!noPaidBest&&lookup.name.length>=3){
+  try{
+   const ep=await requestJson('/api/pricing/epiceries?'+new URLSearchParams({
+     name:lookup.name,size:lookup.size||'',brand:lookup.brand||'',
+     ...(lookup.barcode?{barcode:lookup.barcode}:{})
+   }),{timeoutMs:16000});
+   choices.push(...fromEpiceries(ep,lookup));
+  }catch{}
+ }
  // Do not spend the optional VynnAI allowance on generic name searches:
  // GrabList requires an exact saved barcode to use its results automatically.
  if(/^\d{8,14}$/.test(lookup.barcode||'')&&vynnToken&&vynnAutoEnabled&&
@@ -835,7 +866,8 @@ function renderComparisonReferenceOffers(scanned,total,updated){
   rows.push('<div class="compare-card"><strong>'+safe(item.name)+
    (item.size?' · '+safe(item.size):'')+'</strong>'+
    comparisons.map((c,i)=>{
-    const estimate=c.scope==='observed_branch'?'Dated branch observation':
+    const estimate=c.scope==='quebec_reference'?'Québec price benchmark; NOT an Ontario store quote':
+      c.scope==='observed_branch'?'Dated branch observation':
       c.scope==='nearest_reference_city'?'Nearest tracked reference city':
       c.scope==='covered_postal_area'?'Covered postal market':
       c.scope==='province_reference'?'Province-wide reference':'Reference-market estimate';
