@@ -65,3 +65,9 @@ test('exact barcode still rejects a different package size',()=>{
     scope:'observed_branch',geographicRank:0,packageSize:'2 L'};
   assert.equal(intelligence.assess(item,other,{now:NOW,enabledStores:['freshco']}).reason,'different_size');
 });
+
+test('decimal quantity equivalence preserves decimal separator',()=>{
+ assert.equal(intelligence.measure('1.5 L'),intelligence.measure('1500 mL'));
+ assert.equal(intelligence.measure('0.5 kg'),intelligence.measure('500 g'));
+ assert.notEqual(intelligence.measure('1.5 L'),intelligence.measure('15 L'));
+});
