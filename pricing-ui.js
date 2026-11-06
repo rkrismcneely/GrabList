@@ -243,4 +243,45 @@ planButton.addEventListener('click',async()=>{
   }catch(error){planStatus.textContent='Comparison source unavailable: '+error.message+'. Try searching individual items.';}
   finally{planButton.disabled=false;planButton.textContent='Check Canadian online prices';}
 });
+// National averages are public, dated and fetched only from our own Worker.
+// One bulk request fills missing staple prices when opening Shop (no third-party
+// personal list transfer); city/store observations can replace them later.
+let autoReferencePending=false;
+async function fillMissingNationalEstimates(){
+  if(autoReferencePending)return;
+  const missing=state.items.filter(item=>!item.complete&&item.price===null).slice(0,75);
+  if(!missing.length)return;
+  autoReferencePending=true;
+  try{
+    const data=await requestJson('/api/pricing/national-reference-list',{
+      method:'POST',headers:{'content-type':'application/json'},
+      body:JSON.stringify({items:missing.map(i=>({id:i.id,name:i.name,size:i.size}))})
+    });
+    let found=0;
+    for(const hit of Array.isArray(data.results)?data.results:[]){
+      const item=state.items.find(i=>i.id===hit.id);
+      const r=hit.reference;
+      if(!item||item.complete||item.price!==null||!r||r.matchStatus!=='reference_size'||!Number.isFinite(r.price)||r.price<=0)continue;
+      item.price=r.price;item.priceSource='reference';
+      item.priceEvidence={
+        source:'Statistics Canada',sourceUrl:r.sourceUrl||'',observedAt:r.observedAt||'',
+        location:'Canada',scope:'national_average',
+        storeName:'Canadian average (all retailers)',storeId:null,
+        productName:r.productName+' ('+r.pack+')',pricePer:'UNIT',recordedAt:Date.now()
+      };
+      found++;
+    }
+    if(found)update();
+  }catch(error){
+    // Missing online estimates must never interrupt adding or shopping.
+    console.info('National reference prices unavailable:',error.message);
+  }finally{autoReferencePending=false;}
+}
+let referenceTimer=null;
+globalThis.GrabListAutoPrices=()=>{
+  if(referenceTimer!==null)clearTimeout(referenceTimer);
+  referenceTimer=setTimeout(()=>{referenceTimer=null;fillMissingNationalEstimates();},250);
+};
+$id('shopping-tab').addEventListener('click',()=>globalThis.GrabListAutoPrices());
+
 })();
