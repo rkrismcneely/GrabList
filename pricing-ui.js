@@ -148,7 +148,7 @@ function fromGroceryPulse(payload,item){
   }).map(store=>{
     const d=Array.isArray(store.itemObservationDates)?store.itemObservationDates[0]?.observedAt:null;
     const storeName=String(store.name||store.key||'Tracked store');
-    return {price:Number(store.totalCad),source:'GroceryPulse',date:offerDate(d)||offerDate(plan.evaluatedOn),
+    return {price:Number(store.totalCad),source:'GroceryPulse',date:offerDate(d)||offerDate(store.newest)||null,
       storeId:storeIdForName(store.key||storeName),storeName,city,scope:payload.scope||'reference_city',
       url:plan.comparisonUrl||payload.sourceUrl||'https://grocerypulse.ca/agents',
       productName:item.name+(item.size?' · '+item.size:''),pricePer:'UNIT',
