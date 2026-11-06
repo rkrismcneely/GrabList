@@ -209,13 +209,15 @@ body.sheet-open {overflow:hidden}
    No price feed is connected. Manual/demo prices are never represented as live data. */
 
 const STORAGE_KEY = 'groceries-clear-prototype-v1';
+// Approved Scheme A: each list row uses one solid colour; rows step smoothly through these palettes.
+// Anchors include the user's selected brand colours and Giant Tiger/Costco logo colours.
 const STORES = [
-  {id:'walmart',name:'Walmart',gradient:['#0878c8','#55ade0','#d2edf9'],deep:'#0871ba'},
-  {id:'nofrills',name:'No Frills',gradient:['#e73c25','#f18b28','#f6d747'],deep:'#d62e24'},
-  {id:'freshco',name:'FreshCo',gradient:['#117e45','#49ac5e','#b7dc85'],deep:'#168b45'},
-  {id:'independent',name:'Independent',gradient:['#99172a','#d44548','#f3a29a'],deep:'#a81e34'},
-  {id:'costco',name:'Costco',gradient:['#b71c36','#db4d59','#f4b0a7'],deep:'#b52337'},
-  {id:'gianttiger',name:'Giant Tiger',gradient:['#c96b11','#eb9d23','#f8d665'],deep:'#b95d0e'}
+  {id:'walmart',name:'Walmart',gradient:['#2953E2','#337BEF','#58A3F4','#8DC5F6','#BFDFF9'],deep:'#2953E2'},
+  {id:'nofrills',name:'No Frills',gradient:['#FADC00','#FFE01A','#FFE84F','#FFEF80','#FFF4B5'],deep:'#BE9C00'},
+  {id:'freshco',name:'FreshCo',gradient:['#C2D72E','#D1E539','#DEF05A','#EBF58A','#FCF252'],deep:'#718B14'},
+  {id:'independent',name:'Independent',gradient:['#ED1B24','#F04E48','#F5756A','#F8A491','#FFD1B0'],deep:'#C82028'},
+  {id:'costco',name:'Costco',gradient:['#E31837','#C92949','#D94F6C','#E4849B','#F2B7C5'],deep:'#A51432'},
+  {id:'gianttiger',name:'Giant Tiger',gradient:['#D78C0B','#E5A619','#F0BE35','#FFCD00','#FFE48A'],deep:'#B57811'}
 ];
 const UNASSIGNED = {id:'unassigned',name:'Needs a store',gradient:['#706d69','#a49c94','#d6cdc3'],deep:'#595653'};
 const DEPARTMENTS = ['Produce','Bakery','Dairy & Eggs','Meat & Seafood','Deli','Frozen','Pantry','Snacks','Beverages','Household','Personal Care','Other'];
@@ -303,7 +305,13 @@ function newItem(raw){
 
 function hexToRGB(hex){return [1,3,5].map(i=>parseInt(hex.slice(i,i+2),16));}
 function mixColor(a,b,t){const A=hexToRGB(a),B=hexToRGB(b);return '#'+A.map((v,i)=>Math.round(v+(B[i]-v)*t).toString(16).padStart(2,'0')).join('');}
-function atGradient(colors,t){const v=Math.max(0,Math.min(1,t))*2;return v<1?mixColor(colors[0],colors[1],v):mixColor(colors[1],colors[2],v-1);}
+function atGradient(colors,t){
+  // Supports any number of solid row colour stops (five in approved Scheme A).
+  // Interpolate *between items*, not across the surface of an individual item.
+  const p=Math.max(0,Math.min(1,t))*(colors.length-1);
+  const i=Math.min(colors.length-2,Math.floor(p));
+  return mixColor(colors[i],colors[i+1],p-i);
+}
 function textColor(hex){const v=hexToRGB(hex).map(c=>{c/=255;return c<=.04045?c/12.92:Math.pow((c+.055)/1.055,2.4)});const l=v[0]*.2126+v[1]*.7152+v[2]*.0722;return l>.39?'#29231d':'#ffffff'}
 function formatPrice(item){return item.price===null?'—':currency.format(item.price*itemQty(item));}
 function itemRow(item,index,total,colors,departmentLabel='',completed=false){
