@@ -807,7 +807,7 @@ const deliveryUi={
  service:$id('delivery-service'),store:$id('delivery-store'),
  link:$id('delivery-storefront-url'),open:$id('delivery-open-store'),
  current:$id('delivery-storefront-current'),suggestions:$id('delivery-local-suggestions'),
- message:$id('delivery-link-message'),copied:$id('delivery-copied-text'),
+ message:$id('delivery-link-message'),branch:$id('delivery-branch-label'),copied:$id('delivery-copied-text'),
  price:$id('delivery-capture-price'),size:$id('delivery-capture-size'),
  product:$id('delivery-capture-name'),source:$id('delivery-capture-url'),
  confirm:$id('delivery-confirm'),status:$id('delivery-capture-status')
@@ -820,19 +820,25 @@ function renderDeliveryTools(resetStore=false){
  const item=state.items.find(i=>i.id===$id('edit-id').value);
  if(!item)return;
  const service=deliveryUi.service.value;
- const options=state.enabledStoreIds.map(id=>storeById(id)).filter(Boolean);
+ const options=STORES;
  const prev=deliveryUi.store.value;
- deliveryUi.store.innerHTML=options.map(store=>'<option value="'+safe(store.id)+'">'+safe(store.name)+'</option>').join('');
- const selected=resetStore?(item.storeId&&state.enabledStoreIds.includes(item.storeId)?item.storeId:state.enabledStoreIds[0]):
-   (prev&&state.enabledStoreIds.includes(prev)?prev:(item.storeId||state.enabledStoreIds[0]));
+ deliveryUi.store.innerHTML=options.map(store=>'<option value="'+safe(store.id)+'">'+safe(store.name)+
+   (state.enabledStoreIds.includes(store.id)?'':' (not enabled)')+'</option>').join('');
+ const selected=resetStore?(item.storeId||state.enabledStoreIds[0]||STORES[0].id):
+   (prev&&STORES.some(x=>x.id===prev)?prev:(item.storeId||state.enabledStoreIds[0]||STORES[0].id));
  deliveryUi.store.value=selected||'';
  const storeId=deliveryUi.store.value;
  const chosen=deliverySaved(storeId,service);
  const provider=GrabListDelivery.SERVICES[service];
- deliveryUi.open.href=chosen?.url||provider.url;
- deliveryUi.open.textContent=chosen?'Open saved '+provider.label+' store':'Find your store on '+provider.label;
+ const noFrillsDirectory=service==='doordash'&&storeId==='nofrills'&&
+   /^K9/.test(state.postalCode||'')?
+   'https://www.doordash.com/en-CA/city/peterborough-on/b/no-frills-11128226/':null;
+ deliveryUi.open.href=chosen?.url||noFrillsDirectory||provider.url;
+ deliveryUi.open.textContent=chosen?'Open saved '+provider.label+' store':
+   noFrillsDirectory?'Browse Peterborough No Frills locations on DoorDash':
+   'Find your store on '+provider.label;
  deliveryUi.current.textContent=chosen?'Saved: '+(chosen.label||storeById(storeId)?.name||storeId):
-   'No specific branch saved for '+provider.label+'. Open the service, select your store, and paste its storefront link here once.';
+   'No specific branch link saved for '+provider.label+'. You can still check a price and record its street address without a URL.';
  deliveryUi.link.placeholder=chosen?.url||'https://…';
  const examples=String(state.postalCode||'').toUpperCase().startsWith('K9')?
    (GrabListDelivery.EXAMPLES[storeId]||[]).filter(x=>x.service===service):[];
@@ -840,12 +846,16 @@ function renderDeliveryTools(resetStore=false){
    '<p class="sheet-help">Known Peterborough storefront (choose only if you use this branch):</p>'+
     examples.map((x,i)=>'<button type="button" data-delivery-suggest="'+i+'">'+safe(x.label)+'</button>').join(''):'';
  deliveryUi.suggestions._examples=examples;
+ $id('delivery-use-no-frills-lansdowne').hidden=!(
+   service==='doordash'&&storeId==='nofrills'&&/^K9/.test(state.postalCode||'')
+ );
  if(resetStore||deliveryEditId!==item.id){
    deliveryEditId=item.id;
    deliveryUi.copied.value='';
    deliveryUi.price.value='';
    deliveryUi.product.value='';
    deliveryUi.source.value='';
+   deliveryUi.branch.value='';
    deliveryUi.confirm.checked=false;
    deliveryUi.size.value=$id('edit-size').value.trim();
    deliveryUi.status.textContent='';
@@ -858,6 +868,7 @@ function resetDeliveryForNewSource(){
  deliveryUi.price.value='';
  deliveryUi.product.value='';
  deliveryUi.source.value='';
+ deliveryUi.branch.value='';
  deliveryUi.confirm.checked=false;
  deliveryUi.size.value=$id('edit-size').value.trim();
  deliveryUi.status.textContent='Store or service changed. Copy the price from the new listing.';
@@ -869,6 +880,10 @@ $id('delivery-price-tools').addEventListener('toggle',()=>{
 });
 $id('edit-store').addEventListener('change',()=>{
  if($id('delivery-price-tools').open)renderDeliveryTools(true);
+});
+$id('delivery-use-no-frills-lansdowne').addEventListener('click',()=>{
+ deliveryUi.branch.value='No Frills · 1866 Lansdowne Street West, Peterborough';
+ deliveryUi.message.textContent='Selected No Frills at 1866 Lansdowne Street West. Confirm the address matches the DoorDash app before saving a price.';
 });
 deliveryUi.suggestions.addEventListener('click',event=>{
  const button=event.target.closest('[data-delivery-suggest]');
@@ -935,8 +950,8 @@ $id('delivery-save-price').addEventListener('click',()=>{
  const item=state.items.find(i=>i.id===$id('edit-id').value);
  const service=deliveryUi.service.value,store=deliveryUi.store.value;
  const provider=GrabListDelivery.SERVICES[service];
- if(!item||!state.enabledStoreIds.includes(store)||!provider){
-   deliveryUi.status.textContent='Select an enabled store.';return;
+ if(!item||!STORES.some(x=>x.id===store)||!provider){
+   deliveryUi.status.textContent='Select a store.';return;
  }
  const value=Number(deliveryUi.price.value),size=deliveryUi.size.value.trim();
  if(!deliveryUi.price.value.trim()||!Number.isFinite(value)||value<=0||value>9999){
@@ -953,9 +968,10 @@ $id('delivery-save-price').addEventListener('click',()=>{
  if(rawLink&&!direct){
    deliveryUi.status.textContent='The product link must be an HTTPS link from the selected delivery service.';return;
  }
- const sourceUrl=direct||deliverySaved(store,service)?.url;
- if(!sourceUrl){
-   deliveryUi.status.textContent='Save the store page above or paste an item link before recording its price.';return;
+ const sourceUrl=direct||deliverySaved(store,service)?.url||'';
+ const branch=deliveryUi.branch.value.trim();
+ if(!sourceUrl&&(branch.length<8||!/\d/.test(branch))){
+   deliveryUi.status.textContent='When a link is unavailable, enter the branch street address (including its street number) to identify the listing.';return;
  }
  const previousSize=$id('edit-size').value.trim();
  const changedPackage=Boolean(previousSize&&
@@ -966,6 +982,14 @@ $id('delivery-save-price').addEventListener('click',()=>{
  }
  if(item.price!==null&&item.priceSource==='manual'&&
     !confirm('Replace the manually recorded price with this delivery estimate?'))return;
+ if(item.price!==null&&item.storeId!==store&&
+    !confirm('This will move the item from '+(storeById(item.storeId)?.name||'its current store')+
+      ' to '+storeById(store).name+' and replace its current estimated price. Continue?'))return;
+ if(!state.enabledStoreIds.includes(store)){
+   if(!confirm('The '+storeById(store).name+' store is not enabled in My Stores. Enable it to record this price?'))return;
+   state.enabledStoreIds=state.storeOrderIds.filter(id=>
+     id===store||state.enabledStoreIds.includes(id));
+ }
  item.size=size;
  $id('edit-size').value=size;
  // The previously selected barcode represents a different SKU if its
@@ -987,8 +1011,8 @@ $id('delivery-save-price').addEventListener('click',()=>{
      return [now.getFullYear(),String(now.getMonth()+1).padStart(2,'0'),
        String(now.getDate()).padStart(2,'0')].join('-');
    })(),
-   storeId:store,storeName:storeById(store).name,
-   city:'Delivery listing for your selected store',
+   storeId:store,storeName:storeById(store).name+(branch?' · '+branch:''),
+   city:branch||'Delivery listing at selected store',
    scope:'delivery_shopper_confirmed',url:sourceUrl,
    productName:deliveryUi.product.value.trim()||item.name,
    packageSize:size,sizeEvidence:'shopper_confirmed',pricePer:'UNIT',
@@ -996,7 +1020,8 @@ $id('delivery-save-price').addEventListener('click',()=>{
  };
  if(recordReference(item,candidate)){
    deliveryUi.status.textContent=provider.label+' price ≈'+money(value)+' saved for '+storeById(store).name+
-     ' ('+size+'). This is a manually checked delivery price, not a confirmed in-store price.';
+     ' ('+size+'). '+(sourceUrl?'Source link retained. ':'Branch recorded without a deep link. ')+
+     'This is a delivery-app observation, not a confirmed in-store price.';
    deliveryUi.confirm.checked=false;
  }
 });
