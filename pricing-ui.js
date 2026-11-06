@@ -852,8 +852,18 @@ function renderDeliveryTools(resetStore=false){
  }
 }
 globalThis.GrabListDeliverySync=()=>renderDeliveryTools(true);
-deliveryUi.service.addEventListener('change',()=>renderDeliveryTools());
-deliveryUi.store.addEventListener('change',()=>renderDeliveryTools());
+function resetDeliveryForNewSource(){
+ deliveryUi.link.value='';
+ deliveryUi.copied.value='';
+ deliveryUi.price.value='';
+ deliveryUi.product.value='';
+ deliveryUi.source.value='';
+ deliveryUi.confirm.checked=false;
+ deliveryUi.size.value=$id('edit-size').value.trim();
+ deliveryUi.status.textContent='Store or service changed. Copy the price from the new listing.';
+}
+deliveryUi.service.addEventListener('change',()=>{resetDeliveryForNewSource();renderDeliveryTools();});
+deliveryUi.store.addEventListener('change',()=>{resetDeliveryForNewSource();renderDeliveryTools();});
 $id('delivery-price-tools').addEventListener('toggle',()=>{
  if($id('delivery-price-tools').open)renderDeliveryTools();
 });
@@ -935,7 +945,9 @@ $id('delivery-save-price').addEventListener('click',()=>{
    deliveryUi.status.textContent='Save the store page above or paste an item link before recording its price.';return;
  }
  const previousSize=$id('edit-size').value.trim();
- if(previousSize&&GrabListIntelligence.measure(previousSize)!==GrabListIntelligence.measure(size)){
+ const changedPackage=Boolean(previousSize&&
+   GrabListIntelligence.measure(previousSize)!==GrabListIntelligence.measure(size));
+ if(changedPackage){
    if(!confirm('Your item is '+previousSize+' but this delivery product is '+size+
       '. Update the shopping item to '+size+' and use this price?'))return;
  }
@@ -943,6 +955,11 @@ $id('delivery-save-price').addEventListener('click',()=>{
     !confirm('Replace the manually recorded price with this delivery estimate?'))return;
  item.size=size;
  $id('edit-size').value=size;
+ // The previously selected barcode represents a different SKU if its
+ // saved package size no longer agrees with the copied delivery product.
+ if(item.catalogueSize&&GrabListIntelligence.measure(item.catalogueSize)!==GrabListIntelligence.measure(size)){
+   item.catalogueSize='';item.barcode='';$id('edit-barcode').value='';
+ }
  item.storeId=store;item.storeAutoAssigned=false;item.storeManuallyCleared=false;
  $id('edit-store').value=store;
  editingStoreId=store;
@@ -952,7 +969,11 @@ $id('delivery-save-price').addEventListener('click',()=>{
  }
  const candidate={
    price:Math.round(value*100)/100,source:provider.label+' (shopper recorded)',
-   date:new Date().toLocaleDateString('en-CA',{year:'numeric',month:'2-digit',day:'2-digit'}),
+   date:(()=>{
+     const now=new Date();
+     return [now.getFullYear(),String(now.getMonth()+1).padStart(2,'0'),
+       String(now.getDate()).padStart(2,'0')].join('-');
+   })(),
    storeId:store,storeName:storeById(store).name,
    city:'Delivery listing for your selected store',
    scope:'delivery_shopper_confirmed',url:sourceUrl,
