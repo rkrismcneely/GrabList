@@ -85,6 +85,61 @@ function referenceCity(postal){
   if(province==='NB'&&fsa.startsWith('E3'))name='Fredericton';
   return {name,province,fallback:'province_reference'};
 }
+// Approximate centroids of GroceryPulse's 16 supported reference cities.
+// These are reference markets, not physical store locations.
+const REFERENCE_MARKETS=[
+  {name:'Vancouver',province:'BC',lat:49.2827,lon:-123.1207},
+  {name:'Victoria',province:'BC',lat:48.4284,lon:-123.3656},
+  {name:'Calgary',province:'AB',lat:51.0447,lon:-114.0719},
+  {name:'Edmonton',province:'AB',lat:53.5461,lon:-113.4938},
+  {name:'Saskatoon',province:'SK',lat:52.1332,lon:-106.6700},
+  {name:'Regina',province:'SK',lat:50.4452,lon:-104.6189},
+  {name:'Winnipeg',province:'MB',lat:49.8951,lon:-97.1384},
+  {name:'Toronto',province:'ON',lat:43.6532,lon:-79.3832},
+  {name:'Ottawa',province:'ON',lat:45.4215,lon:-75.6972},
+  {name:'Montreal',province:'QC',lat:45.5017,lon:-73.5673},
+  {name:'Quebec City',province:'QC',lat:46.8139,lon:-71.2080},
+  {name:'Moncton',province:'NB',lat:46.0878,lon:-64.7782},
+  {name:'Fredericton',province:'NB',lat:45.9636,lon:-66.6431},
+  {name:'Halifax',province:'NS',lat:44.6488,lon:-63.5752},
+  {name:'Charlottetown',province:'PE',lat:46.2382,lon:-63.1311},
+  {name:"St. John's",province:'NL',lat:47.5615,lon:-52.7126}
+];
+function greatCircleKm(a,b){
+  const rad=Math.PI/180,dLat=(b.lat-a.lat)*rad,dLon=(b.lon-a.lon)*rad;
+  const h=Math.sin(dLat/2)**2+Math.cos(a.lat*rad)*Math.cos(b.lat*rad)*Math.sin(dLon/2)**2;
+  return 6371*2*Math.atan2(Math.sqrt(h),Math.sqrt(Math.max(0,1-h)));
+}
+function marketSlug(name){
+  return {'Quebec City':'quebec-city',"St. John's":'st-johns'}[name]||
+    name.toLowerCase().replace(/[^a-z]+/g,'-').replace(/^-|-$/g,'');
+}
+async function rankedReferenceMarkets(postal){
+  if(!postal)return [{...referenceCity(null),selectionMethod:'default_without_postal'}];
+  // GeoNames via Zippopotam uses Canada's first three postal characters only.
+  // Never transmit the full postal code or treat this centroid as an exact address.
+  try{
+    const fsa=postal.slice(0,3);
+    const res=await fetch('https://api.zippopotam.us/CA/'+encodeURIComponent(fsa),{
+      headers:{Accept:'application/json'},signal:AbortSignal.timeout(6000)
+    });
+    if(res.ok){
+      const info=await res.json();
+      const places=Array.isArray(info.places)?info.places:[];
+      const coords=places.map(p=>({lat:Number(p.latitude),lon:Number(p.longitude)}))
+        .filter(p=>Number.isFinite(p.lat)&&Number.isFinite(p.lon)&&p.lat>=40&&p.lat<=85&&p.lon>=-142&&p.lon<=-52);
+      if(coords.length){
+        const position=coords[0];
+        return REFERENCE_MARKETS.map(city=>({
+          name:city.name,province:city.province,distanceKm:Math.round(greatCircleKm(position,city)),
+          selectionMethod:'postal_area_centroid'
+        })).sort((a,b)=>a.distanceKm-b.distanceKm);
+      }
+    }
+  }catch{}
+  // Do not claim closest when the FSA centroid could not be obtained.
+  return [{...referenceCity(postal),selectionMethod:'province_fallback_unverified'}];
+}
 async function callPulse(payload){
   const data=await upstreamJson('https://grocerypulse.ca/api/shopper/plan',{
     method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(payload)
@@ -114,19 +169,20 @@ async function groceryPulse(request){
     else if(!['postal_code_not_covered','unsupported_city','invalid_location','invalid_postal_code'].includes(local.code))return local.response;
   }
   if(!selected){
-    const fallback=referenceCity(postal);
-    // Shopper API accepts the canonical city slugs advertised in its public catalogue.
-    const citySlug={'Quebec City':'quebec-city',"St. John's":'st-johns'}[fallback.name]||
-      fallback.name.toLowerCase().replace(/[^a-z]+/g,'-').replace(/^-|-$/g,'');
-    const city=await callPulse({city:citySlug,list:lines,language:'en'});
-    if(city.data)selected={data:city.data,scope:fallback.fallback,isFallback:true,referenceMarket:fallback};
-    else if(fallback.name!=='Toronto'&&['comparison_unavailable','unsupported_city'].includes(city.code)){
-      // No Ontario/other province report currently available. Last resort:
-      // Canadian reference market, without pretending it covers the shopper's area.
-      const national=await callPulse({city:'toronto',list:lines,language:'en'});
-      if(national.data)selected={data:national.data,scope:'canadian_reference',isFallback:true,referenceMarket:{name:'Toronto',province:'ON'}};
-      else return national.response;
-    }else return city.response;
+    const candidates=await rankedReferenceMarkets(postal);
+    // Query the geographically closest covered city first. If the provider rejects
+    // that city, try another; never silently relabel its prices as the shopper's area.
+    for(const city of candidates.slice(0,4)){
+      const answer=await callPulse({city:marketSlug(city.name),list:lines,language:'en'});
+      if(answer.data){
+        selected={data:answer.data,scope:city.selectionMethod==='postal_area_centroid'?'nearest_reference_city':
+          (city.selectionMethod==='default_without_postal'?'canadian_reference':'province_reference'),
+          isFallback:true,referenceMarket:city};
+        break;
+      }
+      if(!['comparison_unavailable','unsupported_city','invalid_location','city_not_covered'].includes(answer.code))return answer.response;
+    }
+    if(!selected)return responseError('No supported Canadian reference city returned this list.',422,'reference_market_unavailable');
   }
   return json({provider:'GroceryPulse',scope:selected.scope,isFallback:selected.isFallback,
     referenceMarket:selected.referenceMarket||null,
