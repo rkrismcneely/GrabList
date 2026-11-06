@@ -1,0 +1,588 @@
+<!doctype html>
+<html lang="en-CA">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#cf4530" />
+  <meta name="description" content="A GrabList grocery list prototype with store-coloured gradients, gestures, and automatic sorting." />
+  
+  
+  
+  <style>
+:root { color-scheme: light; --shadow:0 24px 90px rgba(75,37,31,.24); --text:#222; --muted:#756e6a; --top:#d54c34; --safe-bottom:env(safe-area-inset-bottom,0px); font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif; -webkit-font-smoothing:antialiased; }
+* {box-sizing:border-box}
+html,body {margin:0;height:100%;overflow:hidden}
+body {background:radial-gradient(circle at 15% 10%,#ffe2cb,transparent 40%),radial-gradient(circle at 80% 85%,#f5cabe,transparent 50%),#f8eae0;display:flex;justify-content:center;align-items:center}
+button,input,select {font:inherit}
+button {cursor:pointer}
+button:focus-visible, input:focus-visible, select:focus-visible, .item-row:focus-visible {outline:3px solid #1b7fc8;outline-offset:-3px}
+[hidden] {display:none!important}
+.app-shell {display:flex;flex-direction:column;position:relative;width:min(100%,460px);height:min(100dvh,890px);background:#f3e9df;overflow:hidden;box-shadow:var(--shadow)}
+.topbar {flex:0 0 auto;position:relative;z-index:3;color:#fff;text-align:center;background:linear-gradient(165deg,#d03931 0%,#de5132 63%,#e86b32 100%);padding:calc(27px + env(safe-area-inset-top,0px)) 18px 15px;box-shadow:0 5px 20px rgba(98,36,20,.13)}
+.topbar h1 {font-size:29px;letter-spacing:-1.2px;line-height:1.17;font-weight:550;margin:0 40px 3px}
+.summary {font-size:12px;letter-spacing:.12px;color:rgba(255,255,255,.9);min-height:17px;font-weight:500}
+.top-actions {position:absolute;top:calc(24px + env(safe-area-inset-top,0px));left:13px;right:13px;display:flex;justify-content:space-between;pointer-events:none}
+.icon-button {pointer-events:auto;background:rgba(255,255,255,.12);color:white;border:1px solid rgba(255,255,255,.22);height:38px;width:38px;border-radius:50%;display:grid;place-items:center;transition:background .2s}
+.icon-button svg {width:20px;height:20px;stroke:currentColor;stroke-width:2;fill:none;stroke-linecap:round}
+.icon-button:active {background:rgba(255,255,255,.3);transform:scale(.97)}
+.mode-toggle {display:grid;grid-template-columns:1fr 1fr;gap:2px;margin:17px auto 0;background:rgba(66,19,13,.15);border-radius:16px;padding:3px;width:210px}
+.mode-toggle button {color:rgba(255,255,255,.84);border:0;background:transparent;font-size:13px;font-weight:650;padding:7px 12px;border-radius:13px;transition:background .18s}
+.mode-toggle button[aria-selected="true"] {background:rgba(255,255,255,.94);color:#c84631;box-shadow:0 1px 8px #a2351c25}
+.composer {flex:0 0 auto;background:#fee6cb;padding:10px 9px;box-shadow:0 2px 8px rgba(60,28,17,.1);z-index:2}
+.composer form {display:flex;gap:6px}
+.composer input {min-width:0;flex:1;height:44px;border-radius:9px;padding:0 12px;background:white;border:1px solid #e6b5a1;font-size:16px}
+.composer button {border:0;border-radius:8px;padding:0 13px;color:white;background:#c64431;font-weight:650}
+.composer #composer-close {background:#ead2c4;color:#613e32;font-size:24px;padding:0 11px;font-weight:400}
+.pull-hint {flex:0 0 auto;height:0;overflow:hidden;display:flex;align-items:center;justify-content:center;color:#956455;background:#f6d6bc;transition:height .13s ease-out;letter-spacing:.3px;font-size:13px;font-weight:650}
+.pull-hint.active {background:#f8c697;color:#8f3e28}
+.list-scroller {flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;overscroll-behavior-y:contain;-webkit-overflow-scrolling:touch;scrollbar-width:thin;scrollbar-color:#d9baab transparent;background:#f7f0e8}
+.list-scroller:focus {outline:0}
+#list-root {min-height:100%;}
+.item-row {position:relative;display:flex;align-items:center;justify-content:space-between;min-height:64px;color:var(--row-text,#29201b);background:var(--row-bg,#e8a16c);padding:0 20px 0 21px;border:0;border-bottom:1px solid rgba(255,255,255,.13);touch-action:pan-y;user-select:none;-webkit-user-select:none;cursor:pointer;transition:filter .12s,opacity .2s;will-change:transform}
+.item-row:active {filter:brightness(.97)}
+.item-row .item-info {display:flex;flex-direction:column;align-items:flex-start;justify-content:center;min-width:0;padding:12px 0;pointer-events:none}
+.item-name {font-size:19px;font-weight:540;letter-spacing:-.32px;line-height:1.18;text-overflow:ellipsis;overflow:hidden;white-space:nowrap;max-width:100%}
+.item-detail {font-size:11px;opacity:.76;font-weight:540;margin-top:4px}
+.item-department {font-size:9px;font-weight:800;letter-spacing:1.1px;text-transform:uppercase;margin-bottom:6px;opacity:.8}
+.item-right {display:flex;align-items:center;gap:10px;margin-left:9px;flex:none;pointer-events:none}
+.item-price {font-size:16px;letter-spacing:-.1px;font-weight:660;font-variant-numeric:tabular-nums}
+.item-price.unknown {opacity:.52;font-weight:500}
+.row-chevron {font-size:17px;opacity:.38;line-height:1}
+.store-header {background:var(--store-deep,#6b625b);color:#fff;position:relative;display:flex;align-items:center;justify-content:space-between;min-height:59px;padding:11px 20px;box-shadow:inset 0 1px rgba(255,255,255,.11)}
+.store-header .store-title {font-size:18px;font-weight:750;letter-spacing:-.3px}
+.store-header .store-sub {display:block;font-size:10px;opacity:.83;font-weight:520;margin-top:2px}
+.store-header .store-total {font-size:15px;font-weight:640;font-variant-numeric:tabular-nums}
+.store-header .store-total small {display:block;text-align:right;font-size:9px;font-weight:550;opacity:.77;margin-top:2px}
+.notice-bar {font-size:12px;text-align:center;padding:9px 12px;background:#fff1d6;color:#765333;font-weight:570}
+.empty-state {display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:59vh;padding:30px 26px 50px;text-align:center;gap:12px;color:#684c43}
+.empty-illustration {width:80px;height:80px;border-radius:22px;background:linear-gradient(155deg,#e04732,#f5cb3c);box-shadow:0 10px 20px #a7503130;display:grid;place-items:center;color:white;font-size:45px}
+.empty-state h2 {margin:4px 0 0;font-size:25px;letter-spacing:-.6px;font-weight:630}
+.empty-state p {margin:0;color:#8a7064;font-size:14px;line-height:1.55;max-width:275px}
+.empty-state .tip {font-size:12px;color:#aa7b69}
+.empty-state button {border:1px solid #d9b29d;color:#aa4c34;background:white;padding:10px 18px;border-radius:20px;font-weight:680;margin-top:7px}
+.list-footer {flex:0 0 auto;background:#f6ede5;border-top:1px solid #ead7c9;padding:9px 16px calc(9px + var(--safe-bottom));text-align:center;z-index:2}
+.list-footer button {border:none;background:transparent;color:#9a5d47;font-weight:700;padding:7px 10px;font-size:12px}
+.completed-section {background:#e8dfd7;color:#736e68}
+.completed-section .store-header {background:#766a62}
+.completed-section .item-row {background:#e5ddd4;color:#746c65;text-decoration:line-through}
+.completed-section .item-detail,.completed-section .item-price {text-decoration:none}
+.completed-section .item-row {min-height:54px}
+.toast {position:absolute;bottom:calc(65px + var(--safe-bottom));left:14px;right:14px;z-index:10;display:flex;align-items:center;justify-content:space-between;gap:15px;background:#32251f;color:white;border-radius:14px;padding:12px 15px;box-shadow:0 10px 25px #3d211c50;font-size:13px}
+.toast button {background:transparent;color:#ffd596;border:0;font-weight:750;padding:3px 5px;white-space:nowrap}
+.modal-backdrop {position:fixed;z-index:40;inset:0;background:rgba(39,28,25,.48);backdrop-filter:blur(3px)}
+.bottom-sheet {position:fixed;bottom:0;left:50%;transform:translateX(-50%);z-index:41;width:min(100%,460px);max-height:min(92dvh,920px);overflow-y:auto;overscroll-behavior:contain;background:#fffaf5;border-radius:22px 22px 0 0;color:#342d29;box-shadow:0 -12px 50px #4b302f35;padding:0 20px calc(20px + var(--safe-bottom))}
+.sheet-grabber {width:42px;height:5px;border-radius:9px;background:#e0cbc0;margin:10px auto 12px}
+.sheet-heading {display:flex;align-items:center;justify-content:space-between;margin:0 0 13px}
+.sheet-heading h2 {margin:0;font-size:22px;letter-spacing:-.45px}
+.sheet-close {background:#f1e7e0;color:#664c43;border:0;border-radius:50%;width:34px;height:34px;font-size:23px;line-height:1}
+.sheet-form {display:flex;flex-direction:column;gap:13px}
+.sheet-form label,.settings-label {display:flex;flex-direction:column;gap:6px;font-size:12px;font-weight:730;color:#6c5148}
+.sheet-form input,.sheet-form select,.input-row input {width:100%;background:#fff;border:1px solid #e5cfc3;border-radius:10px;height:43px;padding:0 11px;color:#292420;font-size:16px;outline-color:#d45e3f}
+.sheet-form input:focus,.sheet-form select:focus {border-color:#d8674d}
+.two-cols {display:grid;grid-template-columns:1fr 1fr;gap:11px}
+.label-extra {font-size:10px;color:#aa8c7c;font-weight:500}
+.sheet-help {font-size:11px;color:#987d6d;line-height:1.5;margin:0}
+.sheet-actions {display:flex;justify-content:space-between;gap:15px;margin-top:7px}
+.sheet-actions button {border:0;border-radius:11px;padding:12px 18px;font-weight:750}
+.button-danger {background:#fbe7e2;color:#ae4431}
+.button-primary {background:#d6533d;color:white;flex:1}
+.settings-body {padding-bottom:8px}
+.settings-body h3 {font-size:13px;letter-spacing:.7px;text-transform:uppercase;color:#b65d45;margin:20px 0 11px}
+.settings-body h3:first-child {margin-top:7px}
+.store-options {display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px}
+.store-option {display:flex;align-items:center;gap:9px;border:1px solid #ead6c9;background:white;border-radius:10px;padding:12px 10px;font-size:12px;font-weight:650;cursor:pointer}
+.store-option input {accent-color:#d74e36;width:17px;height:17px;margin:0}
+.store-dot {border-radius:50%;width:11px;height:11px;flex:none;background:var(--store-dot)}
+.input-row {display:flex;gap:9px;align-items:center;width:160px;color:#8b6559;font-weight:700;margin:9px 0}
+.input-row input {text-align:center;font-weight:720;width:82px}
+.settings-action {display:flex;flex-direction:column;align-items:flex-start;gap:4px;background:white;border:1px solid #edddd2;border-radius:11px;width:100%;padding:12px;text-align:left;font-size:13px;font-weight:690;margin-bottom:8px;color:#493831}
+.settings-action span {color:#998175;font-size:10px;font-weight:450}
+.settings-action.destructive {color:#ae4336}
+.prototype-disclaimer {font-size:11px;line-height:1.55;color:#a08a7c;margin:19px 0 0}
+.no-price-info {background:#fdf1dd;font-size:11px;color:#86603d;padding:7px 13px;text-align:center}
+.swipe-trailing {position:absolute;inset:0;display:flex;align-items:center;justify-content:space-between;padding:0 23px;color:#fff;font-size:13px;font-weight:750;background:linear-gradient(90deg,#3aa36c 50%,#c94d44 50%);z-index:-1}
+body.sheet-open {overflow:hidden}
+@media (min-width:600px) { .app-shell {border-radius:22px;transform:translateZ(0);border:1px solid rgba(255,255,255,.5)} .topbar {padding-top:28px} .top-actions {top:25px} .bottom-sheet {bottom:16px;border-radius:20px;max-height:calc(100dvh - 40px)} }
+@media (max-width:599px) {body {background:#f7f0e8}.app-shell {height:100dvh;width:100%;box-shadow:none} .item-row {padding-right:18px} }
+@media (prefers-reduced-motion:reduce) {*,*::before,*::after {scroll-behavior:auto!important;animation:none!important;transition:none!important}}
+.item-row.dragging {box-shadow:0 7px 24px rgba(0,0,0,.24);filter:brightness(1.04);}
+.item-row.drop-target {outline:3px solid rgba(255,255,255,.87);outline-offset:-3px;filter:brightness(1.05)}
+
+</style>
+  <title>GrabList</title>
+  <link rel="manifest" href="./manifest.webmanifest" />
+  <link rel="icon" href="./icons/icon.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="./icons/icon.svg" />
+</head>
+<body>
+  <div id="app" class="app-shell">
+    <header class="topbar">
+      <div class="top-actions">
+        <button type="button" id="settings-button" class="icon-button" aria-label="Open settings" title="Settings">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16" /></svg>
+        </button>
+        <button type="button" id="add-button" class="icon-button" aria-label="Add grocery item" title="Add item">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v16M4 12h16" /></svg>
+        </button>
+      </div>
+      <h1>Groceries</h1>
+      <div id="summary" class="summary" aria-live="polite">Your list, your stores</div>
+      <div class="mode-toggle" role="tablist" aria-label="List view">
+        <button type="button" role="tab" id="planning-tab" aria-selected="true">List</button>
+        <button type="button" role="tab" id="shopping-tab" aria-selected="false">Shop</button>
+      </div>
+    </header>
+
+    <div id="composer" class="composer" hidden>
+      <form id="add-form" autocomplete="off">
+        <input id="item-input" type="text" name="item" placeholder="Milk, coffee, bread…" enterkeyhint="done" maxlength="110" aria-label="Grocery item" required />
+        <button type="submit" id="add-submit" aria-label="Add item">Add</button>
+        <button type="button" id="composer-close" aria-label="Cancel adding">×</button>
+      </form>
+    </div>
+
+    <div id="pull-hint" class="pull-hint" aria-hidden="true"><span>↓ Pull to add</span></div>
+    <main id="list-scroller" class="list-scroller" aria-label="Your grocery list" tabindex="0">
+      <div id="list-root"></div>
+    </main>
+    <div id="list-footer" class="list-footer" hidden></div>
+    <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+  </div>
+
+  <div id="modal-backdrop" class="modal-backdrop" hidden></div>
+  <section id="item-sheet" class="bottom-sheet" role="dialog" aria-modal="true" aria-labelledby="item-sheet-title" hidden>
+    <div class="sheet-grabber"></div>
+    <div class="sheet-heading">
+      <h2 id="item-sheet-title">Edit item</h2>
+      <button class="sheet-close" type="button" data-close-sheet aria-label="Close">×</button>
+    </div>
+    <form id="edit-form" class="sheet-form">
+      <input type="hidden" id="edit-id" />
+      <label>Item name<input id="edit-name" required maxlength="110" /></label>
+      <div class="two-cols">
+        <label>Quantity<input id="edit-quantity" inputmode="decimal" placeholder="1" maxlength="16" /></label>
+        <label>Preferred size<input id="edit-size" placeholder="e.g. 4 L" maxlength="40" /></label>
+      </div>
+      <label>Brand requirement <span class="label-extra">Optional — leave blank to compare brands</span><input id="edit-brand" placeholder="Any brand" maxlength="75" /></label>
+      <div class="two-cols">
+        <label>Store<select id="edit-store"></select></label>
+        <label>Department<select id="edit-department"></select></label>
+      </div>
+      <label>Known price (CAD) <span class="label-extra">Manual only — not live</span><input id="edit-price" inputmode="decimal" type="number" min="0" step="0.01" placeholder="Unknown" /></label>
+      <p id="edit-source-note" class="sheet-help">Online price lookups are not connected in this prototype.</p>
+      <div class="sheet-actions"><button type="button" id="delete-item" class="button-danger">Delete</button><button type="submit" class="button-primary">Save item</button></div>
+    </form>
+  </section>
+
+  <section id="settings-sheet" class="bottom-sheet" role="dialog" aria-modal="true" aria-labelledby="settings-title" hidden>
+    <div class="sheet-grabber"></div>
+    <div class="sheet-heading">
+      <h2 id="settings-title">Settings</h2>
+      <button class="sheet-close" type="button" data-close-sheet aria-label="Close">×</button>
+    </div>
+    <div class="settings-body">
+      <h3>My stores</h3>
+      <p class="sheet-help">Only enabled stores appear as destinations for your groceries.</p>
+      <div id="store-options" class="store-options"></div>
+      <h3>Shopping preferences</h3>
+      <label class="settings-label" for="savings-input">Savings needed to add another store</label>
+      <div class="input-row"><span>$</span><input id="savings-input" type="number" min="0" max="100" step="0.50" value="5" inputmode="decimal" /><span>CAD</span></div>
+      <p class="sheet-help">Saved now; basket optimization uses this once a pricing provider is connected.</p>
+      <h3>List actions</h3>
+      <button type="button" class="settings-action" id="load-demo">Load a sample list <span>Uses clearly labelled example prices</span></button>
+      <button type="button" class="settings-action" id="export-list">Export a backup <span>JSON file saved on your device</span></button>
+      <button type="button" class="settings-action" id="import-list">Import a backup <span>Replace this device’s list</span></button>
+      <input id="import-file" type="file" accept="application/json,.json" hidden />
+      <button type="button" class="settings-action destructive" id="reset-list">Clear entire list <span>Removes all items and purchase history</span></button>
+      <p class="prototype-disclaimer">Phase 1 prototype · Stores and prices are not connected to live retail systems. Information is saved in this browser, not synced between devices.</p>
+    </div>
+  </section>
+
+  <script>
+/* Groceries — dependency-free Phase 1 prototype.
+   No price feed is connected. Manual/demo prices are never represented as live data. */
+
+const STORAGE_KEY = 'groceries-clear-prototype-v1';
+const STORES = [
+  {id:'walmart',name:'Walmart',gradient:['#0878c8','#55ade0','#d2edf9'],deep:'#0871ba'},
+  {id:'nofrills',name:'No Frills',gradient:['#e73c25','#f18b28','#f6d747'],deep:'#d62e24'},
+  {id:'freshco',name:'FreshCo',gradient:['#117e45','#49ac5e','#b7dc85'],deep:'#168b45'},
+  {id:'independent',name:'Independent',gradient:['#99172a','#d44548','#f3a29a'],deep:'#a81e34'},
+  {id:'costco',name:'Costco',gradient:['#b71c36','#db4d59','#f4b0a7'],deep:'#b52337'},
+  {id:'gianttiger',name:'Giant Tiger',gradient:['#c96b11','#eb9d23','#f8d665'],deep:'#b95d0e'}
+];
+const UNASSIGNED = {id:'unassigned',name:'Needs a store',gradient:['#706d69','#a49c94','#d6cdc3'],deep:'#595653'};
+const DEPARTMENTS = ['Produce','Bakery','Dairy & Eggs','Meat & Seafood','Deli','Frozen','Pantry','Snacks','Beverages','Household','Personal Care','Other'];
+const PLANNING_GRADIENT = ['#df4335','#f18a35','#f5d24d'];
+const currency = new Intl.NumberFormat('en-CA',{style:'currency',currency:'CAD'});
+const $ = (id) => document.getElementById(id);
+const escapeHTML = value => String(value ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const storeById = id => STORES.find(s=>s.id===id);
+const uid = () => (globalThis.crypto?.randomUUID?.() || `item-${Date.now()}-${Math.random().toString(36).slice(2,9)}`);
+const normalizedKey = str => String(str||'').toLowerCase().normalize('NFKD').replace(/[\u0300-\u036f]/g,'').replace(/\b\d+(?:[.,]\d+)?\s?(?:kg|g|lb|l|ml|oz|packs?|pk|ct)\b/gi,'').replace(/[^a-z0-9\s]/g,' ').replace(/\s+/g,' ').trim();
+
+function blankState(){return {version:1,items:[],enabledStoreIds:STORES.map(s=>s.id),profiles:{},savingsThreshold:5,nextOrder:1};}
+function sanitizeItem(raw,index){
+  if(!raw||typeof raw!=='object'||typeof raw.name!=='string'||!raw.name.trim())return null;
+  const price = raw.price===null||raw.price===undefined||raw.price===''?null:Number(raw.price);
+  const storeId = STORES.some(s=>s.id===raw.storeId)?raw.storeId:null;
+  return {
+    id: typeof raw.id==='string'&&raw.id.length<=100?raw.id:uid(),
+    name:raw.name.trim().slice(0,110), quantity:String(raw.quantity||'1').slice(0,16),
+    size:String(raw.size||'').slice(0,40), brand:String(raw.brand||'').slice(0,75),
+    department:DEPARTMENTS.includes(raw.department)?raw.department:detectDepartment(raw.name),
+    storeId,price:Number.isFinite(price)&&price>=0&&price<=99999?Math.round(price*100)/100:null,
+    priceSource:['manual','demo'].includes(raw.priceSource)?raw.priceSource:null,
+    complete:Boolean(raw.complete), order:Number.isFinite(Number(raw.order))?Number(raw.order):index+1,
+    createdAt:Number.isFinite(Number(raw.createdAt))?Number(raw.createdAt):Date.now()
+  };
+}
+function sanitizeState(raw){
+  const base=blankState();if(!raw||typeof raw!=='object')return base;
+  const arr=Array.isArray(raw.items)?raw.items.slice(0,500).map(sanitizeItem).filter(Boolean):[];
+  const seen=new Set();for(const item of arr){if(seen.has(item.id))item.id=uid();seen.add(item.id);}
+  const enabled=Array.isArray(raw.enabledStoreIds)?raw.enabledStoreIds.filter(id=>STORES.some(s=>s.id===id)):base.enabledStoreIds;
+  const profiles={};
+  if(raw.profiles&&typeof raw.profiles==='object')for(const [key,p] of Object.entries(raw.profiles).slice(0,1000)){
+    if(!p||typeof p!=='object')continue;
+    profiles[String(key).slice(0,110)]={department:DEPARTMENTS.includes(p.department)?p.department:null,size:String(p.size||'').slice(0,40)};
+  }
+  return {...base,items:arr,enabledStoreIds:[...new Set(enabled)],profiles,savingsThreshold:Math.min(100,Math.max(0,Number(raw.savingsThreshold)||0)),nextOrder:Math.max(1,Number(raw.nextOrder)||1,...arr.map(i=>i.order+1))};
+}
+function loadState(){try{return sanitizeState(JSON.parse(localStorage.getItem(STORAGE_KEY)))}catch{return blankState()}}
+let state=loadState();
+let mode='planning',showCompleted=false,composerOpen=false,currentSheet=null,toastTimeout=null,toastUndo=null,suppressClickUntil=0,gesture=null,dragTargetId=null;
+function save(){try{localStorage.setItem(STORAGE_KEY,JSON.stringify(state))}catch{showToast('Storage unavailable on this device. Export a backup before closing.')}}
+function update(){save();render()}
+function itemQty(item){const n=parseFloat(item.quantity);return Number.isFinite(n)&&n>0?n:1}
+function knownTotal(items){return items.reduce((sum,i)=>sum+(i.price===null?0:i.price*itemQty(i)),0)}
+function knownCount(items){return items.filter(i=>i.price!==null).length}
+
+function parseEntry(raw){
+  const text=raw.trim().replace(/\s+/g,' ');
+  let name=text,size='';
+  const match=text.match(/\b(\d+(?:[.,]\d+)?\s?(?:kg|g|lbs?|ml|l|oz|ct|pack|pk))\b/i);
+  if(match){size=match[1].replace(/\s+/g,' ').trim();name=text.replace(match[0],'').replace(/^\s*[-,]\s*|\s*[-,]\s*$/g,'').trim()||text;}
+  name=name.charAt(0).toUpperCase()+name.slice(1);
+  const lower=text.toLowerCase();
+  const brands=['Maxwell House','Folgers','Kirkland','Great Value','No Name','Natrel','Neilson','Gay Lea','Selection','Compliments','President’s Choice','PC'];
+  const brand=brands.find(b=>new RegExp(`\\b${b.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g,'\\$&')}\\b`,'i').test(lower))||'';
+  return {name,size,brand};
+}
+function detectDepartment(value){
+  const v=String(value||'').toLowerCase();
+  const groups=[
+    ['Produce',/\b(apple|banana|avocado|lettuce|carrot|potato|onion|tomato|cucumber|pepper|spinach|broccoli|grape|berry|berries|orange|lemon|lime|pear|peach|mushroom|salad|cilantro|asparagus|zucchini|celery|garlic|ginger|melon|produce)\b/],
+    ['Dairy & Eggs',/\b(milk|butter|cheese|yogurt|yoghurt|egg|eggs|cream|cottage cheese|margarine|sour cream|kefir)\b/],
+    ['Bakery',/\b(bread|bagel|bun|rolls|croissant|tortilla|muffin|pita|naan|wraps|buns|baguette)\b/],
+    ['Meat & Seafood',/\b(chicken|beef|steak|pork|fish|salmon|shrimp|bacon|ground beef|turkey|sausage|ham|lamb|meat)\b/],
+    ['Deli',/\b(deli|salami|pepperoni|sliced meat|hummus|prepared salad)\b/],
+    ['Frozen',/\b(frozen|ice cream|popsicle|french fries|pizza|nugget|hash brown)\b/],
+    ['Pantry',/\b(coffee|tea|flour|sugar|oats|oatmeal|cereal|rice|pasta|sauce|oil|vinegar|peanut butter|jam|syrup|beans|soup|spice|salt|peppercorn|canned|honey|baking)\b/],
+    ['Snacks',/\b(chip|chips|cracker|cookie|popcorn|pretzel|chocolate|candy|granola bar|nuts)\b/],
+    ['Beverages',/\b(juice|pop|soda|water|sparkling|cola|ginger ale|sports drink|energy drink)\b/],
+    ['Household',/\b(dish soap|detergent|bleach|paper towel|toilet paper|garbage bag|tissue|cleaner|foil|plastic wrap|laundry|dishwasher|batteries)\b/],
+    ['Personal Care',/\b(shampoo|conditioner|toothpaste|toothbrush|body wash|deodorant|razor|soap|floss|lotion|tampon|pad)\b/]
+  ];
+  return groups.find(([,regex])=>regex.test(v))?.[0]||'Other';
+}
+function newItem(raw){
+  const parsed=parseEntry(raw);
+  const profile=state.profiles[normalizedKey(parsed.name)]||{};
+  const item={id:uid(),name:parsed.name,quantity:'1',size:parsed.size||profile.size||'',brand:parsed.brand||'',department:profile.department||detectDepartment(parsed.name),storeId:null,price:null,priceSource:null,complete:false,order:state.nextOrder++,createdAt:Date.now()};
+  state.items.unshift(item);
+  update();
+  return item;
+}
+
+function hexToRGB(hex){return [1,3,5].map(i=>parseInt(hex.slice(i,i+2),16));}
+function mixColor(a,b,t){const A=hexToRGB(a),B=hexToRGB(b);return '#'+A.map((v,i)=>Math.round(v+(B[i]-v)*t).toString(16).padStart(2,'0')).join('');}
+function atGradient(colors,t){const v=Math.max(0,Math.min(1,t))*2;return v<1?mixColor(colors[0],colors[1],v):mixColor(colors[1],colors[2],v-1);}
+function textColor(hex){const v=hexToRGB(hex).map(c=>{c/=255;return c<=.04045?c/12.92:Math.pow((c+.055)/1.055,2.4)});const l=v[0]*.2126+v[1]*.7152+v[2]*.0722;return l>.39?'#29231d':'#ffffff'}
+function formatPrice(item){return item.price===null?'—':currency.format(item.price*itemQty(item));}
+function itemRow(item,index,total,colors,departmentLabel='',completed=false){
+  const rowBg=completed?'#e5ddd4':atGradient(colors,total===1?.42:index/(total-1));
+  const ink=completed?'#6f665f':textColor(rowBg);
+  const detail=[item.quantity&&item.quantity!=='1'?`${item.quantity} ×`:null,item.size||null,item.brand?`· ${item.brand}`:null].filter(Boolean).join(' ');
+  const text=[item.name,detail,item.price===null?'Price unknown':`${formatPrice(item)} (${item.priceSource==='demo'?'demo':'manual'} price)`].filter(Boolean).join(', ');
+  return `<div class="item-row" role="button" tabindex="0" data-item-id="${escapeHTML(item.id)}" aria-label="${escapeHTML(text)}. Tap to edit; swipe right to mark ${completed?'not bought':'bought'}; swipe left to delete." style="--row-bg:${rowBg};--row-text:${ink}">
+    <div class="item-info">${departmentLabel?`<span class="item-department">${escapeHTML(departmentLabel)}</span>`:''}<span class="item-name">${escapeHTML(item.name)}</span>${detail?`<span class="item-detail">${escapeHTML(detail)}</span>`:''}</div>
+    <div class="item-right"><span class="item-price ${item.price===null?'unknown':''}">${escapeHTML(formatPrice(item))}</span><span class="row-chevron" aria-hidden="true">›</span></div>
+  </div>`;
+}
+function sortedStoreItems(items){return [...items].sort((a,b)=>DEPARTMENTS.indexOf(a.department)-DEPARTMENTS.indexOf(b.department)||a.order-b.order)}
+function renderPlanning(items){
+  const ordered=[...items].sort((a,b)=>b.order-a.order);
+  return ordered.map((item,i)=>itemRow(item,i,ordered.length,PLANNING_GRADIENT)).join('');
+}
+function renderShopping(items){
+  const activeStoreIds=state.enabledStoreIds.filter(id=>STORES.some(s=>s.id===id));
+  const ids=[UNASSIGNED.id,...activeStoreIds];
+  // Items belonging to disabled stores are shown under Needs a store, not hidden.
+  let html='';
+  for(const storeId of ids){
+    const store=storeId===UNASSIGNED.id?UNASSIGNED:storeById(storeId);
+    const subset=sortedStoreItems(items.filter(i=>storeId===UNASSIGNED.id?(!i.storeId||!activeStoreIds.includes(i.storeId)):i.storeId===storeId));
+    if(!subset.length)continue;
+    const priced=knownCount(subset),unknown=subset.length-priced;
+    html+=`<section class="store-group" aria-label="${escapeHTML(store.name)}" style="--store-deep:${store.deep}"><div class="store-header"><div><span class="store-title">${escapeHTML(store.name)}</span><span class="store-sub">${subset.length} ${subset.length===1?'item':'items'}${unknown?` · ${unknown} without prices`:''}</span></div><div class="store-total">${priced?currency.format(knownTotal(subset)):'—'}<small>${priced?(subset.some(i=>i.priceSource==='demo')?'example/manual':'manual prices only'):'no prices yet'}</small></div></div>`;
+    let priorDept='';
+    subset.forEach((item,index)=>{let label='';if(item.department!==priorDept){label=item.department;priorDept=item.department;}html+=itemRow(item,index,subset.length,store.gradient,label);});
+    html+='</section>';
+  }
+  return html;
+}
+function emptyHTML(){
+  const allDone=state.items.length>0&&state.items.every(i=>i.complete);
+  return `<div class="empty-state"><div class="empty-illustration" aria-hidden="true">${allDone?'✓':'＋'}</div><h2>${allDone?'All done!':'A simpler grocery list'}</h2><p>${allDone?'You’ve marked everything bought. You can restore anything from your purchased items.':'Pull down to add anything. Swipe right when bought, swipe left to remove. Tap an item to edit it.'}</p>${allDone?`<button id="show-completed-empty">Show bought items</button>`:`<button id="try-sample">Try a sample list</button>`}<span class="tip">No live prices connected yet · Saved on this device</span></div>`;
+}
+function render(){
+  $('planning-tab').setAttribute('aria-selected',String(mode==='planning'));
+  $('shopping-tab').setAttribute('aria-selected',String(mode==='shopping'));
+  const active=state.items.filter(i=>!i.complete),completed=state.items.filter(i=>i.complete),unknown=active.filter(i=>i.price===null).length;
+  const hasDemo=state.items.some(i=>i.priceSource==='demo');
+  const known=knownTotal(active);const demoCount=active.filter(i=>i.priceSource==='demo').length;const priceLabel=knownCount(active)?`${currency.format(known)} in ${demoCount?'example/manual':'manual'} prices`:'Prices not yet connected';
+  $('summary').textContent=state.items.length?`${active.length} remaining · ${priceLabel}`:'Your list, your stores';
+  let markup='';
+  if(hasDemo)markup+='<div class="notice-bar">Sample prices are fictional — not current store prices</div>';
+  if(!active.length)markup+=emptyHTML();
+  else {markup+=mode==='planning'?renderPlanning(active):renderShopping(active);if(mode==='shopping'&&unknown)markup+=`<div class="no-price-info">${unknown} ${unknown===1?'item has':'items have'} no verified price. Store choices are manual in this prototype.</div>`;}
+  if(showCompleted&&completed.length){markup+=`<section class="completed-section"><div class="store-header"><div class="store-title">Bought · ${completed.length}</div></div>${[...completed].sort((a,b)=>b.order-a.order).map((i,j)=>itemRow(i,j,completed.length,UNASSIGNED.gradient,'',true)).join('')}</section>`;}
+  $('list-root').innerHTML=markup;
+  $('list-footer').hidden=!completed.length;
+  $('list-footer').innerHTML=completed.length?`<button type="button" id="toggle-completed">${showCompleted?'Hide':'Show'} bought items (${completed.length})</button><button type="button" id="clear-completed">Clear bought</button>`:'';
+}
+
+function openComposer(){closeSheet();composerOpen=true;$('composer').hidden=false;$('item-input').focus();$('item-input').select();}
+function closeComposer(){composerOpen=false;$('composer').hidden=true;$('item-input').value='';$('add-button').focus();}
+$('add-button').addEventListener('click',openComposer);
+$('composer-close').addEventListener('click',closeComposer);
+$('add-form').addEventListener('submit',e=>{e.preventDefault();const raw=$('item-input').value.trim();if(!raw)return;const item=newItem(raw);closeComposer();$('list-scroller').scrollTo({top:0,behavior:'smooth'});showToast(`${item.name} added${mode==='shopping'?' · assign a store to place it':''}`,'Edit',()=>openItemSheet(item.id));});
+function switchMode(next){if(next===mode)return;mode=next;showCompleted=false;render();$('list-scroller').scrollTop=0;}
+$('planning-tab').addEventListener('click',()=>switchMode('planning'));
+$('shopping-tab').addEventListener('click',()=>switchMode('shopping'));
+
+function showToast(message,action,callback){
+  clearTimeout(toastTimeout);toastUndo=callback||null;
+  $('toast').innerHTML=`<span>${escapeHTML(message)}</span>${action?`<button type="button" id="toast-action">${escapeHTML(action)}</button>`:''}`;
+  $('toast').hidden=false;
+  if(action)$('toast-action').addEventListener('click',()=>{clearToast();callback?.()});
+  toastTimeout=setTimeout(clearToast,4800);
+}
+function clearToast(){clearTimeout(toastTimeout);toastUndo=null;$('toast').hidden=true;}
+function changeCompleted(id,complete){
+  const item=state.items.find(i=>i.id===id);if(!item)return;
+  const before=item.complete;item.complete=complete;update();
+  showToast(complete?`${item.name} bought`:`${item.name} returned to list`,'Undo',()=>{item.complete=before;update();});
+}
+function deleteItem(id){
+  const index=state.items.findIndex(i=>i.id===id);if(index<0)return;
+  const [removed]=state.items.splice(index,1);update();
+  showToast(`${removed.name} removed`,'Undo',()=>{state.items.splice(Math.min(index,state.items.length),0,removed);update();});
+}
+function reorderItem(id,targetId){
+  if(mode!=='planning'||id===targetId||!targetId)return;
+  const active=[...state.items.filter(i=>!i.complete)].sort((a,b)=>b.order-a.order);
+  const from=active.findIndex(i=>i.id===id),to=active.findIndex(i=>i.id===targetId);
+  if(from<0||to<0)return;
+  const [moved]=active.splice(from,1);active.splice(to,0,moved);
+  active.forEach((item,i)=>{item.order=active.length-i;});
+  state.nextOrder=Math.max(state.nextOrder,active.length+1);
+  update();showToast(`${moved.name} moved`);
+}
+function openSheet(which){
+  closeComposerSilently();
+  currentSheet=which;$('modal-backdrop').hidden=false;
+  $('item-sheet').hidden=which!=='item';$('settings-sheet').hidden=which!=='settings';
+  document.body.classList.add('sheet-open');
+}
+function closeSheet(){currentSheet=null;$('modal-backdrop').hidden=true;$('item-sheet').hidden=true;$('settings-sheet').hidden=true;document.body.classList.remove('sheet-open');}
+function closeComposerSilently(){composerOpen=false;$('composer').hidden=true;$('item-input').value='';}
+$('modal-backdrop').addEventListener('click',closeSheet);
+document.querySelectorAll('[data-close-sheet]').forEach(el=>el.addEventListener('click',closeSheet));
+function fillSelect(select,options,value){select.innerHTML=options.map(o=>`<option value="${escapeHTML(o.value)}" ${o.value===value?'selected':''}>${escapeHTML(o.label)}</option>`).join('');}
+function openItemSheet(id){
+  const item=state.items.find(i=>i.id===id);if(!item)return;
+  openSheet('item');
+  $('edit-id').value=item.id;$('edit-name').value=item.name;$('edit-quantity').value=item.quantity;$('edit-size').value=item.size;$('edit-brand').value=item.brand;
+  fillSelect($('edit-store'),[{value:'',label:'Needs a store'},...state.enabledStoreIds.map(id=>storeById(id)).filter(Boolean).map(s=>({value:s.id,label:s.name})),...(item.storeId&&!state.enabledStoreIds.includes(item.storeId)?[{value:item.storeId,label:`${storeById(item.storeId)?.name} (disabled)`}]:[])],item.storeId||'');
+  fillSelect($('edit-department'),DEPARTMENTS.map(d=>({value:d,label:d})),item.department);
+  $('edit-price').value=item.price===null?'':item.price.toFixed(2);
+  $('edit-source-note').textContent=item.priceSource==='demo'?'This is an example price, not a live price. Changing it saves a manual price.':item.priceSource==='manual'?'This price was entered manually, not checked against a store.':'No price provider is connected. Enter a manual price if you know one.';
+}
+$('edit-store').addEventListener('change',()=>{
+  const previous=state.items.find(i=>i.id===$('edit-id').value);
+  if(previous&&($('edit-store').value||null)!==previous.storeId){$('edit-price').value='';$('edit-source-note').textContent='Store changed. The old price was cleared to avoid associating it with the wrong store.';}
+});
+$('edit-form').addEventListener('submit',e=>{
+  e.preventDefault();const item=state.items.find(i=>i.id===$('edit-id').value);if(!item)return;
+  const name=$('edit-name').value.trim(),quantity=$('edit-quantity').value.trim()||'1',priceText=$('edit-price').value.trim();
+  if(!name)return;
+  const previousStore=item.storeId,previousPrice=item.price;
+  const storeId=$('edit-store').value||null;
+  const price=priceText===''?null:Number(priceText);
+  if(price!==null&&(!Number.isFinite(price)||price<0||price>99999)){showToast('Enter a valid price');return;}
+  item.name=name;item.quantity=quantity;item.size=$('edit-size').value.trim();item.brand=$('edit-brand').value.trim();item.storeId=storeId;item.department=$('edit-department').value;
+  item.price=price===null?null:Math.round(price*100)/100;
+  item.priceSource=item.price===null?null:(item.priceSource==='demo'&&item.price===previousPrice&&item.storeId===previousStore?'demo':'manual');
+  state.profiles[normalizedKey(item.name)]={department:item.department,size:item.size};
+  closeSheet();update();showToast(`${item.name} updated`);
+});
+$('delete-item').addEventListener('click',()=>{const id=$('edit-id').value;closeSheet();deleteItem(id);});
+
+function renderSettings(){
+  $('store-options').innerHTML=STORES.map(s=>`<label class="store-option"><input type="checkbox" data-store-setting="${s.id}" ${state.enabledStoreIds.includes(s.id)?'checked':''}/><span class="store-dot" style="--store-dot:${s.deep}"></span>${escapeHTML(s.name)}</label>`).join('');
+  $('savings-input').value=state.savingsThreshold;
+}
+$('settings-button').addEventListener('click',()=>{renderSettings();openSheet('settings')});
+$('store-options').addEventListener('change',e=>{
+  if(!e.target.matches('[data-store-setting]'))return;
+  const id=e.target.getAttribute('data-store-setting');
+  if(e.target.checked){state.enabledStoreIds=STORES.filter(s=>state.enabledStoreIds.includes(s.id)||s.id===id).map(s=>s.id);}else{state.enabledStoreIds=state.enabledStoreIds.filter(s=>s!==id);}
+  update();
+});
+$('savings-input').addEventListener('change',e=>{const v=Number(e.target.value);state.savingsThreshold=Math.max(0,Math.min(100,Number.isFinite(v)?v:5));update();e.target.value=state.savingsThreshold;});
+
+const DEMO=[
+  ['Bananas','1 kg','Produce','nofrills',1.68],['Cheddar cheese','400 g','Dairy & Eggs','nofrills',4.44],['Bread','1 loaf','Bakery','nofrills',2.49],
+  ['Milk','4 L','Dairy & Eggs','walmart',6.19],['Eggs','12 large','Dairy & Eggs','walmart',3.79],['Coffee','816 g','Pantry','walmart',11.97],
+  ['Apples','2 lb','Produce','freshco',3.49],['Frozen pizza','1 box','Frozen','freshco',4.99],
+  ['Chicken breasts','1 kg','Meat & Seafood','independent',12.99],['Yogurt','750 g','Dairy & Eggs','independent',3.99],
+  ['Oatmeal','1 kg','Pantry','costco',7.99],['Paper towels','6 rolls','Household','costco',13.99],
+  ['Potatoes','10 lb','Produce','gianttiger',4.99],['Dish soap','1 L','Household','gianttiger',2.79]
+];
+function loadDemo(){
+  if(state.items.length&&!confirm('Replace your current list with example items? You can export a backup first.'))return;
+  state.items=DEMO.map(([name,size,department,storeId,price],i)=>({id:uid(),name,quantity:'1',size,brand:'',department,storeId,price,priceSource:'demo',complete:false,order:i+1,createdAt:Date.now()}));
+  state.nextOrder=state.items.length+1;state.profiles={};
+  if(!state.enabledStoreIds.length)state.enabledStoreIds=STORES.map(s=>s.id);
+  closeSheet();update();$('list-scroller').scrollTop=0;showToast('Sample items loaded — all prices are fictional');
+}
+$('load-demo').addEventListener('click',loadDemo);
+function exportBackup(){
+  const blob=new Blob([JSON.stringify({...state,exportedAt:new Date().toISOString()},null,2)],{type:'application/json'});
+  const url=URL.createObjectURL(blob),anchor=document.createElement('a');
+  anchor.href=url;anchor.download=`groceries-backup-${new Date().toISOString().slice(0,10)}.json`;anchor.click();setTimeout(()=>URL.revokeObjectURL(url),2000);
+  showToast('Backup exported');
+}
+$('export-list').addEventListener('click',exportBackup);
+$('import-list').addEventListener('click',()=>$('import-file').click());
+$('import-file').addEventListener('change',async e=>{
+  const file=e.target.files?.[0];if(!file)return;
+  try{
+    const raw=JSON.parse(await file.text());
+    if(!Array.isArray(raw.items)||!confirm(`Replace this list with ${raw.items.length} items from your backup?`))return;
+    state=sanitizeState(raw);closeSheet();update();showToast('Backup imported');
+  }catch{showToast('Could not read backup file');}finally{e.target.value='';}
+});
+$('reset-list').addEventListener('click',()=>{
+  if(!confirm('Remove every item and all learned preferences from this device?'))return;
+  state.items=[];state.profiles={};state.nextOrder=1;showCompleted=false;closeSheet();update();showToast('List cleared');
+});
+
+$('list-root').addEventListener('click',e=>{
+  if(Date.now()<suppressClickUntil)return;
+  if(e.target.closest('#try-sample'))return loadDemo();
+  if(e.target.closest('#show-completed-empty')){showCompleted=true;render();return;}
+  const row=e.target.closest('[data-item-id]');if(row)openItemSheet(row.dataset.itemId);
+});
+$('list-root').addEventListener('keydown',e=>{
+  const row=e.target.closest('[data-item-id]');if(!row)return;
+  if(e.key==='Enter'||e.key===' '){e.preventDefault();openItemSheet(row.dataset.itemId);}
+  if((e.key==='ArrowUp'||e.key==='ArrowDown')&&e.altKey&&mode==='planning'){
+    e.preventDefault();const active=[...state.items.filter(i=>!i.complete)].sort((a,b)=>b.order-a.order);
+    const index=active.findIndex(i=>i.id===row.dataset.itemId);const other=active[index+(e.key==='ArrowUp'?-1:1)];
+    if(other){const keep=row.dataset.itemId;reorderItem(keep,other.id);document.querySelector(`[data-item-id="${CSS.escape(keep)}"]`)?.focus();}
+  }
+});
+$('list-footer').addEventListener('click',e=>{
+  if(e.target.closest('#toggle-completed')){showCompleted=!showCompleted;render();}
+  if(e.target.closest('#clear-completed')){
+    const bought=state.items.filter(i=>i.complete);
+    if(!bought.length)return;
+    state.items=state.items.filter(i=>!i.complete);showCompleted=false;update();
+    showToast(`${bought.length} bought ${bought.length===1?'item':'items'} cleared`,'Undo',()=>{state.items.push(...bought);update();});
+  }
+});
+
+/* Gestures: swipe right = bought/restore; left = delete. Long-hold in List = reorder.
+   Touch events are used to support iOS pull-down at top without interfering with regular scrolling. */
+const scroller=$('list-scroller');
+function gestureStart(target,x,y,isTouch){
+  const row=target.closest?.('[data-item-id]');
+  gesture={row,id:row?.dataset.itemId||null,startX:x,startY:y,x,y,kind:'',moved:false,isTouch,dragTargetId:null,longTimer:null};
+  if(row&&mode==='planning'&&!state.items.find(i=>i.id===row.dataset.itemId)?.complete){
+    gesture.longTimer=setTimeout(()=>{if(gesture&&!gesture.kind&&!gesture.moved){gesture.kind='reorder';gesture.row.classList.add('dragging');navigator.vibrate?.(12);}},480);
+  }
+}
+function clearLongPress(){if(gesture?.longTimer){clearTimeout(gesture.longTimer);gesture.longTimer=null;}}
+function showPull(dy){
+  const height=Math.min(104,Math.max(0,dy*.62));$('pull-hint').style.height=`${height}px`;
+  $('pull-hint').classList.toggle('active',dy>75);
+  $('pull-hint').querySelector('span').textContent=dy>75?'↑ Release to add':'↓ Pull to add';
+}
+function gestureMove(x,y,event){
+  if(!gesture)return;
+  gesture.x=x;gesture.y=y;
+  const dx=x-gesture.startX,dy=y-gesture.startY;
+  if(gesture.kind==='reorder'){
+    event?.preventDefault?.();
+    if(gesture.row){gesture.row.style.transform=`translateY(${dy}px)`;gesture.row.style.zIndex='4';gesture.row.style.opacity='.84';}
+    const candidates=[...scroller.querySelectorAll('.item-row:not(.dragging)')];
+    const nearby=candidates.reduce((acc,el)=>{const rect=el.getBoundingClientRect(),distance=Math.abs(rect.top+rect.height/2-y);return distance<acc.distance?{el,distance}:acc;},{el:null,distance:Infinity}).el;
+    scroller.querySelectorAll('.drop-target').forEach(el=>el.classList.remove('drop-target'));
+    if(nearby){nearby.classList.add('drop-target');gesture.dragTargetId=nearby.dataset.itemId;}
+    return;
+  }
+  if(!gesture.kind){
+    if(Math.abs(dx)>12&&Math.abs(dx)>Math.abs(dy)*1.2&&gesture.row){gesture.kind='swipe';gesture.moved=true;clearLongPress();}
+    else if(dy>12&&scroller.scrollTop<=2&&Math.abs(dy)>Math.abs(dx)*1.1){gesture.kind='pull';gesture.moved=true;clearLongPress();}
+    else if(Math.abs(dy)>14||Math.abs(dx)>14){gesture.moved=true;clearLongPress();}
+  }
+  if(gesture.kind==='swipe'){
+    event?.preventDefault?.();
+    if(gesture.row){const clamped=Math.max(-160,Math.min(160,dx));gesture.row.style.transform=`translateX(${clamped}px)`;gesture.row.style.opacity=String(Math.max(.56,1-Math.abs(clamped)/390));}
+  }else if(gesture.kind==='pull'){event?.preventDefault?.();showPull(Math.max(0,dy));}
+}
+function gestureFinish(cancelled=false){
+  if(!gesture)return;
+  clearLongPress();
+  const {id,row,kind,startX,startY,x,y,dragTargetId}=gesture;
+  const dx=x-startX,dy=y-startY;
+  const commitSwipe=!cancelled&&kind==='swipe'&&Math.abs(dx)>78&&id;
+  if(row){
+    if(commitSwipe){row.style.transition='transform 180ms ease-out,opacity 180ms ease-out';row.style.transform=`translateX(${dx>0?Math.max(innerWidth,460):-Math.max(innerWidth,460)}px)`;row.style.opacity='0';}
+    else{row.style.transform='';row.style.opacity='';}
+    row.style.zIndex='';row.classList.remove('dragging');
+  }
+  scroller.querySelectorAll('.drop-target').forEach(el=>el.classList.remove('drop-target'));
+  $('pull-hint').style.height='0px';$('pull-hint').classList.remove('active');
+  gesture=null;
+  if(kind)suppressClickUntil=Date.now()+500;
+  if(cancelled)return;
+  if(commitSwipe){
+    setTimeout(()=>{if(dx>0){const item=state.items.find(i=>i.id===id);if(item)changeCompleted(id,!item.complete);}else deleteItem(id);},170);
+  }else if(kind==='pull'&&dy>75)openComposer();
+  else if(kind==='reorder'&&id&&dragTargetId)reorderItem(id,dragTargetId);
+}
+scroller.addEventListener('touchstart',e=>{if(currentSheet||composerOpen)return;const t=e.touches[0];if(t)gestureStart(e.target,t.clientX,t.clientY,true);},{passive:true});
+scroller.addEventListener('touchmove',e=>{if(!gesture?.isTouch)return;const t=e.touches[0];if(t)gestureMove(t.clientX,t.clientY,e);},{passive:false});
+scroller.addEventListener('touchend',()=>{if(gesture?.isTouch)gestureFinish();},{passive:true});
+scroller.addEventListener('touchcancel',()=>{if(gesture?.isTouch)gestureFinish(true);},{passive:true});
+scroller.addEventListener('pointerdown',e=>{if(e.pointerType==='touch'||e.button!==0||currentSheet||composerOpen)return;gestureStart(e.target,e.clientX,e.clientY,false);},{passive:true});
+window.addEventListener('pointermove',e=>{if(gesture&&!gesture.isTouch)gestureMove(e.clientX,e.clientY,e);},{passive:false});
+window.addEventListener('pointerup',e=>{if(gesture&&!gesture.isTouch)gestureFinish();});
+window.addEventListener('pointercancel',()=>{if(gesture&&!gesture.isTouch)gestureFinish(true);});
+window.addEventListener('keydown',e=>{
+  if(e.key==='Escape'){if(currentSheet)closeSheet();else if(composerOpen)closeComposer();return;}
+  if((e.key==='n'||e.key==='/')&&!currentSheet&&!composerOpen&&!['INPUT','TEXTAREA','SELECT'].includes(document.activeElement?.tagName)){e.preventDefault();openComposer();}
+});
+
+render();
+if('serviceWorker' in navigator && (location.protocol==='https:' || location.hostname==='localhost')){
+  window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(()=>{}));
+}
+
+</script>
+</body>
+</html>
