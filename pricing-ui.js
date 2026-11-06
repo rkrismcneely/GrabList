@@ -241,7 +241,11 @@ async function pulseBatchEligible(items){
    const result=await pulsePlan(lines.join('\n'));
    const checks=result?.data?.lines;
    if(Array.isArray(checks)&&checks.length===batch.length){
-    batch.forEach((item,index)=>known.set(item.id,checks[index]?.status==='exact'));
+    batch.forEach((item,index)=>{
+      const status=checks[index]?.status;
+      if(status==='exact'||status==='duplicate')known.set(item.id,true);
+      else if(status==='closest'||status==='not_tracked')known.set(item.id,false);
+    });
    }
   }catch{
    // Unknown eligibility is not a reason to discard pricing coverage.
