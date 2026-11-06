@@ -200,12 +200,54 @@ function fromEpiceries(payload,item){
   priceStore:r.priceStore||''
  })).filter(r=>Number.isFinite(r.price)&&r.price>0);
 }
-async function getPulse(item){
-  const list=[item.name,item.size,item.brand].filter(Boolean).join(' ').slice(0,120);
+
+const pulseResultCache=new Map();
+let pulseLastRequestAt=0,pulseQueue=Promise.resolve();
+// GroceryPulse's public shopper endpoint allows 30 calls per minute.
+// Serialize requests so a full-list scan does not flood its public API.
+async function pulsePlan(list){
+ const cacheKey=[state.postalCode||'',list].join('|');
+ const cached=pulseResultCache.get(cacheKey);
+ if(cached?.expires>Date.now())return cached.value;
+ const submit=async()=>{
+  const remaining=Math.max(0,pulseLastRequestAt+2100-Date.now());
+  if(remaining)await new Promise(resolve=>setTimeout(resolve,remaining));
+  pulseLastRequestAt=Date.now();
   return requestJson('/api/pricing/grocerypulse-plan',{
-    method:'POST',headers:{'content-type':'application/json'},
-    body:JSON.stringify({postalCode:state.postalCode||'',list})
+   method:'POST',headers:{'content-type':'application/json'},
+   body:JSON.stringify({postalCode:state.postalCode||'',list})
   });
+ };
+ const result=pulseQueue.then(submit,submit);
+ pulseQueue=result.catch(()=>{});
+ const value=await result;
+ pulseResultCache.set(cacheKey,{expires:Date.now()+4*60000,value});
+ if(pulseResultCache.size>90)pulseResultCache.delete(pulseResultCache.keys().next().value);
+ return value;
+}
+async function getPulse(item){
+ const list=[item.name,item.size,item.brand].filter(Boolean).join(' ').slice(0,120);
+ return pulsePlan(list);
+}
+async function pulseBatchEligible(items){
+ const known=new Map();
+ // One planner request classifies many lines as exact/closest/not-tracked;
+ // call the slower per-item pricing route only for exact matches.
+ for(let i=0;i<items.length;i+=20){
+  const batch=items.slice(i,i+20);
+  const lines=batch.map(groceryLine);
+  if(lines.join('\n').length>2900)continue;
+  try{
+   const result=await pulsePlan(lines.join('\n'));
+   const checks=result?.data?.lines;
+   if(Array.isArray(checks)&&checks.length===batch.length){
+    batch.forEach((item,index)=>known.set(item.id,checks[index]?.status==='exact'));
+   }
+  }catch{
+   // Unknown eligibility is not a reason to discard pricing coverage.
+  }
+ }
+ return known;
 }
 
 function arrangeChoices(candidates,item){
@@ -750,16 +792,16 @@ function autoPick(item,candidates){
   enabledStores:state.enabledStoreIds,storeOrder:state.storeOrderIds
  }).best;
 }
-async function lookupComparisonCandidates(lookup){
+async function lookupComparisonCandidates(lookup,options={}){
  const responses=await Promise.allSettled([
-   getPulse(lookup),
+   options.skipPulse?Promise.resolve(null):getPulse(lookup),
    requestJson('/api/pricing/national-reference?'+new URLSearchParams({name:lookup.name,size:lookup.size||''})),
    /^\d{8,14}$/.test(lookup.barcode||'')
      ?requestJson('/api/pricing/open-prices?'+new URLSearchParams({barcode:lookup.barcode}))
      :Promise.resolve({results:[]})
  ]);
  const choices=[];
- if(responses[0].status==='fulfilled')choices.push(...fromGroceryPulse(responses[0].value,lookup));
+ if(responses[0].status==='fulfilled'&&responses[0].value)choices.push(...fromGroceryPulse(responses[0].value,lookup));
  if(responses[1].status==='fulfilled')choices.push(...fromNational(responses[1].value,lookup));
  if(responses[2].status==='fulfilled')
    choices.push(...(Array.isArray(responses[2].value?.results)?responses[2].value.results:[])
@@ -933,12 +975,16 @@ async function runFullPriceComparison(){
  if(refresh)refresh.disabled=true;
  let scanned=0,updated=0;
  try{
-  root.innerHTML='<p class="sheet-help">Checking current reference sources for '+run.length+
-    ' items. No delivery platforms are being scraped; limited-key sources are used only if you opted in.</p>';
+  root.innerHTML='<p class="sheet-help">Finding which items have recent Canadian prices…</p>';
+  const pulseEligible=await pulseBatchEligible(run);
+  root.textContent='Source coverage checked. Finding item prices for '+run.length+
+    ' groceries. No delivery apps are being scraped.';
   for(let index=0;index<run.length;index+=2){
    const results=await Promise.allSettled(run.slice(index,index+2).map(async original=>{
     const key=autoKey(original),lookup={...original};
-    const candidates=await lookupComparisonCandidates(lookup);
+    const candidates=await lookupComparisonCandidates(lookup,{
+      skipPulse:pulseEligible.get(original.id)===false
+    });
     const current=state.items.find(i=>i.id===original.id);
     if(!current||current.complete||autoKey(current)!==key)return;
     const eligible=GrabListIntelligence.select(current,candidates,{
