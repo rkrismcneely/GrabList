@@ -866,6 +866,12 @@ async function runFullPriceComparison(){
  if(!root)return;
  const items=state.items.filter(item=>!item.complete);
  if(!items.length){root.textContent='Add grocery items to compare prices.';return;}
+ if(autoReferencePending){
+  // Don't send overlapping public API requests during an already-running
+  // Shop lookup; the next Compare tap will explicitly start a fresh scan.
+  root.textContent='The Shop price lookup is still running. Tap Refresh all reference prices when it finishes.';
+  return;
+ }
  const run=items.slice(0,50);
  comparisonBusy=true;comparisonCandidates.clear();
  const refresh=$id('compare-refresh-prices');
@@ -933,7 +939,7 @@ $id('compare-auto-results').addEventListener('click',event=>{
 });
 
 async function fillMissingPrices(){
- if(autoReferencePending)return;
+ if(autoReferencePending||comparisonBusy)return;
  const missing=state.items.filter(i=>!i.complete&&
    (i.price===null||(i.priceSource==='reference'&&i.priceEvidence?.source==='Statistics Canada')))
    .filter(i=>!attempted.has(i.id)||attempted.get(i.id).key!==autoKey(i)||
