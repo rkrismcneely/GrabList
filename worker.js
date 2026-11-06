@@ -23,11 +23,13 @@ function normalizePostal(raw){
 }
 async function openPrices(request){
   if(request.method!=='GET')return responseError('GET required',405);
-  const url=new URL(request.url),barcode=String(url.searchParams.get('barcode')||'');
-  if(!/^\d{8,14}$/.test(barcode))return responseError('An 8–14 digit product barcode is required.');
+  const url=new URL(request.url),barcode=String(url.searchParams.get('barcode')||''),name=String(url.searchParams.get('name')||'').trim();
+  const byBarcode=/^\d{8,14}$/.test(barcode);
+  if(!byBarcode&&!(name.length>=3&&name.length<=70&&/^[\p{L}\p{N} .,'&()-]+$/u.test(name)))
+    return responseError('Enter a product name (3–70 characters) or an 8–14 digit barcode.');
   const cutoff=new Date(Date.now()-31*86400000).toISOString().slice(0,10);
   const upstream=new URL('https://prices.openfoodfacts.org/api/v1/prices');
-  upstream.searchParams.set('product_code',barcode);
+  upstream.searchParams.set(byBarcode?'product_code':'product_name',byBarcode?barcode:name);
   upstream.searchParams.set('currency','CAD');
   upstream.searchParams.set('date__gte',cutoff);
   upstream.searchParams.set('order_by','-date');
@@ -37,7 +39,7 @@ async function openPrices(request){
   const records=Array.isArray(data?.items)?data.items:[];
   const matches=records.filter(row=>{
     const loc=row?.location;
-    return row.type==='PRODUCT'&&row.product_code===barcode
+    return row.type==='PRODUCT'&&(!byBarcode||row.product_code===barcode)
       &&row.currency==='CAD'&&Number.isFinite(Number(row.price))&&Number(row.price)>=0
       &&loc&&String(loc.osm_address_country_code||'').toUpperCase()==='CA'
       &&typeof row.date==='string'&&row.date>=cutoff
@@ -59,7 +61,7 @@ async function openPrices(request){
     locationScope:'observed_branch',
     sourceUrl:'https://prices.openfoodfacts.org/prices/'+encodeURIComponent(String(row.id))
   }));
-  return json({provider:'Open Prices / Open Food Facts',barcode,results:matches,sourceUrl:'https://prices.openfoodfacts.org/',note:'Crowdsourced observations at individual stores, not guaranteed prices at your branch. All prices in CAD. Open Database License (ODbL).',partialPage:Number(data?.pages)>1});
+  return json({provider:'Open Prices / Open Food Facts',barcode:byBarcode?barcode:null,searchName:byBarcode?null:name,results:matches,sourceUrl:'https://prices.openfoodfacts.org/',note:'Crowdsourced observations at individual stores, not guaranteed prices at your branch. All prices in CAD. Open Database License (ODbL).',partialPage:Number(data?.pages)>1});
 }
 async function groceryPulse(request){
   if(request.method!=='POST')return responseError('POST required',405);
