@@ -41,6 +41,12 @@ button:focus-visible, input:focus-visible, select:focus-visible, .item-row:focus
 #list-root {min-height:100%;}
 .item-row {position:relative;display:flex;align-items:center;justify-content:space-between;min-height:64px;color:var(--row-text,#29201b);background:var(--row-bg,#e8a16c);padding:0 20px 0 21px;border:0;border-bottom:1px solid rgba(255,255,255,.13);touch-action:pan-y;user-select:none;-webkit-user-select:none;cursor:pointer;transition:filter .12s,opacity .2s;will-change:transform}
 .item-row:active {filter:brightness(.97)}
+.swipe-shell {position:relative;overflow:hidden;isolation:isolate;background:linear-gradient(90deg,#60a979 0%,#60a979 50%,#d85c5b 50%,#d85c5b 100%)}
+.swipe-action {position:absolute;top:0;bottom:0;display:flex;align-items:center;justify-content:center;width:84px;color:white;opacity:0;transform:scale(.75);transition:opacity .1s,transform .1s;pointer-events:none}
+.swipe-action svg {width:30px;height:30px;stroke:currentColor;stroke-width:2.7;fill:none;stroke-linecap:round;stroke-linejoin:round}
+.swipe-action.complete {left:0}.swipe-action.delete {right:0}
+.swipe-shell.swiping-right .swipe-action.complete,.swipe-shell.swiping-left .swipe-action.delete {opacity:1;transform:scale(1)}
+.swipe-shell .item-row {z-index:1}
 .item-row .item-info {display:flex;flex-direction:column;align-items:flex-start;justify-content:center;min-width:0;padding:12px 0;pointer-events:none}
 .item-name {font-size:19px;font-weight:540;letter-spacing:-.32px;line-height:1.18;text-overflow:ellipsis;overflow:hidden;white-space:nowrap;max-width:100%}
 .item-detail {font-size:11px;opacity:.76;font-weight:540;margin-top:4px}
@@ -63,11 +69,12 @@ button:focus-visible, input:focus-visible, select:focus-visible, .item-row:focus
 .empty-state button {border:1px solid #d9b29d;color:#aa4c34;background:white;padding:10px 18px;border-radius:20px;font-weight:680;margin-top:7px}
 .list-footer {flex:0 0 auto;background:#f6ede5;border-top:1px solid #ead7c9;padding:9px 16px calc(9px + var(--safe-bottom));text-align:center;z-index:2}
 .list-footer button {border:none;background:transparent;color:#9a5d47;font-weight:700;padding:7px 10px;font-size:12px}
-.completed-section {background:#e8dfd7;color:#736e68}
-.completed-section .store-header {background:#766a62}
-.completed-section .item-row {background:#e5ddd4;color:#746c65;text-decoration:line-through}
-.completed-section .item-detail,.completed-section .item-price {text-decoration:none}
-.completed-section .item-row {min-height:54px}
+.completed-section {background:#e5dfd8;color:#716a65}
+.completed-section .store-header {background:#80756d;min-height:45px}
+.completed-section .store-title {font-size:14px;font-weight:650}
+.completed-section .item-row {background:#e5dfd8!important;color:#8b8179!important;min-height:55px;opacity:.88}
+.completed-section .item-name {text-decoration:line-through;text-decoration-thickness:1.5px;text-decoration-color:#a89e96}
+.completed-section .item-detail,.completed-section .item-price {opacity:.52}
 .toast {position:absolute;bottom:calc(65px + var(--safe-bottom));left:14px;right:14px;z-index:10;display:flex;align-items:center;justify-content:space-between;gap:15px;background:#32251f;color:white;border-radius:14px;padding:12px 15px;box-shadow:0 10px 25px #3d211c50;font-size:13px}
 .toast button {background:transparent;color:#ffd596;border:0;font-weight:750;padding:3px 5px;white-space:nowrap}
 .modal-backdrop {position:fixed;z-index:40;inset:0;background:rgba(39,28,25,.48);backdrop-filter:blur(3px)}
@@ -250,7 +257,7 @@ function sanitizeState(raw){
 }
 function loadState(){try{return sanitizeState(JSON.parse(localStorage.getItem(STORAGE_KEY)))}catch{return blankState()}}
 let state=loadState();
-let mode='planning',showCompleted=false,composerOpen=false,currentSheet=null,toastTimeout=null,toastUndo=null,suppressClickUntil=0,gesture=null,dragTargetId=null;
+let mode='planning',showCompleted=true,composerOpen=false,currentSheet=null,toastTimeout=null,toastUndo=null,suppressClickUntil=0,gesture=null,dragTargetId=null;
 function save(){try{localStorage.setItem(STORAGE_KEY,JSON.stringify(state))}catch{showToast('Storage unavailable on this device. Export a backup before closing.')}}
 function update(){save();render()}
 function itemQty(item){const n=parseFloat(item.quantity);return Number.isFinite(n)&&n>0?n:1}
@@ -304,9 +311,13 @@ function itemRow(item,index,total,colors,departmentLabel='',completed=false){
   const ink=completed?'#6f665f':textColor(rowBg);
   const detail=[item.quantity&&item.quantity!=='1'?`${item.quantity} ×`:null,item.size||null,item.brand?`· ${item.brand}`:null].filter(Boolean).join(' ');
   const text=[item.name,detail,item.price===null?'Price unknown':`${formatPrice(item)} (${item.priceSource==='demo'?'demo':'manual'} price)`].filter(Boolean).join(', ');
-  return `<div class="item-row" role="button" tabindex="0" data-item-id="${escapeHTML(item.id)}" aria-label="${escapeHTML(text)}. Tap to edit; swipe right to mark ${completed?'not bought':'bought'}; swipe left to delete." style="--row-bg:${rowBg};--row-text:${ink}">
+  return `<div class="swipe-shell">
+    <span class="swipe-action complete" aria-hidden="true"><svg viewBox="0 0 32 32"><path d="M6 17l7 7L27 9"/></svg></span>
+    <span class="swipe-action delete" aria-hidden="true"><svg viewBox="0 0 32 32"><path d="M7 7l18 18M25 7L7 25"/></svg></span>
+    <div class="item-row" role="button" tabindex="0" data-item-id="${escapeHTML(item.id)}" aria-label="${escapeHTML(text)}. Tap to edit; swipe right to mark ${completed?'not bought':'bought'}; swipe left to delete." style="--row-bg:${rowBg};--row-text:${ink}">
     <div class="item-info">${departmentLabel?`<span class="item-department">${escapeHTML(departmentLabel)}</span>`:''}<span class="item-name">${escapeHTML(item.name)}</span>${detail?`<span class="item-detail">${escapeHTML(detail)}</span>`:''}</div>
     <div class="item-right"><span class="item-price ${item.price===null?'unknown':''}">${escapeHTML(formatPrice(item))}</span><span class="row-chevron" aria-hidden="true">›</span></div>
+    </div>
   </div>`;
 }
 function sortedStoreItems(items){return [...items].sort((a,b)=>DEPARTMENTS.indexOf(a.department)-DEPARTMENTS.indexOf(b.department)||a.order-b.order)}
@@ -344,9 +355,9 @@ function render(){
   $('summary').textContent=state.items.length?`${active.length} remaining · ${priceLabel}`:'Your list, your stores';
   let markup='';
   if(hasDemo)markup+='<div class="notice-bar">Sample prices are fictional — not current store prices</div>';
-  if(!active.length)markup+=emptyHTML();
+  if(!active.length&&!completed.length)markup+=emptyHTML();
   else {markup+=mode==='planning'?renderPlanning(active):renderShopping(active);if(mode==='shopping'&&unknown)markup+=`<div class="no-price-info">${unknown} ${unknown===1?'item has':'items have'} no verified price. Store choices are manual in this prototype.</div>`;}
-  if(showCompleted&&completed.length){markup+=`<section class="completed-section"><div class="store-header"><div class="store-title">Bought · ${completed.length}</div></div>${[...completed].sort((a,b)=>b.order-a.order).map((i,j)=>itemRow(i,j,completed.length,UNASSIGNED.gradient,'',true)).join('')}</section>`;}
+  if(showCompleted&&completed.length){markup+=`<section class="completed-section"><div class="store-header"><div class="store-title">Completed · ${completed.length}</div></div>${[...completed].sort((a,b)=>b.order-a.order).map((i,j)=>itemRow(i,j,completed.length,UNASSIGNED.gradient,'',true)).join('')}</section>`;}
   $('list-root').innerHTML=markup;
   $('list-footer').hidden=!completed.length;
   $('list-footer').innerHTML=completed.length?`<button type="button" id="toggle-completed">${showCompleted?'Hide':'Show'} bought items (${completed.length})</button><button type="button" id="clear-completed">Clear bought</button>`:'';
@@ -393,7 +404,7 @@ document.addEventListener('pointerdown',e=>{
     closeComposer();
   }
 },true);
-function switchMode(next){if(next===mode)return;mode=next;showCompleted=false;render();$('list-scroller').scrollTop=0;}
+function switchMode(next){if(next===mode)return;mode=next;render();$('list-scroller').scrollTop=0;}
 $('planning-tab').addEventListener('click',()=>switchMode('planning'));
 $('shopping-tab').addEventListener('click',()=>switchMode('shopping'));
 
@@ -407,7 +418,7 @@ function showToast(message,action,callback){
 function clearToast(){clearTimeout(toastTimeout);toastUndo=null;$('toast').hidden=true;}
 function changeCompleted(id,complete){
   const item=state.items.find(i=>i.id===id);if(!item)return;
-  const before=item.complete;item.complete=complete;update();
+  const before=item.complete;item.complete=complete;showCompleted=true;update();
   showToast(complete?`${item.name} bought`:`${item.name} returned to list`,'Undo',()=>{item.complete=before;update();});
 }
 function deleteItem(id){
@@ -576,7 +587,7 @@ function gestureMove(x,y,event){
   }
   if(gesture.kind==='swipe'){
     event?.preventDefault?.();
-    if(gesture.row){const clamped=Math.max(-160,Math.min(160,dx));gesture.row.style.transform=`translateX(${clamped}px)`;gesture.row.style.opacity=String(Math.max(.56,1-Math.abs(clamped)/390));}
+    if(gesture.row){const clamped=Math.max(-160,Math.min(160,dx));gesture.row.style.transform=`translateX(${clamped}px)`;gesture.row.style.opacity=String(Math.max(.56,1-Math.abs(clamped)/390));const shell=gesture.row.closest('.swipe-shell');shell?.classList.toggle('swiping-right',dx>10);shell?.classList.toggle('swiping-left',dx< -10);}
   }else if(gesture.kind==='pull'){event?.preventDefault?.();showPull(Math.max(0,dy));}
 }
 function gestureFinish(cancelled=false){
@@ -588,7 +599,7 @@ function gestureFinish(cancelled=false){
   if(row){
     if(commitSwipe){row.style.transition='transform 180ms ease-out,opacity 180ms ease-out';row.style.transform=`translateX(${dx>0?Math.max(innerWidth,460):-Math.max(innerWidth,460)}px)`;row.style.opacity='0';}
     else{row.style.transform='';row.style.opacity='';}
-    row.style.zIndex='';row.classList.remove('dragging');
+    row.style.zIndex='';row.classList.remove('dragging');row.closest('.swipe-shell')?.classList.remove('swiping-right','swiping-left');
   }
   scroller.querySelectorAll('.drop-target').forEach(el=>el.classList.remove('drop-target'));
   $('pull-hint').style.height='0px';$('pull-hint').classList.remove('active');
