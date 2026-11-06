@@ -101,6 +101,9 @@ Flipp offers relevant geographic distribution via retailer partnerships, flyers,
 
 Cloudflare Worker gateway paths:
 
+- `POST /api/pricing/vynn` (optional, user-owned VynnAI key)
+- `POST /api/pricing/reef-stores` and `/api/pricing/reef-search` (optional, user-owned ReefAPI key and explicit selected branch)
+
 - `GET /api/pricing/status`
 - `GET /api/pricing/open-prices?barcode=...` or `?name=...` (Canadian observations, up to two years old; historical)
 - `POST /api/pricing/grocerypulse-plan` (covered postal area or nearest documented reference city via FSA coordinates; fallback labelled)
@@ -115,6 +118,14 @@ These are fixed-destination, validated gateways rather than arbitrary open proxi
 `GET /api/pricing/catalog-search?name=...` is a single user-initiated full-text product search through `world.openfoodfacts.org/cgi/search.pl` with a bounded field selection, request size and output count. This endpoint only supplies catalogue attributes (name, brand, package size, country listing, barcode). It provides **no price evidence**. Selecting a result records the chosen barcode and its catalogue size, then requests `GET /api/pricing/open-prices?barcode=...`; when the user later opens Shop, only that exact barcode is eligible for an automatic Open Prices lookup.
 
 Open Food Facts requires attribution, Open Database License compliance, an identifying User-Agent, and respectful rate limits (10 search requests/minute/IP). The current Worker includes best-effort per-isolate throttling and short-lived caching; this is not a centralized distributed rate limiter. It is not permitted to treat a product listed in Canada as available at a particular store, or fabricate a price when no observation exists.
+
+## Optional Canadian retailer price APIs
+
+**VynnAI (Free tier, shopper key):** `POST /api/pricing/vynn`, forwarding a validated name or GTIN to either `GET https://vynn.ai/v1/products/search` or `/lookup`, using the individual user's Bearer key through the Worker. VynnAI currently advertises 500 requests per month on the Free plan and reference observations across 18 Canadian chains. The gateway passes the **province** derived from an entered full postal code; no false nearest-branch attribution. Offers without a real price are excluded and dates are retained only when supplied. The client can opt into a maximum eight auto-requests per day/device, after free-source searches, and automatic selection is restricted to dated, comparable **exact barcode** records with a known enabled retailer. VynnAI may still charge an unsuccessful/missing-product request against quota. The UI provides an on-demand search for names and variants, with explicit product selection.
+
+**ReefAPI Loblaw banners (individual key, metered credits):** `POST /api/pricing/reef-stores` and `POST /api/pricing/reef-search` call the fixed `https://api.reefapi.com/loblaws/v1/{stores|search}` routes using the shopper's x-api-key. Only the supported No Frills and Independent banners are allowed. A store-directory query sends only the first three postal characters. It produces branch IDs, addresses and provider-supplied distances; the UI allows the user to choose an exact branch and persists only that identifier and label. Item searches require the selected branch ID, never default to an unspecified store, and expose package size, price date, stock and special-price details when available. Search uses two credits per successful call under current pricing; branch listing also uses two. Free introductory credits are finite. Search results require explicit product choice and are never silently used for automatic price replacement.
+
+Neither vendor's API token is stored in a GitHub file, local list backup, Cloudflare Worker binding, shared cache, or response payload. User-entered keys are scoped to the user's browser session and sent only to a fixed upstream destination. The gateways use strict payload and size validation, bounded result counts, finite timeouts, and normalized responses. These are **user-funded options**, not platform-wide retailer coverage. Real authenticated response compatibility must be verified with legitimate keys.
 
 ## Optional user-funded Savvi adapter
 
