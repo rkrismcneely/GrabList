@@ -413,7 +413,7 @@ function findRows(source,keys){
   if(source?.data&&source.data!==source)return findRows(source.data,keys);
   return [];
 }
-function vynnResults(data,searchType,query){
+function vynnResults(data,searchType,query,requestedProvince){
   const products=findRows(data,['products','results','items','matches']);
   const entries=products.length?products:[data?.data&&typeof data.data==='object'?data.data:data];
   const rows=[];
@@ -432,6 +432,8 @@ function vynnResults(data,searchType,query){
       const price=Number(offer.current_price??offer.effective_price??offer.price);
       if(!Number.isFinite(price)||price<=0||price>10000)continue;
       if(offer.currency&&String(offer.currency).toUpperCase()!=='CAD')continue;
+      const offerProvince=plain(offer.province||offer.store?.province,2).toUpperCase();
+      if(offerProvince&&offerProvince!==requestedProvince)continue;
       const banner=plain(offer.banner||offer.retailer||offer.retailer_name||offer.chain,100);
       const store=offer.store&&typeof offer.store==='object'?offer.store:{};
       const oBarcode=plain(offer.upc||offer.gtin||barcode,20);
@@ -484,7 +486,7 @@ async function vynnLookup(request){
   if(!response.ok)return responseError('VynnAI could not return a price search right now.',503,'vynn_unavailable');
   let data;
   try{data=await response.json();}catch{return responseError('VynnAI returned unreadable JSON.',502,'vynn_invalid_response');}
-  const results=vynnResults(data,byBarcode?'barcode':'name',byBarcode?barcode:query);
+  const results=vynnResults(data,byBarcode?'barcode':'name',byBarcode?barcode:query,province);
   return json({provider:'VynnAI',results,province,chargedTo:'user_vynn_account',
     sourceUrl:'https://vynn.ai/',note:'Province-scoped reference store offers, not guaranteed prices at your own nearest branch. Undated or unverified matches require review.'});
 }
