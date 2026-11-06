@@ -24,3 +24,7 @@ The app stores list data locally on the device, supports swipe-to-complete and s
 Connect this GitHub repository to a new Cloudflare Pages project. Each push to `main` will automatically trigger a deployment after the Cloudflare integration is configured.
 
 The project is independent of Tales Without End.
+
+## Deployment refresh
+
+The Cloudflare Workers Builds integration deploys pushes to the `main` branch. Static assets are configured in `wrangler.jsonc` without an assets binding.
