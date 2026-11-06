@@ -58,9 +58,12 @@ function assess(item,c,opts={}){
  if(c.source!=='Statistics Canada'&&c.source!=='GroceryPulse'&&c.source!=='Open Prices'&&c.confidence!=='high')
   return {ok:false,reason:'unverified_retailer_match'};
  const age=ageDays(c.date,opts.now);
- const maxAge=c.source==='Statistics Canada'?400:c.source==='GroceryPulse'?45:c.source==='Épiceries.ca'?35:30;
+ const maxAge=c.source==='Statistics Canada'?400:c.source==='GroceryPulse'?45:
+   c.source==='Épiceries.ca'?35:c.source==='Open Prices'?730:30;
  if(age>maxAge)return {ok:false,reason:'stale_or_undated'};
- return {ok:true,reason:'matched',age,scope:scopeRank(c),sizeConfidence:c.sizeEvidence||'reported'};
+ return {ok:true,reason:'matched',age,
+   scope:scopeRank(c)+(c.source==='Open Prices'&&age>90?9:0),
+   sizeConfidence:c.sizeEvidence||'reported'};
 }
 function select(item,candidates,opts={}){
  const eligible=candidates.map(c=>({candidate:c,assessment:assess(item,c,opts)})).filter(x=>x.assessment.ok);
