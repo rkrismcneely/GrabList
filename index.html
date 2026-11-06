@@ -295,6 +295,8 @@ const storeById = id => STORES.find(s=>s.id===id);
 const uid = () => (globalThis.crypto?.randomUUID?.() || `item-${Date.now()}-${Math.random().toString(36).slice(2,9)}`);
 const normalizedKey = str => String(str||'').toLowerCase().normalize('NFKD').replace(/[\u0300-\u036f]/g,'').replace(/\b\d+(?:[.,]\d+)?\s?(?:kg|g|lb|l|ml|oz|packs?|pk|ct)\b/gi,'').replace(/[^a-z0-9\s]/g,' ').replace(/\s+/g,' ').trim();
 
+const DEFAULT_SIZES={'milk':'4 L'}; // Starter preference; explicit user choices always override.
+function inferredSize(name,profile){return profile?.size||DEFAULT_SIZES[normalizedKey(name)]||'';}
 function blankState(){return {version:1,items:[],enabledStoreIds:STORES.map(s=>s.id),storeOrderIds:STORES.map(s=>s.id),profiles:{},postalCode:'',savingsThreshold:5,nextOrder:1};}
 function sanitizeItem(raw,index){
   if(!raw||typeof raw!=='object'||typeof raw.name!=='string'||!raw.name.trim())return null;
@@ -346,6 +348,22 @@ function sanitizeState(raw){
 }
 function loadState(){try{return sanitizeState(JSON.parse(localStorage.getItem(STORAGE_KEY)))}catch{return blankState()}}
 let state=loadState();
+function reconcileKnownPackageSizes(){
+ let changed=false;
+ for(const item of state.items){
+   // The original milk-only default was accidentally matched to a 2 L
+   // national average without any package size. Correct that legacy estimate.
+   if(normalizedKey(item.name)!=='milk'||item.size||item.brand)continue;
+   const preference=inferredSize(item.name,state.profiles[normalizedKey(item.name)]);
+   if(!preference)continue;
+   item.size=preference;changed=true;
+   if(item.priceSource==='reference'&&item.priceEvidence?.source==='Statistics Canada'){
+     item.price=null;item.priceSource=null;item.priceEvidence=null;
+   }
+ }
+ if(changed)try{localStorage.setItem(STORAGE_KEY,JSON.stringify(state))}catch{}
+}
+reconcileKnownPackageSizes();
 let mode='planning',showCompleted=true,composerOpen=false,currentSheet=null,toastTimeout=null,toastUndo=null,suppressClickUntil=0,gesture=null,dragTargetId=null;
 function save(){try{localStorage.setItem(STORAGE_KEY,JSON.stringify(state))}catch{showToast('Storage unavailable on this device. Export a backup before closing.')}}
 function autoAssignUnpricedItems(){
@@ -401,7 +419,7 @@ function detectDepartment(value){
 function newItem(raw){
   const parsed=parseEntry(raw);
   const profile=state.profiles[normalizedKey(parsed.name)]||{};
-  const item={id:uid(),name:parsed.name,barcode:'',quantity:'1',size:parsed.size||profile.size||'',brand:parsed.brand||'',department:profile.department||detectDepartment(parsed.name),storeId:null,storeAutoAssigned:false,storeManuallyCleared:false,offers:[],price:null,priceSource:null,priceEvidence:null,complete:false,order:state.nextOrder++,createdAt:Date.now()};
+  const item={id:uid(),name:parsed.name,barcode:'',quantity:'1',size:parsed.size||inferredSize(parsed.name,profile),brand:parsed.brand||'',department:profile.department||detectDepartment(parsed.name),storeId:null,storeAutoAssigned:false,storeManuallyCleared:false,offers:[],price:null,priceSource:null,priceEvidence:null,complete:false,order:state.nextOrder++,createdAt:Date.now()};
   state.items.unshift(item);
   update();
   if(mode==='shopping')globalThis.GrabListAutoPrices?.();
