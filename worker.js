@@ -157,24 +157,38 @@ function normalMeasure(value){
   if(u.startsWith('egg')||u==='ct'||u==='count')return n+'ct';
   return n+(u.startsWith('gram')?'g':u);
 }
+function governmentMatch(name,size){
+  const record=STATS_CANADA_SEPTEMBER_2026.find(r=>r.test.test(name)&&!(r.not&&r.not.test(name)));
+  if(!record)return null;
+  return {
+    price:record.price,currency:'CAD',productName:record.name,pack:record.pack,
+    matchStatus:!size||normalMeasure(size)===normalMeasure(record.pack)?'reference_size':'different_size',
+    requestedSize:size||null,observedAt:'2026-09',sourceMonth:'September 2026',
+    city:'Canada',storeName:'Canadian average (all retailers)',
+    sourceUrl:'https://www.statcan.gc.ca/en/topics-start/food-price',
+    sourceTable:'18-10-0245-01'
+  };
+}
+async function governmentList(request){
+  if(request.method!=='POST')return responseError('POST required',405);
+  let input;
+  try{const text=await request.text();if(text.length>12000)return responseError('Too many items',413);
+    input=JSON.parse(text);}catch{return responseError('Invalid JSON');}
+  if(!Array.isArray(input?.items)||input.items.length>75)return responseError('Choose up to 75 list items');
+  const results=input.items.map(x=>{
+    const id=String(x?.id||'').slice(0,100),name=String(x?.name||'').slice(0,110),size=String(x?.size||'').slice(0,40);
+    const match=governmentMatch(name,size);
+    return id&&name&&match&&match.matchStatus==='reference_size'?{id,reference:match}:null;
+  }).filter(Boolean);
+  return json({provider:'Statistics Canada',scope:'national_average',results});
+}
 function governmentReference(request){
   if(request.method!=='GET')return responseError('GET required',405);
   const url=new URL(request.url),name=String(url.searchParams.get('name')||'').trim().slice(0,110);
   const size=String(url.searchParams.get('size')||'').trim().slice(0,40);
   if(name.length<3)return responseError('A product name is required.');
-  const record=STATS_CANADA_SEPTEMBER_2026.find(r=>r.test.test(name)&&!(r.not&&r.not.test(name)));
-  if(!record)return json({provider:'Statistics Canada',results:[],scope:'national_average'});
-  const sameSize=!size||normalMeasure(size)===normalMeasure(record.pack);
-  return json({provider:'Statistics Canada',scope:'national_average',results:[{
-    price:record.price,currency:'CAD',productName:record.name,pack:record.pack,
-    matchStatus:sameSize?'reference_size':'different_size',
-    requestedSize:size||null,
-    observedAt:'2026-09',sourceMonth:'September 2026',
-    city:'Canada',storeName:'Canadian average (all retailers)',
-    sourceUrl:'https://www.statcan.gc.ca/en/topics-start/food-price',
-    sourceTable:'18-10-0245-01',
-    note:'National monthly average, not an individual retailer or local store price. The reference pack may differ from the item requested.'
-  }]});
+  const reference=governmentMatch(name,size);
+  return json({provider:'Statistics Canada',scope:'national_average',results:reference?[reference]:[]});
 }
 export default {
   async fetch(request,env){
@@ -183,6 +197,7 @@ export default {
     if(pathname==='/api/pricing/open-prices')return openPrices(request);
     if(pathname==='/api/pricing/grocerypulse-plan')return groceryPulse(request);
     if(pathname==='/api/pricing/national-reference')return governmentReference(request);
+    if(pathname==='/api/pricing/national-reference-list')return governmentList(request);
     if(pathname.startsWith('/api/'))return responseError('Unknown API route',404,'not_found');
     return env.ASSETS.fetch(request);
   }
