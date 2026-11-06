@@ -220,7 +220,13 @@ const STORES = [
   {id:'gianttiger',name:'Giant Tiger',gradient:['#D78C0B','#E5A619','#F0BE35','#FFCD00','#FFE48A'],deep:'#B57811'}
 ];
 const UNASSIGNED = {id:'unassigned',name:'Needs a store',gradient:['#706d69','#a49c94','#d6cdc3'],deep:'#595653'};
-const DEPARTMENTS = ['Produce','Bakery','Dairy & Eggs','Meat & Seafood','Deli','Frozen','Pantry','Snacks','Beverages','Household','Personal Care','Other'];
+// Store sections follow the user's in-store shopping route; remaining categories come last.
+const DEPARTMENTS = ['Produce','Bakery','Deli','Meat','Pantry','Snacks','Beverages','Dairy','Frozen','Household','Personal Care','Other'];
+function normalizeDepartment(value){
+  const oldNames={'Dairy & Eggs':'Dairy','Meat & Seafood':'Meat'};
+  const department=oldNames[value]||value;
+  return DEPARTMENTS.includes(department)?department:null;
+}
 const PLANNING_GRADIENT = ['#df4335','#f18a35','#f5d24d'];
 const currency = new Intl.NumberFormat('en-CA',{style:'currency',currency:'CAD'});
 const $ = (id) => document.getElementById(id);
@@ -238,7 +244,7 @@ function sanitizeItem(raw,index){
     id: typeof raw.id==='string'&&raw.id.length<=100?raw.id:uid(),
     name:raw.name.trim().slice(0,110), quantity:String(raw.quantity||'1').slice(0,16),
     size:String(raw.size||'').slice(0,40), brand:String(raw.brand||'').slice(0,75),
-    department:DEPARTMENTS.includes(raw.department)?raw.department:detectDepartment(raw.name),
+    department:normalizeDepartment(raw.department)||detectDepartment(raw.name),
     storeId,price:Number.isFinite(price)&&price>=0&&price<=99999?Math.round(price*100)/100:null,
     priceSource:['manual','demo'].includes(raw.priceSource)?raw.priceSource:null,
     complete:Boolean(raw.complete), order:Number.isFinite(Number(raw.order))?Number(raw.order):index+1,
@@ -253,7 +259,7 @@ function sanitizeState(raw){
   const profiles={};
   if(raw.profiles&&typeof raw.profiles==='object')for(const [key,p] of Object.entries(raw.profiles).slice(0,1000)){
     if(!p||typeof p!=='object')continue;
-    profiles[String(key).slice(0,110)]={department:DEPARTMENTS.includes(p.department)?p.department:null,size:String(p.size||'').slice(0,40)};
+    profiles[String(key).slice(0,110)]={department:normalizeDepartment(p.department),size:String(p.size||'').slice(0,40)};
   }
   return {...base,items:arr,enabledStoreIds:[...new Set(enabled)],profiles,savingsThreshold:Math.min(100,Math.max(0,Number(raw.savingsThreshold)||0)),nextOrder:Math.max(1,Number(raw.nextOrder)||1,...arr.map(i=>i.order+1))};
 }
@@ -281,9 +287,9 @@ function detectDepartment(value){
   const v=String(value||'').toLowerCase();
   const groups=[
     ['Produce',/\b(apple|banana|avocado|lettuce|carrot|potato|onion|tomato|cucumber|pepper|spinach|broccoli|grape|berry|berries|orange|lemon|lime|pear|peach|mushroom|salad|cilantro|asparagus|zucchini|celery|garlic|ginger|melon|produce)\b/],
-    ['Dairy & Eggs',/\b(milk|butter|cheese|yogurt|yoghurt|egg|eggs|cream|cottage cheese|margarine|sour cream|kefir)\b/],
+    ['Dairy',/\b(milk|butter|cheese|yogurt|yoghurt|egg|eggs|cream|cottage cheese|margarine|sour cream|kefir)\b/],
     ['Bakery',/\b(bread|bagel|bun|rolls|croissant|tortilla|muffin|pita|naan|wraps|buns|baguette)\b/],
-    ['Meat & Seafood',/\b(chicken|beef|steak|pork|fish|salmon|shrimp|bacon|ground beef|turkey|sausage|ham|lamb|meat)\b/],
+    ['Meat',/\b(chicken|beef|steak|pork|fish|salmon|shrimp|bacon|ground beef|turkey|sausage|ham|lamb|meat)\b/],
     ['Deli',/\b(deli|salami|pepperoni|sliced meat|hummus|prepared salad)\b/],
     ['Frozen',/\b(frozen|ice cream|popsicle|french fries|pizza|nugget|hash brown)\b/],
     ['Pantry',/\b(coffee|tea|flour|sugar|oats|oatmeal|cereal|rice|pasta|sauce|oil|vinegar|peanut butter|jam|syrup|beans|soup|spice|salt|peppercorn|canned|honey|baking)\b/],
@@ -499,10 +505,10 @@ $('store-options').addEventListener('change',e=>{
 $('savings-input').addEventListener('change',e=>{const v=Number(e.target.value);state.savingsThreshold=Math.max(0,Math.min(100,Number.isFinite(v)?v:5));update();e.target.value=state.savingsThreshold;});
 
 const DEMO=[
-  ['Bananas','1 kg','Produce','nofrills',1.68],['Cheddar cheese','400 g','Dairy & Eggs','nofrills',4.44],['Bread','1 loaf','Bakery','nofrills',2.49],
-  ['Milk','4 L','Dairy & Eggs','walmart',6.19],['Eggs','12 large','Dairy & Eggs','walmart',3.79],['Coffee','816 g','Pantry','walmart',11.97],
+  ['Bananas','1 kg','Produce','nofrills',1.68],['Cheddar cheese','400 g','Dairy','nofrills',4.44],['Bread','1 loaf','Bakery','nofrills',2.49],
+  ['Milk','4 L','Dairy','walmart',6.19],['Eggs','12 large','Dairy','walmart',3.79],['Coffee','816 g','Pantry','walmart',11.97],
   ['Apples','2 lb','Produce','freshco',3.49],['Frozen pizza','1 box','Frozen','freshco',4.99],
-  ['Chicken breasts','1 kg','Meat & Seafood','independent',12.99],['Yogurt','750 g','Dairy & Eggs','independent',3.99],
+  ['Chicken breasts','1 kg','Meat','independent',12.99],['Yogurt','750 g','Dairy','independent',3.99],
   ['Oatmeal','1 kg','Pantry','costco',7.99],['Paper towels','6 rolls','Household','costco',13.99],
   ['Potatoes','10 lb','Produce','gianttiger',4.99],['Dish soap','1 L','Household','gianttiger',2.79]
 ];
