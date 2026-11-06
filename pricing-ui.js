@@ -970,6 +970,8 @@ async function runFullPriceComparison(){
   return;
  }
  const run=items.slice();
+ const progress=$id('compare-progress');
+ if(progress){progress.max=run.length;progress.value=0;progress.hidden=false;}
  comparisonBusy=true;comparisonCandidates.clear();
  const refresh=$id('compare-refresh-prices');
  if(refresh)refresh.disabled=true;
@@ -1014,6 +1016,7 @@ async function runFullPriceComparison(){
     }
    }));
    scanned+=Math.min(2,run.length-index);
+   if(progress)progress.value=scanned;
    root.textContent='Checking sources… '+scanned+' of '+run.length+
      ' items. '+updated+' price'+(updated===1?'':'s')+' refreshed.';
   }
@@ -1021,6 +1024,7 @@ async function runFullPriceComparison(){
 
  }finally{
   comparisonBusy=false;
+  if(progress)progress.hidden=true;
   if(refresh)refresh.disabled=false;
  }
 }
