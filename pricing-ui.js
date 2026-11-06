@@ -7,7 +7,7 @@ const money=value=>new Intl.NumberFormat('en-CA',{style:'currency',currency:'CAD
 const safe=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\u0027':'&#39;'}[c]));
 const status=$id('lookup-item-results');
 const nameForCity=d=>String(d?.data?.city?.name||d?.referenceMarket?.name||'Canadian reference city');
-let lastRequestTime=0,referenceChoices=[];
+let lastRequestTime=0,referenceChoices=[],catalogueChoices=[];
 const cooldown=()=>{const now=Date.now();if(now-lastRequestTime<2500)return false;lastRequestTime=now;return true;};
 async function requestJson(url,opts={}){
   const {timeoutMs=20000,...fetchOptions}=opts;
@@ -126,10 +126,15 @@ function fromOpenPrice(item,result){
   const date=offerDate(result.date);
   if(!Number.isFinite(price)||price<=0||!date||Date.now()-Date.parse(date+'T12:00:00Z')>731*86400000)return null;
   const storeId=storeIdForName(result.storeName);
+  const catalogVerified=item.barcode&&item.barcode===result.barcode&&item.catalogueSize&&item.size&&
+    GrabListIntelligence.measure(item.catalogueSize)===GrabListIntelligence.measure(item.size);
   return {price,source:'Open Prices',date,storeId,storeName:result.storeName||'Observed Canadian store',
     city:result.city||result.storeAddress||'Canada',scope:'observed_branch',geographicRank:rankLocation(result,state.postalCode),url:result.sourceUrl,
-    productName:result.productName||item.name,pricePer:'UNIT',packageSize:result.productQuantity||'',
-    confidence:item.barcode?'high':'unverified name match',matchType:item.barcode?'barcode':'name'};
+    productName:result.productName||item.name,pricePer:'UNIT',
+    packageSize:result.productQuantity||(catalogVerified?item.catalogueSize:''),
+    sizeEvidence:result.productQuantity?'reported':catalogVerified?'catalogue_barcode':'not_reported',
+    barcode:result.barcode||'',confidence:item.barcode?'high':'unverified name match',
+    matchType:item.barcode?'barcode':'name'};
 }
 function fromGroceryPulse(payload,item){
   const plan=payload?.data||{},line=Array.isArray(plan.lines)?plan.lines[0]:null;
@@ -282,14 +287,15 @@ $id('look-up-item-price').addEventListener('click',async()=>{
   if(barcode&&!/^\d{8,14}$/.test(barcode)){status.textContent='Enter an 8–14 digit barcode.';return;}
   if(!barcode&&name.length<3){status.textContent='Enter at least 3 letters of the item name.';return;}
   const lookupItem={...item,barcode:barcode||'',name,size:$id('edit-size').value.trim(),brand:$id('edit-brand').value.trim()};
-  referenceChoices=[];
+  referenceChoices=[];catalogueChoices=[];
   const button=$id('look-up-item-price');
   button.disabled=true;button.textContent='Searching…';
   status.textContent='Checking Canadian store observations and broader reference prices…';
   const requests=[
     requestJson('/api/pricing/open-prices?'+new URLSearchParams(barcode?{barcode}:{name})),
     getPulse(lookupItem),
-    requestJson('/api/pricing/national-reference?'+new URLSearchParams({name,size:lookupItem.size||''}))
+    requestJson('/api/pricing/national-reference?'+new URLSearchParams({name,size:lookupItem.size||''})),
+    barcode?Promise.resolve({results:[]}):requestJson('/api/pricing/catalog-search?'+new URLSearchParams({name}))
   ];
   const settled=await Promise.allSettled(requests);
   let notes='',candidates=[],errors=[];
@@ -319,9 +325,73 @@ $id('look-up-item-price').addEventListener('click',async()=>{
       notes+='<p class="sheet-help">Statistics Canada average: '+safe(r.productName)+' ≈'+money(r.price)+
         ' (September 2026). Different package size; not assigned automatically.</p>';
   }else errors.push('Statistics Canada: '+settled[2].reason.message);
+  let catalogueHtml='';
+  if(settled[3].status==='fulfilled'){
+    catalogueChoices=(Array.isArray(settled[3].value?.results)?settled[3].value.results:[]).slice(0,12);
+    if(catalogueChoices.length){
+      catalogueHtml='<details class="catalogue-matches" '+(candidates.length?'':'open')+'><summary>Find exact product · '+catalogueChoices.length+' catalogue options</summary>'+
+        '<p class="sheet-help">These are products and barcodes, not price quotes. Choose a variant to check any crowdsourced prices for its exact barcode.</p>'+
+        catalogueChoices.map((p,i)=>'<article class="source-price-card"><strong>'+safe(p.productName)+'</strong>'+
+          '<div class="source-price-small">'+safe(p.brand||'Brand not recorded')+
+          ' · '+safe(p.packageSize||'Size not recorded')+
+          ' · '+safe(p.countryCoverage==='canada'?'Listed in Canada':'Canadian availability unconfirmed')+'</div>'+
+          '<div class="source-price-foot"><a href="'+safe(p.sourceUrl)+'" target="_blank" rel="noopener noreferrer">Product details</a></div>'+
+          '<button type="button" class="source-price-use" data-catalogue-choice="'+i+'">Use this product and check barcode prices</button></article>').join('')+'</details>';
+    }
+  }else errors.push('Product catalogue: '+settled[3].reason.message);
   const chosen=renderChoices(candidates,item);
-  status.innerHTML=chosen+notes+(errors.length?'<p class="sheet-help">Sources unavailable: '+safe(errors.join(' · '))+'</p>':'');
+  status.innerHTML=chosen+catalogueHtml+notes+
+    (errors.length?'<p class="sheet-help">Sources unavailable: '+safe(errors.join(' · '))+'</p>':'');
   button.disabled=false;button.textContent='Search public prices';
+});
+status.addEventListener('click',async event=>{
+  const button=event.target.closest('[data-catalogue-choice]');
+  if(!button||button.disabled)return;
+  const match=catalogueChoices[Number(button.dataset.catalogueChoice)];
+  const item=state.items.find(i=>i.id===$id('edit-id').value);
+  if(!match||!item||!(/^\d{8,14}$/.test(match.barcode)))return;
+  const previousSize=$id('edit-size').value.trim(),newSize=match.packageSize||'';
+  const previousBrand=$id('edit-brand').value.trim();
+  if(previousSize&&newSize&&GrabListIntelligence.measure(previousSize)!==GrabListIntelligence.measure(newSize)){
+    if(!confirm('This product is '+newSize+' instead of your requested '+previousSize+'. Change the item to '+newSize+'?'))return;
+  }
+  if(previousBrand&&match.brand&&GrabListIntelligence.clean(previousBrand)!==GrabListIntelligence.clean(match.brand)){
+    if(!confirm('This is '+match.brand+', not '+previousBrand+'. Change to the selected product?'))return;
+  }
+  if(item.price!==null&&item.priceSource==='manual'&&
+    !confirm('Choosing a different product clears its previous manually recorded price. Continue?'))return;
+  const originalId=item.barcode;
+  item.barcode=match.barcode;
+  item.catalogueSize=newSize||'';
+  if(newSize){item.size=newSize;$id('edit-size').value=newSize;}
+  if(match.brand){item.brand=match.brand;$id('edit-brand').value=match.brand;}
+  $id('edit-barcode').value=match.barcode;
+  if(originalId!==match.barcode&&item.price!==null){
+    item.price=null;item.priceSource=null;item.priceEvidence=null;$id('edit-price').value='';
+  }
+  // Learn only the product type and package size, never an automatic brand lock.
+  state.profiles[normalizedKey(item.name)]={department:item.department,size:item.size};
+  save();render();
+  button.disabled=true;button.textContent='Checking barcode…';
+  status.insertAdjacentHTML('afterbegin','<p class="sheet-help">Selected '+safe(match.productName)+
+    ' ('+safe(match.barcode)+'). Checking recent Canadian store observations…</p>');
+  try{
+    const payload=await requestJson('/api/pricing/open-prices?'+new URLSearchParams({barcode:match.barcode}));
+    if($id('edit-id').value!==item.id)return;
+    const observations=Array.isArray(payload.results)?payload.results:[];
+    const priced=observations.map(r=>fromOpenPrice(item,r)).filter(Boolean);
+    const best=GrabListIntelligence.select(item,priced,{
+      enabledStores:state.enabledStoreIds,storeOrder:state.storeOrderIds
+    }).best;
+    if(best&&item.price===null)recordReference(item,best);
+    status.innerHTML='<p class="sheet-help"><strong>'+safe(match.productName)+'</strong> · '+safe(newSize||'size unconfirmed')+
+      (best?' · Best recent recorded price: ≈'+money(best.price):' · No recent Canadian price for this barcode')+
+      '. A catalogued product does not guarantee local availability.</p>'+
+      (priced.length?renderChoices(priced,item):'<p class="sheet-help">The product identity is saved. You can add a manual price or check again when new observations are published.</p>');
+  }catch(error){
+    status.insertAdjacentHTML('afterbegin','<p class="sheet-help">Barcode lookup unavailable: '+safe(error.message)+
+      '. Your product selection was saved.</p>');
+  }finally{button.disabled=false;}
 });
 status.addEventListener('click',event=>{
   const button=event.target.closest('[data-use-reference]');
