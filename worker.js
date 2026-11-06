@@ -501,7 +501,7 @@ function reefBranchRows(data,storeId){
       postalCode:plain(v.postal_code||v.postalCode,16),
       lat:Number.isFinite(lat)&&lat>=40&&lat<=85?lat:null,
       lon:Number.isFinite(lon)&&lon>=-142&&lon<=-52?lon:null,
-      distanceKm:Number.isFinite(Number(v.distance_km))?Number(v.distance_km):null,
+      distanceKm:v.distance_km!==null&&v.distance_km!==undefined&&Number.isFinite(Number(v.distance_km))?Number(v.distance_km):null,
       storeId
     };
   }).filter(v=>v.id);
@@ -525,7 +525,15 @@ function reefSearchRows(data,storeId,branchId){
       memberPrice:Number.isFinite(Number(row.member_price))?Number(row.member_price):null,
       sale:Boolean(row.deal?.type==='sale'||row.sale),
       stock:plain(row.stock_status,35),
-      sourceUrl:plain(row.url||row.product_url,250),
+      sourceUrl:(()=>{
+        const candidate=plain(row.url||row.product_url,250);
+        try{
+          const u=new URL(candidate);
+          return u.protocol==='https:'&&['www.nofrills.ca','nofrills.ca',
+            'www.yourindependentgrocer.ca','yourindependentgrocer.ca',
+            'www.independentgrocer.ca','independentgrocer.ca'].includes(u.hostname)?u.href:'';
+        }catch{return '';}
+      })(),
       currency:'CAD',
       confidence:'unverified',sizeEvidence:'retailer_catalogue'
     };
