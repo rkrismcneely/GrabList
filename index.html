@@ -464,7 +464,7 @@ function render(){
   $('shopping-tab').setAttribute('aria-selected',String(mode==='shopping'));
   const active=state.items.filter(i=>!i.complete),completed=state.items.filter(i=>i.complete),unknown=active.filter(i=>i.price===null).length;
   const hasDemo=state.items.some(i=>i.priceSource==='demo');
-  const known=knownTotal(active);const demoCount=active.filter(i=>i.priceSource==='demo').length;const referenceCount=active.filter(i=>i.priceSource==='reference').length;const priceLabel=knownCount(active)?`${currency.format(known)} in ${referenceCount?'reference/manual':demoCount?'example/manual':'recorded'} prices`:'Prices not yet connected';
+  const known=knownTotal(active);const demoCount=active.filter(i=>i.priceSource==='demo').length;const referenceCount=active.filter(i=>i.priceSource==='reference').length;const priceLabel=knownCount(active)?`${currency.format(known)} in ${referenceCount?'reference/manual':demoCount?'example/manual':'recorded'} prices`:'Finding available prices…';
   $('summary').textContent=state.items.length?`${active.length} remaining · ${priceLabel}`:'Your list, your stores';
   let markup='';
   if(hasDemo)markup+='<div class="notice-bar">Sample prices are fictional — not current store prices</div>';
