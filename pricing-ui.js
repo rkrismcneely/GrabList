@@ -754,11 +754,14 @@ async function autoPriceOne(item){
  const current=state.items.find(i=>i.id===item.id);
  if(!current||current.complete||current.priceSource==='manual'||current.priceSource==='demo')return;
  if(autoKey(current)!==key)return; // Item changed during lookup.
- const chosen=autoPick(current,choices);
+ const priced=GrabListIntelligence.select(current,choices,{
+   enabledStores:state.enabledStoreIds,storeOrder:state.storeOrderIds
+ }).eligible.map(x=>x.candidate);
+ // Only the actual assigned retailer (or a clearly labelled national
+ // average) may supply the row's price.
+ const chosen=priced.find(c=>c.storeId===current.storeId&&c.storeId)||
+   priced.find(c=>!c.storeId)||null;
  if(!chosen)return;
- // Do not attach a price observed at another retailer to this item's
- // existing store, even when the variant is otherwise compatible.
- if(chosen.storeId&&chosen.storeId!==current.storeId)return;
  // Preserve any user-selected reference. Only replace a national average
  // with a geographically more useful, same-size regional observation.
  if(current.price!==null&&current.priceSource!=='reference')return;
@@ -899,7 +902,7 @@ async function runFullPriceComparison(){
       .find(c=>c.storeId&&c.storeId===current.storeId);
     // A national estimate may fill a gap; a reference for an entirely
     // different retailer must never be displayed as this store's price.
-    const selected=sameStore||eligible.best&&(!eligible.best.storeId?eligible.best:null);
+    const selected=sameStore||eligible.eligible.map(x=>x.candidate).find(c=>!c.storeId)||null;
     if(comparisonRefreshAllowed(current,selected)){
       if(recordReference(current,selected))updated++;
     }
