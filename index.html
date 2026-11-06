@@ -373,6 +373,7 @@ function sanitizeItem(raw,index){
       pricePer:String(raw.priceEvidence.pricePer||'').slice(0,30),
       packageSize:String(raw.priceEvidence.packageSize||'').slice(0,40),
       sizeEvidence:String(raw.priceEvidence.sizeEvidence||'').slice(0,50),
+      branchId:String(raw.priceEvidence.branchId||'').slice(0,70),
       recordedAt:Number(raw.priceEvidence.recordedAt)||0
     }:null,
     complete:Boolean(raw.complete), order:Number.isFinite(Number(raw.order))?Number(raw.order):index+1,
