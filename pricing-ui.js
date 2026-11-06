@@ -68,7 +68,7 @@ function chooseCandidate(item,candidates){
   })[0]||null;
 }
 function candidateCard(candidate,index){
-  const distance=candidate.scope==='observed_branch'?'Store observation, not a guaranteed price':'Reference market estimate, not a local shelf price';
+  const distance=candidate.scope==='observed_branch'?'Store observation, not a guaranteed price':candidate.scope==='national_average'?'Published Canadian average, not a local shelf price':'Reference market estimate, not a local shelf price';
   return '<article class="source-price-card"><div class="source-price-head"><strong>'+safe(candidate.storeName)+'</strong><b>≈'+money(candidate.price)+'</b></div>'+
    '<div class="source-price-small">'+safe(candidate.productName||'Reference product')+' · '+safe(candidate.city)+'</div>'+
    '<div class="source-price-small">'+safe(distance)+'</div>'+
@@ -118,6 +118,16 @@ function fromGroceryPulse(payload,item){
       productName:item.name+(item.size?' · '+item.size:''),pricePer:'UNIT'};
   });
 }
+function fromNational(payload,item){
+  const results=Array.isArray(payload?.results)?payload.results:[];
+  return results.map(r=>({
+    price:Number(r.price),source:'Statistics Canada',date:String(r.observedAt||''),
+    storeId:null,storeName:'Statistics Canada · national average',city:'Canada',
+    scope:'national_average',url:r.sourceUrl||'https://www.statcan.gc.ca/en/topics-start/food-price',
+    productName:r.productName+' ('+r.pack+')',pricePer:'UNIT',
+    matchStatus:r.matchStatus
+  })).filter(r=>Number.isFinite(r.price)&&r.price>0);
+}
 async function getPulse(item){
   const list=[item.name,item.size,item.brand].filter(Boolean).join(' ').slice(0,120);
   return requestJson('/api/pricing/grocerypulse-plan',{
@@ -139,7 +149,8 @@ $id('look-up-item-price').addEventListener('click',async()=>{
   status.textContent='Checking Canadian store observations and broader reference prices…';
   const requests=[
     requestJson('/api/pricing/open-prices?'+new URLSearchParams(barcode?{barcode}:{name})),
-    getPulse(lookupItem)
+    getPulse(lookupItem),
+    requestJson('/api/pricing/national-reference?'+new URLSearchParams({name,size:lookupItem.size||''}))
   ];
   const settled=await Promise.allSettled(requests);
   let html='',candidates=[],sourceErrors=[];
@@ -166,11 +177,22 @@ $id('look-up-item-price').addEventListener('click',async()=>{
       else html+='<p class="sheet-help">No fully matched, priced '+safe(name)+' item in '+safe(city)+' reference-market data.</p>';
     }
   }else sourceErrors.push('GroceryPulse: '+settled[1].reason.message);
+  if(settled[2].status==='fulfilled'){
+    const national=fromNational(settled[2].value,lookupItem);
+    if(national.length){
+      const matched=national.filter(x=>x.matchStatus==='reference_size');
+      html+='<p class="sheet-help"><strong>Statistics Canada fallback:</strong> monthly nationwide retail averages from September 2026. These describe a standard package, not the shelf price at any particular store.</p>'+
+        national.map(n=>n.matchStatus==='different_size'
+          ?'<article class="source-price-card"><div class="source-price-head"><strong>'+safe(n.productName)+'</strong><b>'+money(n.price)+'</b></div><div class="source-price-small">Different package size from your item; shown for context only.</div><div class="source-price-foot">September 2026 · Statistics Canada · <a href="'+safe(n.url)+'" target="_blank" rel="noopener noreferrer">View source</a></div></article>'
+          :candidateCard(n,candidates.length+matched.indexOf(n))).join('');
+      candidates.push(...matched);
+    }
+  }else sourceErrors.push('Statistics Canada: '+settled[2].reason.message);
   referenceChoices=candidates;
   if(candidates.length){
     const target=state.items.find(i=>i.id===id);
     const best=chooseCandidate(target,candidates);
-    if(target.price===null||target.priceSource==='reference'){
+    if(target&&(target.price===null||target.priceSource==='reference')){
       if(recordReference(target,best)){
         html='<p class="sheet-help"><strong>Estimated '+money(best.price)+'</strong> using '+safe(best.storeName)+' in '+safe(best.city)+'. Your item remains assigned to '+safe(storeById(target.storeId)?.name||'its current store')+'. You can choose a different reference or enter your actual price in Edit.</p>'+html;
       }
