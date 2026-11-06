@@ -19,10 +19,17 @@ const ageDays=(date,now=Date.now())=>{
  const t=Date.parse(date+'T12:00:00Z');
  return Number.isFinite(t)?Math.max(0,(now-t)/86400000):Infinity;
 };
-const scopeRank=c=>({
- observed_branch:0,covered_postal_area:1,nearest_reference_city:2,
- province_reference:3,reference_city:4,canadian_reference:5,national_average:6
-})[c.scope]??7;
+const scopeRank=c=>{
+ if(c.scope==='observed_branch'){
+  // An observed branch in a different province is not automatically the
+  // most relevant evidence merely because it is a store-specific price.
+  return c.geographicRank===0?0:c.geographicRank===1?1:c.geographicRank===2?4:8;
+ }
+ return ({
+  covered_postal_area:2,nearest_reference_city:3,province_reference:4,
+  reference_city:5,canadian_reference:6,national_average:7
+ })[c.scope]??9;
+};
 function assess(item,c,opts={}){
  if(!c||!Number.isFinite(c.price)||c.price<=0)return {ok:false,reason:'invalid_price'};
  if(c.storeId&&opts.enabledStores&&!opts.enabledStores.includes(c.storeId))return {ok:false,reason:'disabled_store'};
