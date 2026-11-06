@@ -767,7 +767,7 @@ async function autoPriceOne(item){
 /* One-tap comparison: fetch all active items from sources that permit direct
    queries. Delivery apps are review links, never silently scraped. */
 const comparisonCandidates=new Map();
-let comparisonBusy=false;
+let comparisonBusy=false,comparisonQueued=false;
 function referenceScopeRank(scope){
  return ({
   observed_branch:0,covered_postal_area:1,nearest_reference_city:2,
@@ -867,9 +867,10 @@ async function runFullPriceComparison(){
  const items=state.items.filter(item=>!item.complete);
  if(!items.length){root.textContent='Add grocery items to compare prices.';return;}
  if(autoReferencePending){
-  // Don't send overlapping public API requests during an already-running
-  // Shop lookup; the next Compare tap will explicitly start a fresh scan.
-  root.textContent='The Shop price lookup is still running. Tap Refresh all reference prices when it finishes.';
+  // A Shop lookup was already started. Queue the Compare scan so the shopper
+  // only has to tap once and public APIs aren't hit simultaneously.
+  comparisonQueued=true;
+  root.textContent='Finishing the current Shop price lookup, then checking every item for comparison…';
   return;
  }
  const run=items.slice(0,50);
@@ -967,7 +968,10 @@ async function fillMissingPrices(){
    // Items added during the active batch were not included in its snapshot.
    const remaining=state.items.some(i=>!i.complete&&i.price===null&&
      (!attempted.has(i.id)||attempted.get(i.id).key!==autoKey(i)));
-   if(remaining&&mode==='shopping')globalThis.GrabListAutoPrices();
+   if(comparisonQueued&&!$id('compare-sheet').hidden){
+    comparisonQueued=false;
+    void runFullPriceComparison();
+  }else if(remaining&&mode==='shopping')globalThis.GrabListAutoPrices();
  }
 }
 let referenceTimer=null;
