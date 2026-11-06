@@ -947,9 +947,18 @@ async function runFullPriceComparison(){
     comparisonCandidates.set(current.id,{id:current.id,key,choices:eligible.eligible.map(x=>x.candidate),displayChoices:[]});
     // A national estimate may fill a gap; another retailer's reference
     // never becomes the current store's price.
-    const selected=GrabListIntelligence.bestForAssignedStore(current,candidates,{
+    let selected=GrabListIntelligence.bestForAssignedStore(current,candidates,{
       enabledStores:state.enabledStoreIds,storeOrder:state.storeOrderIds
     });
+    // Move only an automatically assigned, still-unpriced item to a
+    // better-covered enabled retailer. Deliberate manual store selections
+    // and existing prices remain untouched.
+    if(!selected&&current.price===null&&current.storeAutoAssigned&&
+       !current.storeManuallyCleared&&eligible.best?.storeId&&
+       state.enabledStoreIds.includes(eligible.best.storeId)){
+      selected=eligible.best;
+      current.storeId=selected.storeId;
+    }
     if(comparisonRefreshAllowed(current,selected)){
       if(recordReference(current,selected)){
         updated++;
