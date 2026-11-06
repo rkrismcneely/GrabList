@@ -165,3 +165,39 @@ test('national milk reference never silently treats unspecified or 4 L milk as 2
  assert.equal((await query('4 L')).matchStatus,'different_size');
  assert.equal((await query('2 L')).matchStatus,'reference_size');
 });
+
+test('catalogue search finds Canadian products but never invents their prices',async()=>{
+  const api=await worker();let calls=0;
+  global.fetch=async(req)=>{
+    calls++;
+    const url=new URL(req);
+    assert.equal(url.hostname,'world.openfoodfacts.org');
+    assert.equal(url.pathname,'/cgi/search.pl');
+    assert.equal(url.searchParams.get('search_terms'),'marshmallows');
+    assert.equal(url.searchParams.get('json'),'1');
+    return response({products:[
+      {code:'1234567890123',product_name:'Mini Marshmallows',brands:'Brand A',quantity:'400 g',countries_tags:['en:canada']},
+      {code:'1234567890124',product_name:'Fluffy Marshmallows',brands:'Brand B',quantity:'250 g',countries_tags:['en:united-states']},
+      {code:'bad',product_name:'Marshmallows',brands:'Bad',quantity:'200 g',countries_tags:['en:canada']},
+      {code:'1234567890125',product_name:'Tomato Sauce',brands:'Other',quantity:'400 g',countries_tags:['en:canada']}
+    ]});
+  };
+  const url='https://grablist.example/api/pricing/catalog-search?name=marshmallows';
+  const a=await api.fetch(new Request(url),{});
+  const data=await a.json();
+  assert.equal(a.status,200);
+  assert.equal(data.priceSource,false);
+  assert.equal(data.results.length,2);
+  assert.equal(data.results[0].barcode,'1234567890123');
+  assert.equal(data.results[0].packageSize,'400 g');
+  assert.equal(data.results[0].countryCoverage,'canada');
+  assert.equal(data.results[0].price,undefined);
+  const b=await api.fetch(new Request(url),{});
+  assert.equal((await b.json()).results.length,2);
+  assert.equal(calls,1);
+});
+test('catalogue does not accept arbitrary URLs or too-short names',async()=>{
+  const api=await worker();
+  assert.equal((await api.fetch(new Request('https://grablist.example/api/pricing/catalog-search?name=x'),{})).status,400);
+  assert.equal((await api.fetch(new Request('https://grablist.example/api/pricing/catalog-search?name=https%3A%2F%2Fevil.example'),{})).status,400);
+});
