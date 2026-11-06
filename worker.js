@@ -249,12 +249,81 @@ function governmentReference(request){
   const reference=governmentMatch(name,size);
   return json({provider:'Statistics Canada',scope:'national_average',results:reference?[reference]:[]});
 }
+// Optional Savvi/Apify integration. Every request is user-initiated and charged to
+// the shopper's own Apify account, never to the GrabList site owner. The token is
+// not saved on the Worker or sent back to the browser.
+async function savviLookup(request){
+  if(request.method!=='POST')return responseError('POST required',405);
+  let raw;
+  try{raw=await request.text();}catch{return responseError('Unreadable request',400);}
+  if(raw.length>5500)return responseError('Request too long',413);
+  let body;
+  try{body=JSON.parse(raw);}catch{return responseError('Invalid JSON',400);}
+  const token=String(body?.apiToken||'').trim(),query=String(body?.query||'').trim();
+  const postal=body?.postalCode?normalizePostal(body.postalCode):null;
+  if(token.length<20||token.length>500||!(/^[A-Za-z0-9_~.-]+$/).test(token))
+    return responseError('Connect your own Apify API token in Settings.',400,'apify_token_required');
+  if(query.length<2||query.length>100)return responseError('Enter a product name between 2 and 100 characters.',400);
+  if(body.postalCode&&!postal)return responseError('Invalid Canadian postal code',400);
+  // Savvi supports these GrabList stores; Walmart/FreshCo/Giant Tiger are not
+  // included by this actor. Costco uses a separate actor and is not requested.
+  const storeMap={nofrills:'nofrills',independent:'independent'};
+  const retailers=[...new Set((Array.isArray(body.retailers)?body.retailers:[])
+    .filter(id=>storeMap[id]).map(id=>storeMap[id]))];
+  if(!retailers.length)return responseError('Enable No Frills or Independent to search Savvi.',422,'no_supported_stores');
+  const input={queries:[query],retailers,outputMode:'comparison',
+    maxResultsPerQueryPerRetailer:5,minMatchConfidence:'low',includeSummaries:false};
+  if(postal)input.postal_code=postal;
+  let response;
+  try{
+    response=await fetch('https://api.apify.com/v2/acts/sunny_eternity~canada-grocery-price-comparison/run-sync-get-dataset-items',{
+      method:'POST',headers:{Accept:'application/json','content-type':'application/json',
+        Authorization:'Bearer '+token},
+      body:JSON.stringify(input),signal:AbortSignal.timeout(65000)
+    });
+  }catch{return responseError('Savvi timed out or could not be reached. Check your Apify account for run costs before trying again.',503,'savvi_unavailable');}
+  if(!response.ok){
+    // Never expose upstream response text: it might contain token details.
+    return responseError(response.status===401||response.status===403?
+      'Apify rejected the token or has insufficient permissions.':
+      response.status===402||response.status===429?'Apify usage quota or spending limit reached.':
+      'Savvi was not available; check Apify run history and usage.',response.status===401?401:503,'savvi_source_error');
+  }
+  let data;
+  try{data=await response.json();}catch{return responseError('Savvi returned an unreadable response',502);}
+  const rows=Array.isArray(data)?data:[];
+  const prices=rows.filter(row=>row&&row._type==='comparison'&&retailers.includes(String(row.retailer||''))
+    &&Number.isFinite(Number(row.price))&&Number(row.price)>0
+    &&String(row.currency||'CAD').toUpperCase()==='CAD')
+    .slice(0,40).map(row=>{
+      const source=String(row.source_url||'');
+      const allowedUrl=/^https:\/\/(?:www\.)?(?:nofrills\.ca|independentgrocer\.ca|yourindependentgrocer\.ca|realcanadiansuperstore\.ca|loblaws\.ca)\//i.test(source)?source.slice(0,500):null;
+      const when=String(row.scraped_at||'');
+      return {price:Number(row.price),storeId:row.retailer,storeName:String(row.banner||row.retailer||'').slice(0,70),
+        branch:String(row.store||'').slice(0,90),branchId:String(row.store_id||'').slice(0,70),
+        productName:String(row.matched_product||'').slice(0,140),
+        packageSize:String(row.package_size||'').slice(0,50),
+        comparableUnitPrice:Number.isFinite(Number(row.comparable_unit_price))?Number(row.comparable_unit_price):null,
+        comparableBasis:String(row.comparable_unit_basis||'').slice(0,15),
+        isComparable:Boolean(row.is_comparable_unit_price),
+        confidence:['high','medium','low'].includes(row.match_confidence)?row.match_confidence:'unrated',
+        score:Number.isFinite(Number(row.match_score))?Number(row.match_score):null,
+        matchReasons:Array.isArray(row.match_reasons)?row.match_reasons.slice(0,6).map(x=>String(x).slice(0,50)):[],
+        mismatchReasons:Array.isArray(row.mismatch_reasons)?row.mismatch_reasons.slice(0,6).map(x=>String(x).slice(0,50)):[],
+        observedAt:/^\d{4}-\d{2}-\d{2}/.test(when)?when.slice(0,10):null,
+        sale:Boolean(row.is_on_sale),availability:String(row.availability||'unknown').slice(0,30),
+        sourceUrl:allowedUrl,scope:'retailer_search',currency:'CAD'};
+    });
+  return json({provider:'Savvi via Apify',chargedTo:'user_apify_account',results:prices,
+    searchedStores:retailers,location:postal||'unspecified',note:'User-funded lookup, product matching is not guaranteed. Confirm variant, package, location and observed date before choosing.'});
+}
 export default {
   async fetch(request,env){
     const {pathname}=new URL(request.url);
     if(pathname==='/api/pricing/status')return json({ready:true,sources:['open-prices-barcode','grocerypulse-reference-cities','statistics-canada-national-averages'],liveStoreFeeds:false});
     if(pathname==='/api/pricing/open-prices')return openPrices(request);
     if(pathname==='/api/pricing/grocerypulse-plan')return groceryPulse(request);
+    if(pathname==='/api/pricing/savvi')return savviLookup(request);
     if(pathname==='/api/pricing/national-reference')return governmentReference(request);
     if(pathname==='/api/pricing/national-reference-list')return governmentList(request);
     if(pathname.startsWith('/api/'))return responseError('Unknown API route',404,'not_found');
