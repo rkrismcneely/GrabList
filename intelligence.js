@@ -29,7 +29,7 @@ const scopeRank=c=>{
  }
  return ({
   covered_postal_area:2,nearest_reference_city:3,province_reference:4,
-  reference_city:5,canadian_reference:6,national_average:7
+  reference_city:5,canadian_reference:6,national_average:7,quebec_reference:8
  })[c.scope]??9;
 };
 function assess(item,c,opts={}){
@@ -50,11 +50,15 @@ function assess(item,c,opts={}){
  if(c.source==='Open Prices'&&c.matchType!=='barcode')return {ok:false,reason:'name_only_observation'};
  if(c.source==='VynnAI'&&(!item.barcode||c.matchType!=='barcode'||c.barcode!==item.barcode||!c.storeId))
   return {ok:false,reason:'retailer_identity_unverified'};
+ if(c.source==='Épiceries.ca'){
+  if(c.matchType!=='barcode'&&c.matchType!=='verified_search')return {ok:false,reason:'catalog_match_unverified'};
+  if(!c.packageSize)return {ok:false,reason:'catalogue_size_unreported'};
+ }
  if(c.source==='GroceryPulse'&&c.confidence!=='high')return {ok:false,reason:'uncertain_catalog_match'};
  if(c.source!=='Statistics Canada'&&c.source!=='GroceryPulse'&&c.source!=='Open Prices'&&c.confidence!=='high')
   return {ok:false,reason:'unverified_retailer_match'};
  const age=ageDays(c.date,opts.now);
- const maxAge=c.source==='Statistics Canada'?400:c.source==='GroceryPulse'?45:30;
+ const maxAge=c.source==='Statistics Canada'?400:c.source==='GroceryPulse'?45:c.source==='Épiceries.ca'?35:30;
  if(age>maxAge)return {ok:false,reason:'stale_or_undated'};
  return {ok:true,reason:'matched',age,scope:scopeRank(c),sizeConfidence:c.sizeEvidence||'reported'};
 }
