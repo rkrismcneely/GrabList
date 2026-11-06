@@ -78,8 +78,8 @@ function chooseCandidate(item,candidates){
   };
   const storeScore=x=>x.storeId===item.storeId?0:x.storeId&&enabled.has(x.storeId)?1:2;
   return candidates.slice().sort((a,b)=>
-    geographicScore(a)-geographicScore(b)||storeScore(a)-storeScore(b)||
-    (b.date||'').localeCompare(a.date||'')||a.price-b.price
+    geographicScore(a)-geographicScore(b)||a.price-b.price||
+    storeScore(a)-storeScore(b)||(b.date||'').localeCompare(a.date||'')
   )[0]||null;
 }
 function candidateCard(candidate,index,item){
@@ -91,7 +91,7 @@ function candidateCard(candidate,index,item){
     candidate.scope==='nearest_reference_city'?'Nearest tracked reference city':
     candidate.scope==='retailer_search'?'Retailer search result; branch accuracy not guaranteed':
     'City/regional reference; not a local shelf price';
-  const confidence=candidate.confidence&&candidate.confidence!=='high'?' · Match confidence: '+safe(candidate.confidence):'';
+  const confidence=candidate.confidence?' · Match confidence: '+safe(candidate.confidence):'';
   const unit=Number.isFinite(candidate.comparableUnitPrice)&&candidate.comparableBasis?
      ' · '+money(candidate.comparableUnitPrice)+'/'+safe(candidate.comparableBasis):'';
   const reasons=Array.isArray(candidate.mismatchReasons)&&candidate.mismatchReasons.length?
@@ -187,8 +187,8 @@ function arrangeChoices(candidates,item){
     if(!unique.has(key))unique.set(key,c);
   }
   return [...unique.values()].sort((a,b)=>
-    rank(a)-rank(b)||confidence(a)-confidence(b)||pref(a.storeId)-pref(b.storeId)||
-    (b.date||'').localeCompare(a.date||'')||a.price-b.price);
+    rank(a)-rank(b)||confidence(a)-confidence(b)||a.price-b.price||
+    pref(a.storeId)-pref(b.storeId)||(b.date||'').localeCompare(a.date||''));
 }
 function renderChoices(candidates,item){
   referenceChoices=arrangeChoices(candidates,item);
