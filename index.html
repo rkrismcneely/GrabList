@@ -305,7 +305,8 @@ function sanitizeItem(raw,index){
   const storeId = STORES.some(s=>s.id===raw.storeId)?raw.storeId:null;
   return {
     id: typeof raw.id==='string'&&raw.id.length<=100?raw.id:uid(),
-    name:raw.name.trim().slice(0,110),barcode:/^\d{8,14}$/.test(String(raw.barcode||''))?String(raw.barcode):'',quantity:String(raw.quantity||'1').slice(0,16),
+    name:raw.name.trim().slice(0,110),barcode:/^\d{8,14}$/.test(String(raw.barcode||''))?String(raw.barcode):'',
+    catalogueSize:/^\d{8,14}$/.test(String(raw.barcode||''))?String(raw.catalogueSize||'').slice(0,45):'',quantity:String(raw.quantity||'1').slice(0,16),
     size:String(raw.size||'').slice(0,40), brand:String(raw.brand||'').slice(0,75),
     department:normalizeDepartment(raw.department)||detectDepartment(raw.name),
 
@@ -422,7 +423,7 @@ function detectDepartment(value){
 function newItem(raw){
   const parsed=parseEntry(raw);
   const profile=state.profiles[normalizedKey(parsed.name)]||{};
-  const item={id:uid(),name:parsed.name,barcode:'',quantity:'1',size:parsed.size||inferredSize(parsed.name,profile),brand:parsed.brand||'',department:profile.department||detectDepartment(parsed.name),storeId:null,storeAutoAssigned:false,storeManuallyCleared:false,offers:[],price:null,priceSource:null,priceEvidence:null,complete:false,order:state.nextOrder++,createdAt:Date.now()};
+  const item={id:uid(),name:parsed.name,barcode:'',catalogueSize:'',quantity:'1',size:parsed.size||inferredSize(parsed.name,profile),brand:parsed.brand||'',department:profile.department||detectDepartment(parsed.name),storeId:null,storeAutoAssigned:false,storeManuallyCleared:false,offers:[],price:null,priceSource:null,priceEvidence:null,complete:false,order:state.nextOrder++,createdAt:Date.now()};
   state.items.unshift(item);
   update();
   if(mode==='shopping')globalThis.GrabListAutoPrices?.();
@@ -608,11 +609,17 @@ $('edit-form').addEventListener('submit',e=>{
   e.preventDefault();const item=state.items.find(i=>i.id===$('edit-id').value);if(!item)return;
   const name=$('edit-name').value.trim(),quantity=$('edit-quantity').value.trim()||'1',priceText=$('edit-price').value.trim();
   if(!name)return;
-  const previousStore=item.storeId,previousPrice=item.price,previousSize=item.size,previousBrand=item.brand;
+  const previousStore=item.storeId,previousPrice=item.price,previousSize=item.size,previousBrand=item.brand,
+    previousBarcode=item.barcode,previousName=item.name;
   const storeId=$('edit-store').value||null;
   const price=priceText===''?null:Number(priceText);
   if(price!==null&&(!Number.isFinite(price)||price<0||price>99999)){showToast('Enter a valid price');return;}
   item.name=name;item.barcode=/^\d{8,14}$/.test($('edit-barcode').value.trim())?$('edit-barcode').value.trim():'';item.quantity=quantity;item.size=$('edit-size').value.trim();item.brand=$('edit-brand').value.trim();item.storeId=storeId;item.storeAutoAssigned=false;item.storeManuallyCleared=!storeId;item.department=$('edit-department').value;
+  // A barcode is bound to a particular selected product. Editing its identity
+  // invalidates the previous catalogue association instead of silently reusing it.
+  if(item.barcode!==previousBarcode||normalizedKey(item.name)!==normalizedKey(previousName)||
+     (item.catalogueSize&&GrabListIntelligence.measure(item.catalogueSize)!==GrabListIntelligence.measure(item.size)))
+    item.catalogueSize='';
   item.price=price===null?null:Math.round(price*100)/100;
   // A reference price for a different size/brand must not follow the edited item.
   const productChanged=GrabListComparison.normalizedSize(previousSize)!==GrabListComparison.normalizedSize(item.size)||
