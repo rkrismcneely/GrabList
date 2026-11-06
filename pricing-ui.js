@@ -756,6 +756,9 @@ async function autoPriceOne(item){
  if(autoKey(current)!==key)return; // Item changed during lookup.
  const chosen=autoPick(current,choices);
  if(!chosen)return;
+ // Do not attach a price observed at another retailer to this item's
+ // existing store, even when the variant is otherwise compatible.
+ if(chosen.storeId&&chosen.storeId!==current.storeId)return;
  // Preserve any user-selected reference. Only replace a national average
  // with a geographically more useful, same-size regional observation.
  if(current.price!==null&&current.priceSource!=='reference')return;
