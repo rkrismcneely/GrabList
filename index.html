@@ -1087,7 +1087,7 @@ compareSheet.setAttribute('role','dialog');
 compareSheet.setAttribute('aria-modal','true');
 compareSheet.setAttribute('aria-labelledby','compare-title');
 compareSheet.hidden=true;
-compareSheet.innerHTML='<div class="sheet-grabber"></div><div class="sheet-heading"><h2 id="compare-title">Compare prices</h2><button class="sheet-close" type="button" data-compare-close aria-label="Close">×</button></div><p class="sheet-help">Savings comparisons use recent manual offers. Estimated reference prices in your list are informational and not used to calculate savings.</p><div id="comparison-summary" style="margin-top:12px"></div><button type="button" id="search-online-price-button">Check Canadian online prices</button><div id="online-price-results" role="status" aria-live="polite"></div><div class="sheet-actions"><button type="button" class="button-danger" data-compare-close>Cancel</button><button type="button" class="button-primary" id="apply-price-comparison">Apply suggestions</button></div>';
+compareSheet.innerHTML='<div class="sheet-grabber"></div><div class="sheet-heading"><h2 id="compare-title">Compare prices</h2><button class="sheet-close" type="button" data-compare-close aria-label="Close">×</button></div><p class="sheet-help">Checking available prices for your shopping list. Confirmed manual quotes drive savings recommendations; other prices are clearly labelled reference estimates.</p><div id="comparison-summary" style="margin-top:12px"></div><button type="button" id="compare-refresh-prices" class="savvi-lookup-button">Refresh all reference prices</button><div id="compare-auto-results" role="status" aria-live="polite"></div><details class="price-compare-details"><summary>More: regional basket totals</summary><button type="button" id="search-online-price-button">Check Canadian reference-market totals</button><div id="online-price-results" role="status" aria-live="polite"></div></details><div class="sheet-actions"><button type="button" class="button-danger" data-compare-close>Cancel</button><button type="button" class="button-primary" id="apply-price-comparison">Apply suggestions</button></div>';
 $('settings-sheet').before(compareSheet);
 compareSheet.querySelectorAll('[data-compare-close]').forEach(btn=>btn.addEventListener('click',closeSheet));
 function showPriceComparison(){
@@ -1101,6 +1101,7 @@ function showPriceComparison(){
   ).join(''):'<div class="compare-card"><strong>No supported savings found yet</strong><p>Add recent prices for the same item at two stores in Edit. Unknown or sample prices are excluded.</p></div>');
   $('apply-price-comparison').disabled=!plan.changes.length;
   openSheet('compare');
+  globalThis.GrabListRunComparison?.();
 }
 $('list-footer').addEventListener('click',event=>{
   if(event.target.closest('#compare-price-button'))showPriceComparison();
