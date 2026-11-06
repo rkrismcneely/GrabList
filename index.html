@@ -527,6 +527,23 @@ $('reset-list').addEventListener('click',()=>{
   state.items=[];state.profiles={};state.nextOrder=1;showCompleted=false;closeSheet();update();showToast('List cleared');
 });
 
+// A tap in the unused space below the final list row creates a new entry.
+let suppressBlankTapUntil=0;
+document.addEventListener('pointerdown',e=>{
+  if(composerOpen&&$('list-scroller').contains(e.target)){
+    suppressBlankTapUntil=Date.now()+700; // first outside tap finishes the current entry
+  }
+},true);
+$('list-scroller').addEventListener('click',e=>{
+  if(Date.now()<suppressBlankTapUntil||Date.now()<suppressClickUntil||composerOpen||currentSheet)return;
+  if(e.target.closest('button, a, input, [data-item-id], .store-header, .notice-bar, .no-price-info, .empty-state'))return;
+  const root=$('list-root');
+  // Empty space is the root/scroller area after the final content block.
+  if(e.target!==root&&e.target!==$('list-scroller'))return;
+  const last=root.lastElementChild;
+  if(last&&e.clientY<last.getBoundingClientRect().bottom)return;
+  openComposer();
+});
 $('list-root').addEventListener('click',e=>{
   if(Date.now()<suppressClickUntil)return;
   if(e.target.closest('#try-sample'))return loadDemo();
