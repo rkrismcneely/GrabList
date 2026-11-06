@@ -71,3 +71,26 @@ test('decimal quantity equivalence preserves decimal separator',()=>{
  assert.equal(intelligence.measure('0.5 kg'),intelligence.measure('500 g'));
  assert.notEqual(intelligence.measure('1.5 L'),intelligence.measure('15 L'));
 });
+
+test('automatic list update uses the assigned retailer rather than another store quote',()=>{
+ const item={...base,storeId:'freshco'};
+ const rival={...regional,storeId:'nofrills',storeName:'No Frills',price:5.50};
+ const choice=intelligence.bestForAssignedStore(item,[rival,regional],{
+  now:NOW,enabledStores:['nofrills','freshco'],storeOrder:['nofrills','freshco']
+ });
+ assert.equal(choice.storeId,'freshco');
+ assert.equal(choice.price,6.44);
+});
+test('fallback uses a compatible national average rather than a different retailer price',()=>{
+ const item={...base,storeId:'freshco',size:'2 L'};
+ const rival={...regional,storeId:'nofrills',packageSize:'2 L',price:4.99};
+ const average={...national,packageSize:'2 L',matchStatus:'reference_size'};
+ const choice=intelligence.bestForAssignedStore(item,[rival,average],{
+  now:NOW,enabledStores:['nofrills','freshco']
+ });
+ assert.equal(choice.source,'Statistics Canada');
+ assert.equal(choice.price,5.50);
+ assert.equal(intelligence.bestForAssignedStore(item,[rival],{
+  now:NOW,enabledStores:['nofrills','freshco']
+ }),null);
+});
