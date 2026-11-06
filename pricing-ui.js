@@ -238,6 +238,225 @@ $id('clear-apify-token').addEventListener('click',()=>{
   $id('apify-token-input').value='';
   showApifyStatus();
 });
+
+/* Optional Canadian retailer providers; API keys are session-only. */
+function sessionToken(key){
+ try{return sessionStorage.getItem(key)||'';}catch{return '';}
+}
+function setSessionToken(key,value){
+ try{if(value)sessionStorage.setItem(key,value);else sessionStorage.removeItem(key);}catch{}
+}
+let vynnToken=sessionToken('grablist-vynn-key');
+let reefToken=sessionToken('grablist-reef-key');
+let vynnAutoEnabled=sessionToken('grablist-vynn-auto')==='yes';
+const BRANCH_PREF_KEY='grablist-selected-reef-branches-v1';
+function loadBranchPrefs(){
+ try{
+  const raw=JSON.parse(localStorage.getItem(BRANCH_PREF_KEY)||'{}');
+  const result={};
+  for(const id of ['nofrills','independent']){
+   const b=raw[id];if(!b||!/^[A-Za-z0-9_-]{1,70}$/.test(String(b.id||'')))continue;
+   result[id]={id:String(b.id),label:String(b.label||b.id).slice(0,160)};
+  }
+  return result;
+ }catch{return {};}
+}
+let reefBranches=loadBranchPrefs();
+const reefFound={nofrills:[],independent:[]};
+function syncProviderControls(){
+ $id('vynn-token-status').textContent=vynnToken?
+   'Connected for this browser session. Prices and query usage depend on your VynnAI plan.':
+   'Not connected. VynnAI is optional; no requests will be made.';
+ $id('reef-token-status').textContent=reefToken?
+   'Connected for this browser session. Search calls spend your ReefAPI credits.':
+   'Not connected. ReefAPI is optional; no requests will be made.';
+ $id('vynn-auto-optin').checked=Boolean(vynnToken&&vynnAutoEnabled);
+ $id('vynn-auto-optin').disabled=!vynnToken;
+ for(const id of ['nofrills','independent']){
+  const selector=$id('reef-'+id+'-branch');
+  const pref=reefBranches[id];
+  const all=reefFound[id].slice();
+  if(pref&&!all.some(b=>b.id===pref.id))all.unshift({id:pref.id,label:pref.label});
+  selector.innerHTML='<option value="">Select a branch</option>'+
+   all.map(b=>'<option value="'+safe(b.id)+'">'+safe(b.label||b.id)+'</option>').join('');
+  selector.value=pref?.id||'';
+ }
+}
+$id('settings-button').addEventListener('click',syncProviderControls);
+function saveSourceKey(provider,inputId,storageKey){
+ const key=$id(inputId).value.trim();
+ if(key.length<20||key.length>500||!/^[A-Za-z0-9._~-]+$/.test(key)){
+  $id(provider+'-token-status').textContent='Check your key and try again.';
+  return null;
+ }
+ setSessionToken(storageKey,key);$id(inputId).value='';return key;
+}
+$id('save-vynn-token').addEventListener('click',()=>{
+ const key=saveSourceKey('vynn','vynn-token-input','grablist-vynn-key');
+ if(key){vynnToken=key;syncProviderControls();}
+});
+$id('clear-vynn-token').addEventListener('click',()=>{
+ vynnToken='';vynnAutoEnabled=false;
+ setSessionToken('grablist-vynn-key','');setSessionToken('grablist-vynn-auto','');
+ syncProviderControls();
+});
+$id('save-reef-token').addEventListener('click',()=>{
+ const key=saveSourceKey('reef','reef-token-input','grablist-reef-key');
+ if(key){reefToken=key;syncProviderControls();}
+});
+$id('clear-reef-token').addEventListener('click',()=>{
+ reefToken='';setSessionToken('grablist-reef-key','');syncProviderControls();
+});
+$id('vynn-auto-optin').addEventListener('change',e=>{
+ vynnAutoEnabled=Boolean(vynnToken&&e.target.checked);
+ setSessionToken('grablist-vynn-auto',vynnAutoEnabled?'yes':'');
+ if(vynnAutoEnabled&&mode==='shopping')globalThis.GrabListAutoPrices?.();
+});
+function dailyVynnUsed(){
+ const today=new Date().toISOString().slice(0,10);
+ try{
+  const raw=JSON.parse(localStorage.getItem('grablist-vynn-daily-usage')||'{}');
+  return raw.day===today&&Number.isFinite(raw.count)?raw.count:0;
+ }catch{return 0;}
+}
+function useAutoVynnAllowance(){
+ const day=new Date().toISOString().slice(0,10),used=dailyVynnUsed();
+ if(used>=8)return false;
+ try{localStorage.setItem('grablist-vynn-daily-usage',JSON.stringify({day,count:used+1}));}catch{}
+ return true;
+}
+function fromVynn(data,item){
+ return (Array.isArray(data?.results)?data.results:[]).map(r=>{
+  const barcode=String(r.barcode||'');
+  const exactBarcode=Boolean(item.barcode&&barcode&&item.barcode===barcode&&r.matchType==='barcode');
+  return {
+    price:Number(r.price),source:'VynnAI',date:r.observedAt||'',
+    storeId:r.storeId||null,storeName:r.storeName||'Canadian reference retailer',
+    city:r.city||r.province||data.province||'Canada',scope:'province_reference',
+    url:r.sourceUrl||'https://vynn.ai/',productName:r.productName||item.name,
+    packageSize:r.packageSize||'',barcode,matchType:exactBarcode?'barcode':'name',
+    confidence:exactBarcode?'high':'unverified',
+    sizeEvidence:r.packageSize?'reported':'not_reported',
+    branchId:r.storeIdentifier||'',storeAddress:r.storeAddress||''
+  };
+ }).filter(r=>Number.isFinite(r.price)&&r.price>0);
+}
+async function queryVynn(item,automatic=false){
+ if(!vynnToken)return [];
+ if(automatic&&(!vynnAutoEnabled||!useAutoVynnAllowance()))return [];
+ const data=await requestJson('/api/pricing/vynn',{
+  method:'POST',headers:{'content-type':'application/json'},
+  body:JSON.stringify({apiToken:vynnToken,barcode:item.barcode||'',query:[item.name,item.size,item.brand].filter(Boolean).join(' ').slice(0,100),
+   postalCode:state.postalCode||''})
+ });
+ return fromVynn(data,item);
+}
+$id('look-up-vynn-price').addEventListener('click',async()=>{
+ if(!cooldown())return;
+ if(!vynnToken){status.textContent='Connect your VynnAI key under Settings → More Canadian price providers.';return;}
+ const item=state.items.find(i=>i.id===$id('edit-id').value);
+ if(!item)return;
+ const lookup={...item,name:$id('edit-name').value.trim(),size:$id('edit-size').value.trim(),
+  brand:$id('edit-brand').value.trim(),barcode:$id('edit-barcode').value.trim()};
+ if(!lookup.name){status.textContent='Enter an item name.';return;}
+ const button=$id('look-up-vynn-price');
+ button.disabled=true;button.textContent='Searching VynnAI…';
+ status.textContent='Checking Canadian product and retailer offers through your VynnAI account…';
+ try{
+  const results=await queryVynn(lookup);
+  status.innerHTML=results.length?
+   '<p class="sheet-help">VynnAI offers are province-level references unless their branch is confirmed. Review exact product size, retailer and observed date before using an estimate.</p>'+renderChoices(results,item):
+   '<p class="sheet-help">VynnAI returned no priced offers for that item in your selected province.</p>';
+ }catch(error){status.textContent='VynnAI search unavailable: '+error.message;}
+ finally{button.disabled=false;button.textContent='Search VynnAI prices';}
+});
+function branchLabel(branch){
+ return [branch.name,branch.address,branch.city,Number.isFinite(branch.distanceKm)?branch.distanceKm+' km from provider reference point':''].filter(Boolean).join(' · ').slice(0,160);
+}
+$id('reef-find-branches').addEventListener('click',async()=>{
+ if(!reefToken){$id('reef-branch-status').textContent='Connect a ReefAPI key first.';return;}
+ if(!GrabListLocation.normalizePostalCode(state.postalCode)){
+  $id('reef-branch-status').textContent='Save your Canadian postal code first.';return;
+ }
+ const stores=['nofrills','independent'].filter(id=>state.enabledStoreIds.includes(id));
+ if(!stores.length){$id('reef-branch-status').textContent='Enable No Frills or Independent in My stores first.';return;}
+ const button=$id('reef-find-branches');
+ button.disabled=true;button.textContent='Finding branches…';
+ $id('reef-branch-status').textContent='Checking retailer directories. This may cost two credits per store.';
+ try{
+  const settled=await Promise.allSettled(stores.map(storeId=>requestJson('/api/pricing/reef-stores',{
+   method:'POST',headers:{'content-type':'application/json'},
+   body:JSON.stringify({apiToken:reefToken,storeId,postalCode:state.postalCode})
+  })));
+  const found=[],failures=[];
+  for(let i=0;i<stores.length;i++){
+   if(settled[i].status!=='fulfilled'){failures.push(stores[i]+': '+settled[i].reason.message);continue;}
+   const branches=Array.isArray(settled[i].value.branches)?settled[i].value.branches:[];
+   reefFound[stores[i]]=branches.map(b=>({...b,label:branchLabel(b)}));
+   found.push(stores[i]+': '+branches.length+' branches');
+  }
+  syncProviderControls();
+  $id('reef-branch-status').textContent=found.join(' · ')+
+   (failures.length?' · Unavailable: '+failures.join(' | '):'')+
+   '. Select your branch. Results are not automatically treated as the closest.';
+ }catch(error){$id('reef-branch-status').textContent='Branch lookup unavailable: '+error.message;}
+ finally{button.disabled=false;button.textContent='Find No Frills / Independent branches near postal code (uses credits)';}
+});
+for(const id of ['nofrills','independent']){
+ $id('reef-'+id+'-branch').addEventListener('change',event=>{
+  const chosen=reefFound[id].find(b=>b.id===event.target.value);
+  if(chosen)reefBranches[id]={id:chosen.id,label:chosen.label};
+  else if(!reefBranches[id]||reefBranches[id].id!==event.target.value)delete reefBranches[id];
+  try{localStorage.setItem(BRANCH_PREF_KEY,JSON.stringify(reefBranches));}catch{}
+  syncProviderControls();
+ });
+}
+function fromReef(data){
+ return (Array.isArray(data?.results)?data.results:[]).map(r=>({
+  price:Number(r.price),source:'ReefAPI Loblaw',date:r.observedAt||'',
+  storeId:r.storeId||null,storeName:r.storeName||'Loblaw-banner store',
+  city:reefBranches[r.storeId]?.label||'Selected branch',scope:'selected_branch',
+  url:r.sourceUrl||'https://reefapi.com/loblaws-api',
+  productName:r.productName||'',packageSize:r.packageSize||'',
+  barcode:r.barcode||'',matchType:'name',confidence:'unverified',
+  sizeEvidence:r.packageSize?'reported':'not_reported',
+  branchId:r.branchId||'',currentPriceIsEstimate:r.currentPriceIsEstimate,
+  stock:r.stock||'',memberPrice:r.memberPrice,originalPrice:r.originalPrice
+ })).filter(x=>Number.isFinite(x.price)&&x.price>0);
+}
+$id('look-up-reef-price').addEventListener('click',async()=>{
+ if(!cooldown())return;
+ if(!reefToken){status.textContent='Connect your ReefAPI key under Settings → More Canadian price providers.';return;}
+ const item=state.items.find(i=>i.id===$id('edit-id').value);
+ if(!item)return;
+ const stores=['nofrills','independent'].filter(id=>state.enabledStoreIds.includes(id)&&reefBranches[id]?.id);
+ if(!stores.length){
+  status.textContent='Find and select your No Frills or Independent branch in Settings before requesting its prices.';
+  return;
+ }
+ const query=[$id('edit-name').value.trim(),$id('edit-size').value.trim(),
+  $id('edit-brand').value.trim()].filter(Boolean).join(' ').slice(0,100);
+ if(query.length<2){status.textContent='Enter an item name first.';return;}
+ const button=$id('look-up-reef-price');
+ button.disabled=true;button.textContent='Checking selected stores…';
+ status.textContent='Checking the chosen retailer branches (typically two credits per successful search)…';
+ try{
+  const settled=await Promise.allSettled(stores.map(storeId=>requestJson('/api/pricing/reef-search',{
+   method:'POST',headers:{'content-type':'application/json'},
+   body:JSON.stringify({apiToken:reefToken,query,storeId,branchId:reefBranches[storeId].id})
+  })));
+  const offers=[],errors=[];
+  for(let i=0;i<stores.length;i++){
+   if(settled[i].status==='fulfilled')offers.push(...fromReef(settled[i].value));
+   else errors.push(stores[i]+': '+settled[i].reason.message);
+  }
+  status.innerHTML='<p class="sheet-help">Retailer prices are specific to your selected branch. Search results may include different sizes and varieties. Weight-priced items can show approximate per-piece amounts. Member-only prices are not used automatically.</p>'+
+   (offers.length?renderChoices(offers,item):'<p class="sheet-help">No usable priced products were returned for these branches.</p>')+
+   (errors.length?'<p class="sheet-help">Source errors: '+safe(errors.join(' · '))+'</p>':'');
+ }catch(error){status.textContent='ReefAPI search failed: '+error.message;}
+ finally{button.disabled=false;button.textContent='Search selected No Frills / Independent branch';}
+});
+
 $id('look-up-retailer-pages').addEventListener('click',()=>{
  const name=$id('edit-name').value.trim();
  if(name.length<2){status.textContent='Enter a product name first.';return;}
