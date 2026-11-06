@@ -200,7 +200,7 @@ body.sheet-open {overflow:hidden}
         <label>Store<select id="edit-store"></select></label>
         <label>Department<select id="edit-department"></select></label>
       </div>
-      <label>Known price (CAD) <span class="label-extra">Manual only — not live</span><input id="edit-price" inputmode="decimal" type="number" min="0" step="0.01" placeholder="Unknown" /></label>
+      <label>Price (CAD) <span class="label-extra">Manual or approximate reference</span><input id="edit-price" inputmode="decimal" type="number" min="0" step="0.01" placeholder="Unknown" /></label>
       <p id="edit-source-note" class="sheet-help">Prices entered here are manual, not live quotes.</p>
       <button type="button" id="look-up-item-price">Search public prices</button>
       <div id="lookup-item-results" aria-live="polite"></div>
@@ -800,6 +800,11 @@ function quoteSnapshot(storeId,raw,prior){
 }
 function captureSelectedOffer(){
   if(!editingOffers||!editingStoreId)return;
+  const current=state.items.find(i=>i.id===$('edit-id').value);
+  // Reference estimates are not manually checked prices: don't turn an
+  // unchanged estimate into a fresh manual quote on Save or store switching.
+  if(current?.priceSource==='reference'&&current.price!==null&&
+    $('edit-price').value.trim()!==''&&Number($('edit-price').value)===current.price)return;
   const next=quoteSnapshot(editingStoreId,$('edit-price').value.trim(),editingOffers.get(editingStoreId));
   if(next)editingOffers.set(editingStoreId,next);
   else editingOffers.delete(editingStoreId);
