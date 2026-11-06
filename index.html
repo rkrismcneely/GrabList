@@ -106,6 +106,8 @@ button:focus-visible, input:focus-visible, select:focus-visible, .item-row:focus
 .settings-action {display:flex;flex-direction:column;align-items:flex-start;gap:4px;background:white;border:1px solid #edddd2;border-radius:11px;width:100%;padding:12px;text-align:left;font-size:13px;font-weight:690;margin-bottom:8px;color:#493831}
 .settings-action span {color:#998175;font-size:10px;font-weight:450}
 .settings-action.destructive {color:#ae4336}
+#postal-code-input {display:block;width:100%;height:43px;border:1px solid #e5cfc3;border-radius:10px;background:#fff;padding:0 11px;color:#292420;font-size:16px;letter-spacing:.5px;text-transform:uppercase}
+#postal-code-input[aria-invalid="true"] {border-color:#bc3e3e;outline-color:#bc3e3e}
 .prototype-disclaimer {font-size:11px;line-height:1.55;color:#a08a7c;margin:19px 0 0}
 .no-price-info {background:#fdf1dd;font-size:11px;color:#86603d;padding:7px 13px;text-align:center}
 .swipe-trailing {position:absolute;inset:0;display:flex;align-items:center;justify-content:space-between;padding:0 23px;color:#fff;font-size:13px;font-weight:750;background:linear-gradient(90deg,#3aa36c 50%,#c94d44 50%);z-index:-1}
@@ -201,6 +203,10 @@ body.sheet-open {overflow:hidden}
       <button class="sheet-close" type="button" data-close-sheet aria-label="Close">×</button>
     </div>
     <div class="settings-body">
+      <h3>Shopping location</h3>
+      <label class="settings-label" for="postal-code-input">Canadian postal code</label>
+      <input id="postal-code-input" type="text" inputmode="text" autocomplete="postal-code" maxlength="8" placeholder="A1A 1A1" aria-describedby="postal-code-status" />
+      <p class="sheet-help" id="postal-code-status" role="status" aria-live="polite">Add your postal code for future nearby-store price lookups.</p>
       <h3>My stores</h3>
       <p class="sheet-help">Only enabled stores appear as destinations for your groceries.</p>
       <div id="store-options" class="store-options"></div>
@@ -218,6 +224,7 @@ body.sheet-open {overflow:hidden}
     </div>
   </section>
 
+  <script src="./location.js"></script>
   <script src="./comparison.js"></script>
   <script>
 /* GrabList — swipe-first shopping list with manual store price comparisons.
@@ -250,7 +257,7 @@ const storeById = id => STORES.find(s=>s.id===id);
 const uid = () => (globalThis.crypto?.randomUUID?.() || `item-${Date.now()}-${Math.random().toString(36).slice(2,9)}`);
 const normalizedKey = str => String(str||'').toLowerCase().normalize('NFKD').replace(/[\u0300-\u036f]/g,'').replace(/\b\d+(?:[.,]\d+)?\s?(?:kg|g|lb|l|ml|oz|packs?|pk|ct)\b/gi,'').replace(/[^a-z0-9\s]/g,' ').replace(/\s+/g,' ').trim();
 
-function blankState(){return {version:1,items:[],enabledStoreIds:STORES.map(s=>s.id),profiles:{},savingsThreshold:5,nextOrder:1};}
+function blankState(){return {version:1,items:[],enabledStoreIds:STORES.map(s=>s.id),profiles:{},postalCode:'',savingsThreshold:5,nextOrder:1};}
 function sanitizeItem(raw,index){
   if(!raw||typeof raw!=='object'||typeof raw.name!=='string'||!raw.name.trim())return null;
   const price = raw.price===null||raw.price===undefined||raw.price===''?null:Number(raw.price);
@@ -284,7 +291,7 @@ function sanitizeState(raw){
     if(!p||typeof p!=='object')continue;
     profiles[String(key).slice(0,110)]={department:normalizeDepartment(p.department),size:String(p.size||'').slice(0,40)};
   }
-  return {...base,items:arr,enabledStoreIds:[...new Set(enabled)],profiles,savingsThreshold:Math.min(100,Math.max(0,Number(raw.savingsThreshold)||0)),nextOrder:Math.max(1,Number(raw.nextOrder)||1,...arr.map(i=>i.order+1))};
+  return {...base,items:arr,enabledStoreIds:[...new Set(enabled)],profiles,postalCode:GrabListLocation.normalizePostalCode(raw.postalCode)||'',savingsThreshold:Math.min(100,Math.max(0,Number(raw.savingsThreshold)||0)),nextOrder:Math.max(1,Number(raw.nextOrder)||1,...arr.map(i=>i.order+1))};
 }
 function loadState(){try{return sanitizeState(JSON.parse(localStorage.getItem(STORAGE_KEY)))}catch{return blankState()}}
 let state=loadState();
@@ -543,8 +550,34 @@ $('delete-item').addEventListener('click',()=>{const id=$('edit-id').value;close
 function renderSettings(){
   $('store-options').innerHTML=STORES.map(s=>`<label class="store-option"><input type="checkbox" data-store-setting="${s.id}" ${state.enabledStoreIds.includes(s.id)?'checked':''}/><span class="store-dot" style="--store-dot:${s.deep}"></span>${escapeHTML(s.name)}</label>`).join('');
   $('savings-input').value=state.savingsThreshold;
+  $('postal-code-input').value=state.postalCode||'';
+  $('postal-code-input').setAttribute('aria-invalid','false');
+  $('postal-code-status').textContent=state.postalCode
+    ?'Saved '+state.postalCode+'. Local store discovery is not connected yet; prices remain manually entered.'
+    :'Set your shopping area. Future price sources will prefer matching local stores, then broader area prices.';
 }
 $('settings-button').addEventListener('click',()=>{renderSettings();openSheet('settings')});
+$('postal-code-input').addEventListener('change',event=>{
+  const input=event.target,raw=input.value.trim();
+  if(!raw){
+    state.postalCode='';save();input.value='';
+    input.setAttribute('aria-invalid','false');
+    $('postal-code-status').textContent='Shopping location cleared. No provider-based price lookup is connected yet.';
+    return;
+  }
+  const normalized=GrabListLocation.normalizePostalCode(raw);
+  if(!normalized){
+    input.setAttribute('aria-invalid','true');
+    $('postal-code-status').textContent='Enter a valid six-character Canadian postal code, such as A1A 1A1. The previous saved location was kept.';
+    return;
+  }
+  state.postalCode=normalized;
+  input.value=normalized;
+  input.setAttribute('aria-invalid','false');
+  $('postal-code-status').textContent='Saved '+normalized+'. Future sources will prefer nearby store prices; live prices are not connected yet.';
+  save();
+});
+$('postal-code-input').addEventListener('input',event=>event.target.setAttribute('aria-invalid','false'));
 $('store-options').addEventListener('change',e=>{
   if(!e.target.matches('[data-store-setting]'))return;
   const id=e.target.getAttribute('data-store-setting');
@@ -790,12 +823,12 @@ $('settings-sheet').before(compareSheet);
 compareSheet.querySelectorAll('[data-compare-close]').forEach(btn=>btn.addEventListener('click',closeSheet));
 function showPriceComparison(){
   if(!globalThis.GrabListComparison){showToast('Comparison engine did not load. Refresh the app.');return;}
-  comparisonPlan=GrabListComparison.evaluate(state.items,state.enabledStoreIds,state.savingsThreshold);
+  comparisonPlan=GrabListComparison.evaluate(state.items,state.enabledStoreIds,state.savingsThreshold,Date.now(),GrabListLocation.contextForPostalCode(state.postalCode));
   const plan=comparisonPlan;
   const root=$('comparison-summary');
   const summary='<p class="compare-summary">Compared '+plan.eligibleCount+' of '+plan.activeCount+' active items with a fresh recorded price at their current store. '+(plan.addedStores.length?'Additional stores must each save at least '+currency.format(state.savingsThreshold)+'.':'No extra store needed unless savings meet your '+currency.format(state.savingsThreshold)+' minimum.')+'</p>';
   root.innerHTML=summary+(plan.changes.length?'<h3 style="font-size:17px;margin:9px 0">Potential savings: '+currency.format(plan.totalSavings)+'</h3>'+plan.changes.map(change=>
-    '<div class="compare-card"><strong>'+escapeHTML(change.name)+'</strong><p>'+escapeHTML(storeById(change.from)?.name||change.from)+' → '+escapeHTML(storeById(change.to)?.name||change.to)+'</p><p>'+currency.format(change.originalPrice)+' → '+currency.format(change.newPrice)+' · Save '+currency.format(change.savings)+'</p></div>'
+    '<div class="compare-card"><strong>'+escapeHTML(change.name)+'</strong><p>'+escapeHTML(storeById(change.from)?.name||change.from)+' → '+escapeHTML(storeById(change.to)?.name||change.to)+'</p><p>'+currency.format(change.originalPrice)+' → '+currency.format(change.newPrice)+' · Save '+currency.format(change.savings)+'</p><p>Price scope: '+escapeHTML(change.locationScope==='unscoped'?'Manual · location unverified':change.locationScope)+'</p></div>'
   ).join(''):'<div class="compare-card"><strong>No supported savings found yet</strong><p>Add recent prices for the same item at two stores in Edit. Unknown or sample prices are excluded.</p></div>');
   $('apply-price-comparison').disabled=!plan.changes.length;
   openSheet('compare');
@@ -806,7 +839,7 @@ $('list-footer').addEventListener('click',event=>{
 $('apply-price-comparison').addEventListener('click',()=>{
   if(!comparisonPlan?.changes.length)return;
   // Recalculate against current data before applying.
-  const plan=GrabListComparison.evaluate(state.items,state.enabledStoreIds,state.savingsThreshold);
+  const plan=GrabListComparison.evaluate(state.items,state.enabledStoreIds,state.savingsThreshold,Date.now(),GrabListLocation.contextForPostalCode(state.postalCode));
   for(const change of plan.changes){
     const item=state.items.find(i=>i.id===change.id);
     if(!item)continue;
