@@ -198,7 +198,7 @@ function arrangeChoices(candidates,item){
 }
 function renderChoices(candidates,item){
   referenceChoices=arrangeChoices(candidates,item);
-  if(!referenceChoices.length)return '<p class="sheet-help">No confirmed equivalent product with an applicable price was found. Unmatched products are shown as references only.</p>';
+  if(!referenceChoices.length)return '<p class="sheet-help">No matching price from these sources yet. You can select a catalogue product below to check its exact barcode, or enter a price you have confirmed.</p>';
   return '<p class="sheet-help"><strong>Select the product you want.</strong> Check the brand, package size, source date and store below. No match is chosen for you.</p>'+
     referenceChoices.map((c,i)=>candidateCard(c,i,item)).join('');
 }
