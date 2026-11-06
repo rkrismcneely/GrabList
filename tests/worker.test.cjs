@@ -363,7 +363,7 @@ test('free Épiceries.ca lookup translates marshmallows, checks exact size and k
  assert.equal(res.status,200);
  assert.equal(data.province,'QC');
  assert.equal(data.results.length,2);
- assert.equal(data.results[0].storeId,'walmart');
+ assert.equal(data.results[0].storeId,null); // A Québec Walmart price is not a Peterborough Walmart quote.
  assert.equal(data.results[0].scope,'quebec_reference');
  assert.equal(data.results[0].packageSize,'400 g');
  assert.equal(data.results[0].price,2.79);
