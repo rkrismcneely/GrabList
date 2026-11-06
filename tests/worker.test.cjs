@@ -47,7 +47,7 @@ test('public name search stays narrowly scoped to product name and CAD',async()=
  const api=await worker(),r=await api.fetch(new Request('https://grablist.example/api/pricing/open-prices?name=Milk'),{});
  assert.equal((await r.json()).results.length,0);
 });
-test('GroceryPulse receives only FSA, requested list and approved retailer names',async()=>{
+test('GroceryPulse receives only FSA and the shopping list without a possibly unsupported store filter',async()=>{
  let sent;
  global.fetch=async(req,opts)=>{
    assert.equal(new URL(req).hostname,'grocerypulse.ca');
@@ -58,7 +58,7 @@ test('GroceryPulse receives only FSA, requested list and approved retailer names
  const r=await api.fetch(new Request('https://grablist.example/api/pricing/grocerypulse-plan',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({postalCode:'K1P 1J1',list:'Milk',stores:['walmart','costco','nofrills','danger']})}),{});
  assert.equal(r.status,200);
  assert.equal(sent.postalCode,'K1P');
- assert.deepEqual(sent.stores,['Walmart','No Frills']);
+ assert.equal(sent.stores,undefined);
  assert.equal(sent.list,'Milk');
  assert.equal((await r.json()).scope,'city_chain_median');
 });
