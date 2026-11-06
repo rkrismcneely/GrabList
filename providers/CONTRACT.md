@@ -103,11 +103,28 @@ Cloudflare Worker gateway paths:
 
 - `GET /api/pricing/status`
 - `GET /api/pricing/open-prices?barcode=...` or `?name=...` (Canadian observations, up to two years old; historical)
-- `POST /api/pricing/grocerypulse-plan` (covered city or labelled province/Canada reference city)
+- `POST /api/pricing/grocerypulse-plan` (covered postal area or nearest documented reference city via FSA coordinates; fallback labelled)
 - `GET /api/pricing/national-reference?name=...&size=...`
 - `POST /api/pricing/national-reference-list` (up to 75 items; local Worker lookups)
+- `POST /api/pricing/savvi` (user-keyed, metered, optional; explicit match selection)
 
 These are fixed-destination, validated gateways rather than arbitrary open proxies. User lists and FSA requests are not retained by GrabList's Worker. The service worker explicitly excludes API paths from its offline cache. No request is sent to a price provider until a person taps a search button. In-app notes explain unverified/reference prices and source coverage.
+
+## Optional user-funded Savvi adapter
+
+The user can opt in by entering their **own** Apify API token in GrabList Settings, held in browser sessionStorage, and explicitly invoking `POST /api/pricing/savvi` for one product. GrabList passes the token as a Bearer header to the fixed Savvi comparison Actor `sunny_eternity~canada-grocery-price-comparison`. The Worker never stores or echoes the token or uses a site-owner key.
+
+Current user-funded searches only request `nofrills` and `independent`, two of the supported chains. Other stores need a different provider or, for Costco, a separate Actor. Limit output to a few matches and make the service's quotas and possible charges apparent.
+
+Savvi responses carry product name, package size, source store, store identifier, source URL, observation time, availability, match confidence, score, and match/mismatch reasons. These are candidate retailer-search results; they must be reviewed and selected by the shopper. Do not automatically infer that a medium/low-confidence result is the desired exact product. Product options are presented with a clear **Choose this product** action and mismatch warnings.
+
+## Nearest covered reference-market logic
+
+If a postal area is not supported by GroceryPulse, the Worker resolves its **three-character FSA centroid** using `https://api.zippopotam.us/CA/{FSA}` (GeoNames-derived data). It ranks all 16 covered Canadian reference cities by straight-line great-circle distance and first requests the closest. A fallback regional heuristic is only used when geocoding fails and is explicitly marked unverified. The returned city and approximate centroid-to-city distance are visible; **not** an estimate of travel time, local store distance or actual branch-price applicability. This lookup is on demand, never used for mass reverse-geocoding.
+
+## Scraping candidates and limitations
+
+`snacsnoc/grocery-app` shows experimental use of retailer web search interfaces for Canadian chains, including Loblaw banners; it is **GPL-3.0**, and its Walmart access depends on bot-protection circumvention. Do not incorporate its implementation into GrabList or evade challenges. Small, bounded lookups against approved public catalogues or authorized APIs may be feasible for No Frills and Independent, but the site may change interfaces, prices may require a selected store or login, and usage must respect terms, rate limits, product/price licensing and privacy.
 
 ## Provider selection notes
 
