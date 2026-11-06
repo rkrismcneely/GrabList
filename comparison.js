@@ -7,6 +7,7 @@
 })(typeof globalThis!=='undefined'?globalThis:null,function(){
   'use strict';
   const STALE_MS=30*24*60*60*1000;
+  const geo=typeof require==='function'?require('./location.js'):(typeof globalThis!=='undefined'?globalThis.GrabListLocation:null);
   function normalizedSize(value){
     const s=String(value||'').trim().toLowerCase().replace(/\s+/g,' ');
     const m=s.match(/^(\d+(?:[.,]\d+)?)\s*(kg|g|l|ml|lb|oz|ct|count|pack|pk)$/);
@@ -25,29 +26,30 @@
     if(item.brand&&String(item.brand).trim().toLowerCase()!==String(offer.brand||'').trim().toLowerCase())return false;
     return true;
   }
-  function comparableOffer(item,storeId,now=Date.now()){
+  function comparableOffer(item,storeId,now=Date.now(),locationContext=null){
     if(!storeId||!Array.isArray(item.offers))return null;
-    return item.offers.filter(o=>o.storeId===storeId&&validOffer(item,o,now))
-      .sort((a,b)=>b.observedAt-a.observedAt)[0]||null;
+    const rank=o=>geo?.offerLocationRank(o,locationContext,storeId)??(o.location?null:8);
+    return item.offers.filter(o=>o.storeId===storeId&&validOffer(item,o,now)&&rank(o)!==null)
+      .sort((a,b)=>rank(a)-rank(b)||b.observedAt-a.observedAt)[0]||null;
   }
   function quantity(item){
     const n=parseFloat(String(item.quantity||'1'));
     return Number.isFinite(n)&&n>0?n:1;
   }
-  function evaluate(items,enabledStoreIds,minimumExtraStoreSavings=5,now=Date.now()){
+  function evaluate(items,enabledStoreIds,minimumExtraStoreSavings=5,now=Date.now(),locationContext=null){
     const enabled=[...new Set(enabledStoreIds)].filter(Boolean);
     const active=items.filter(item=>!item.complete&&!item.storeManuallyCleared&&enabled.includes(item.storeId));
     const originalStores=new Set(active.map(i=>i.storeId));
     const route=new Set(originalStores);
     const planned=new Map();
     for(const item of active){
-      const base=comparableOffer(item,item.storeId,now);
+      const base=comparableOffer(item,item.storeId,now,locationContext);
       if(base)planned.set(item.id,{item,storeId:item.storeId,offer:base,originalStore:item.storeId,originalPrice:base.price});
     }
     // Improve baskets within existing stops first. A change of shop costs no extra stop.
     function improveAt(storeId){
       for(const p of planned.values()){
-        const offer=comparableOffer(p.item,storeId,now);
+        const offer=comparableOffer(p.item,storeId,now,locationContext);
         if(offer&&Math.round(offer.price*100)<Math.round(p.offer.price*100)){
           p.storeId=storeId;p.offer=offer;
         }
@@ -63,7 +65,7 @@
         if(route.has(candidate))continue;
         let cents=0;
         for(const p of planned.values()){
-          const offer=comparableOffer(p.item,candidate,now);
+          const offer=comparableOffer(p.item,candidate,now,locationContext);
           if(offer)cents+=Math.max(0,Math.round((p.offer.price-offer.price)*quantity(p.item)*100));
         }
         if(cents>0&&cents>=threshold&&(!best||cents>best.cents))best={storeId:candidate,cents};
@@ -74,7 +76,7 @@
     }
     const changes=[...planned.values()]
       .filter(p=>p.storeId!==p.originalStore)
-      .map(p=>({id:p.item.id,name:p.item.name,from:p.originalStore,to:p.storeId,originalPrice:p.originalPrice,newPrice:p.offer.price,source:p.offer.source,observedAt:p.offer.observedAt,savings:Math.round((p.originalPrice-p.offer.price)*quantity(p.item)*100)/100}));
+      .map(p=>({id:p.item.id,name:p.item.name,from:p.originalStore,to:p.storeId,originalPrice:p.originalPrice,newPrice:p.offer.price,source:p.offer.source,observedAt:p.offer.observedAt,locationScope:p.offer.location?.scope||'unscoped',savings:Math.round((p.originalPrice-p.offer.price)*quantity(p.item)*100)/100}));
     return {changes,totalSavings:Math.round(changes.reduce((sum,c)=>sum+Math.round(c.savings*100),0))/100,addedStores:[...route].filter(id=>!originalStores.has(id)),eligibleCount:planned.size,activeCount:items.filter(i=>!i.complete).length};
   }
   return {normalizedSize,comparableOffer,evaluate,STALE_MS};
