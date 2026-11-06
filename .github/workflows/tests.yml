@@ -14,6 +14,10 @@ jobs:
           node-version: '22'
       - name: Validate comparison module and savings rules
         run: node --test tests/*.test.cjs
+      - name: Validate pricing UI and Worker module syntax
+        run: |
+          node --check pricing-ui.js
+          node --input-type=module --check < worker.js
       - name: Check HTML inline JavaScript syntax
         run: |
           node - <<'NODE'
