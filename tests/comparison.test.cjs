@@ -65,3 +65,26 @@ test('respects explicitly unassigned items and disabled stores',()=>{
   const onlyWalmart=engine.evaluate([item('b')],['walmart'],0,NOW);
   assert.equal(onlyWalmart.changes.length,0);
 });
+test('prefers top-ranked existing shopping store when comparable prices tie',()=>{
+  const a=item('a','1',{offers:[
+    {storeId:'walmart',price:5,size:'1L',brand:'',source:'manual',observedAt:NOW},
+    {storeId:'nofrills',price:5,size:'1L',brand:'',source:'manual',observedAt:NOW}
+  ]});
+  const b=item('b','1',{storeId:'nofrills',offers:[
+    {storeId:'nofrills',price:3,size:'1L',brand:'',source:'manual',observedAt:NOW}
+  ]});
+  const result=engine.evaluate([a,b],['nofrills','walmart'],5,NOW);
+  assert.equal(result.changes.length,1);
+  assert.equal(result.changes[0].to,'nofrills');
+  assert.equal(result.totalSavings,0);
+  assert.deepEqual(result.addedStores,[]);
+});
+test('never adds an unvisited store solely to resolve a price tie',()=>{
+  const a=item('a','1',{offers:[
+    {storeId:'walmart',price:5,size:'1L',brand:'',source:'manual',observedAt:NOW},
+    {storeId:'nofrills',price:5,size:'1L',brand:'',source:'manual',observedAt:NOW}
+  ]});
+  const result=engine.evaluate([a],['nofrills','walmart'],0,NOW);
+  assert.equal(result.changes.length,0);
+  assert.deepEqual(result.addedStores,[]);
+});
