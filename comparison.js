@@ -41,6 +41,8 @@
     const active=items.filter(item=>!item.complete&&!item.storeManuallyCleared&&enabled.includes(item.storeId));
     const originalStores=new Set(active.map(i=>i.storeId));
     const route=new Set(originalStores);
+    // enabledStoreIds follows the user's preferred-store order.
+    const priority=id=>{const index=enabled.indexOf(id);return index<0?Infinity:index;};
     const planned=new Map();
     for(const item of active){
       const base=comparableOffer(item,item.storeId,now,locationContext);
@@ -50,7 +52,11 @@
     function improveAt(storeId){
       for(const p of planned.values()){
         const offer=comparableOffer(p.item,storeId,now,locationContext);
-        if(offer&&Math.round(offer.price*100)<Math.round(p.offer.price*100)){
+        if(!offer)continue;
+        const nextCents=Math.round(offer.price*100),currentCents=Math.round(p.offer.price*100);
+        // Prefer favourite stores when prices are equal, but only if already on
+        // the shopping route. Never add a stop just to resolve a price tie.
+        if(nextCents<currentCents||(nextCents===currentCents&&priority(storeId)<priority(p.storeId))){
           p.storeId=storeId;p.offer=offer;
         }
       }
