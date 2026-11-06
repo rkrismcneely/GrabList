@@ -21,6 +21,7 @@ const ageDays=(date,now=Date.now())=>{
  return Number.isFinite(t)?Math.max(0,(now-t)/86400000):Infinity;
 };
 const scopeRank=c=>{
+ if(c.scope==='selected_branch')return 0;
  if(c.scope==='observed_branch'){
   // An observed branch in a different province is not automatically the
   // most relevant evidence merely because it is a store-specific price.
@@ -47,6 +48,8 @@ function assess(item,c,opts={}){
  }else if(c.source==='Statistics Canada')return {ok:false,reason:'size_unspecified'};
  if(c.source==='Statistics Canada'&&c.matchStatus!=='reference_size')return {ok:false,reason:'not_exact_reference'};
  if(c.source==='Open Prices'&&c.matchType!=='barcode')return {ok:false,reason:'name_only_observation'};
+ if(c.source==='VynnAI'&&(!item.barcode||c.matchType!=='barcode'||c.barcode!==item.barcode||!c.storeId))
+  return {ok:false,reason:'retailer_identity_unverified'};
  if(c.source==='GroceryPulse'&&c.confidence!=='high')return {ok:false,reason:'uncertain_catalog_match'};
  if(c.source!=='Statistics Canada'&&c.source!=='GroceryPulse'&&c.source!=='Open Prices'&&c.confidence!=='high')
   return {ok:false,reason:'unverified_retailer_match'};
