@@ -27,19 +27,19 @@ async function openPrices(request){
   const byBarcode=/^\d{8,14}$/.test(barcode);
   if(!byBarcode&&!(name.length>=3&&name.length<=70&&/^[\p{L}\p{N} .,'&()-]+$/u.test(name)))
     return responseError('Enter a product name (3–70 characters) or an 8–14 digit barcode.');
-  const cutoff=new Date(Date.now()-31*86400000).toISOString().slice(0,10);
+  const cutoff=new Date(Date.now()-730*86400000).toISOString().slice(0,10);
   const upstream=new URL('https://prices.openfoodfacts.org/api/v1/prices');
   upstream.searchParams.set(byBarcode?'product_code':'product_name',byBarcode?barcode:name);
   upstream.searchParams.set('currency','CAD');
   upstream.searchParams.set('date__gte',cutoff);
   upstream.searchParams.set('order_by','-date');
-  upstream.searchParams.set('size','80');
+  upstream.searchParams.set('size','100');
   const data=await upstreamJson(upstream.toString());
   if(data instanceof Response)return data;
   const records=Array.isArray(data?.items)?data.items:[];
   const matches=records.filter(row=>{
     const loc=row?.location;
-    return row.type==='PRODUCT'&&(!byBarcode||row.product_code===barcode)
+    return (row.type==='PRODUCT'||(!byBarcode&&row.type==='CATEGORY'))&&(!byBarcode||row.product_code===barcode)
       &&row.currency==='CAD'&&Number.isFinite(Number(row.price))&&Number(row.price)>=0
       &&loc&&String(loc.osm_address_country_code||'').toUpperCase()==='CA'
       &&typeof row.date==='string'&&row.date>=cutoff
@@ -50,6 +50,7 @@ async function openPrices(request){
     pricePer:String(row.price_per||'UNIT'),
     barcode,
     productName:String(row.product?.product_name||row.product_name||'').slice(0,160),
+    matchType:row.type==='CATEGORY'?'category':'product',
     productQuantity:String(row.product?.quantity||'').slice(0,40),
     brand:String(row.product?.brands||'').slice(0,100),
     storeName:String(row.location?.osm_brand||row.location?.osm_name||'').slice(0,110),
@@ -61,7 +62,37 @@ async function openPrices(request){
     locationScope:'observed_branch',
     sourceUrl:'https://prices.openfoodfacts.org/prices/'+encodeURIComponent(String(row.id))
   }));
-  return json({provider:'Open Prices / Open Food Facts',barcode:byBarcode?barcode:null,searchName:byBarcode?null:name,results:matches,sourceUrl:'https://prices.openfoodfacts.org/',note:'Crowdsourced observations at individual stores, not guaranteed prices at your branch. All prices in CAD. Open Database License (ODbL).',partialPage:Number(data?.pages)>1});
+  return json({provider:'Open Prices / Open Food Facts',barcode:byBarcode?barcode:null,searchName:byBarcode?null:name,results:matches,sourceUrl:'https://prices.openfoodfacts.org/',note:'Historical Canadian store observations (up to two years old), not checkout quotes. Older prices can be stale. Data: Open Food Facts contributors, ODbL.',partialPage:Number(data?.pages)>1});
+}
+// These are reference markets with public coverage, not inferred coordinates or a
+// claim that any one store is physically closest. The shopper can see the real city.
+const CANADIAN_MARKETS={ON:['Toronto','Ottawa'],QC:['Montreal','Quebec City'],BC:['Vancouver','Victoria'],AB:['Calgary','Edmonton'],SK:['Saskatoon','Regina'],MB:['Winnipeg'],NS:['Halifax'],NB:['Moncton','Fredericton'],PE:['Charlottetown'],NL:["St. John's"]};
+function referenceCity(postal){
+  if(!postal)return {name:'Toronto',province:'ON',fallback:'canadian_reference'};
+  const letter=postal[0],fsa=postal.slice(0,3);
+  const province=letter==='K'||letter==='L'||letter==='M'||letter==='N'||letter==='P'?'ON':
+    letter==='G'||letter==='H'||letter==='J'?'QC':letter==='V'?'BC':letter==='T'?'AB':
+    letter==='S'?'SK':letter==='R'?'MB':letter==='B'?'NS':letter==='E'?'NB':
+    letter==='C'?'PE':letter==='A'?'NL':null;
+  const markets=CANADIAN_MARKETS[province];
+  if(!markets)return {name:'Toronto',province:'ON',fallback:'canadian_reference'};
+  let name=markets[0];
+  if(province==='ON'&&(fsa.startsWith('K0')||fsa.startsWith('K1')||fsa.startsWith('K2')||fsa.startsWith('K4')))name='Ottawa';
+  if(province==='QC'&&fsa.startsWith('G'))name='Quebec City';
+  if(province==='BC'&&/^V[89]/.test(fsa))name='Victoria';
+  if(province==='AB'&&/^T[456789]/.test(fsa))name='Edmonton';
+  if(province==='SK'&&fsa.startsWith('S4'))name='Regina';
+  if(province==='NB'&&fsa.startsWith('E3'))name='Fredericton';
+  return {name,province,fallback:'province_reference'};
+}
+async function callPulse(payload){
+  const data=await upstreamJson('https://grocerypulse.ca/api/shopper/plan',{
+    method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(payload)
+  });
+  if(!(data instanceof Response))return {data};
+  let error;
+  try{error=await data.clone().json();}catch{error=null;}
+  return {response:data,code:String(error?.error?.code||'')};
 }
 async function groceryPulse(request){
   if(request.method!=='POST')return responseError('POST required',405);
@@ -71,18 +102,35 @@ async function groceryPulse(request){
   if(raw.length>7000)return responseError('List too long',413);
   let body;
   try{body=JSON.parse(raw);}catch{return responseError('Invalid JSON');}
-  const postal=normalizePostal(body?.postalCode);
+  const supplied=String(body?.postalCode||'').trim();
+  const postal=supplied?normalizePostal(supplied):null;
+  if(supplied&&!postal)return responseError('Invalid Canadian postal code.',400,'invalid_postal_code');
   const lines=String(body?.list||'').trim();
-  if(!postal)return responseError('Save a valid Canadian postal code in Settings first.',400,'postal_required');
   if(!lines||lines.length>3000||lines.split(/\r?\n/).length>60)return responseError('Choose up to 60 list items.',400,'list_invalid');
-  // Ask for the tracked city comparison as a whole. Restricting this query to
-  // a user's stores could fail if even one chain isn't tracked in that city.
-  // The client displays only the stores the shopper enabled.
-  const payload={postalCode:postal.slice(0,3),list:lines,language:'en'};
-  const data=await upstreamJson('https://grocerypulse.ca/api/shopper/plan',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(payload)});
-  if(data instanceof Response)return data;
-  return json({provider:'GroceryPulse',scope:'city_chain_median',data,sourceUrl:'https://grocerypulse.ca/agents',note:'City-level chain median from sampled online prices, not a branch quote. Review dates, matching and exclusions before acting.'});
+  let selected=null;
+  if(postal){
+    const local=await callPulse({postalCode:postal.slice(0,3),list:lines,language:'en'});
+    if(local.data)selected={data:local.data,scope:'covered_postal_area',isFallback:false};
+    else if(!['postal_code_not_covered','unsupported_city','invalid_location','invalid_postal_code'].includes(local.code))return local.response;
+  }
+  if(!selected){
+    const fallback=referenceCity(postal);
+    const city=await callPulse({city:fallback.name,list:lines,language:'en'});
+    if(city.data)selected={data:city.data,scope:fallback.fallback,isFallback:true,referenceMarket:fallback};
+    else if(fallback.name!=='Toronto'&&['comparison_unavailable','unsupported_city'].includes(city.code)){
+      // No Ontario/other province report currently available. Last resort:
+      // Canadian reference market, without pretending it covers the shopper's area.
+      const national=await callPulse({city:'Toronto',list:lines,language:'en'});
+      if(national.data)selected={data:national.data,scope:'canadian_reference',isFallback:true,referenceMarket:{name:'Toronto',province:'ON'}};
+      else return national.response;
+    }else return city.response;
+  }
+  return json({provider:'GroceryPulse',scope:selected.scope,isFallback:selected.isFallback,
+    referenceMarket:selected.referenceMarket||null,
+    data:selected.data,sourceUrl:'https://grocerypulse.ca/agents',
+    note:selected.isFallback?'Reference city prices are not local prices. Provider only tracks 50 products and selected Canadian cities.':'Covered city chain medians, not individual branch quotes.'});
 }
+
 export default {
   async fetch(request,env){
     const {pathname}=new URL(request.url);
