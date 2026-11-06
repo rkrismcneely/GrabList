@@ -115,12 +115,15 @@ async function groceryPulse(request){
   }
   if(!selected){
     const fallback=referenceCity(postal);
-    const city=await callPulse({city:fallback.name,list:lines,language:'en'});
+    // Shopper API accepts the canonical city slugs advertised in its public catalogue.
+    const citySlug={'Quebec City':'quebec-city',"St. John's":'st-johns'}[fallback.name]||
+      fallback.name.toLowerCase().replace(/[^a-z]+/g,'-').replace(/^-|-$/g,'');
+    const city=await callPulse({city:citySlug,list:lines,language:'en'});
     if(city.data)selected={data:city.data,scope:fallback.fallback,isFallback:true,referenceMarket:fallback};
     else if(fallback.name!=='Toronto'&&['comparison_unavailable','unsupported_city'].includes(city.code)){
       // No Ontario/other province report currently available. Last resort:
       // Canadian reference market, without pretending it covers the shopper's area.
-      const national=await callPulse({city:'Toronto',list:lines,language:'en'});
+      const national=await callPulse({city:'toronto',list:lines,language:'en'});
       if(national.data)selected={data:national.data,scope:'canadian_reference',isFallback:true,referenceMarket:{name:'Toronto',province:'ON'}};
       else return national.response;
     }else return city.response;
