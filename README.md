@@ -82,3 +82,11 @@ The list, quote history and preferences are kept in browser localStorage. A Savv
 ## Targeted retailer scraping feasibility
 
 [snacsnoc/grocery-app](https://github.com/snacsnoc/grocery-app) demonstrates retailer-specific grocery search endpoints for Canadian retailers but uses **undocumented interfaces** and anti-bot workarounds. It is GPL-3.0 licensed. GrabList does **not** copy its code or implement the Walmart bot-bypass logic. Any future direct store adapters should use expressly permitted public data or authorized interfaces, honour retailer rules and reasonable rate limits, be isolated behind the provider contract, and stop rather than bypass access controls or CAPTCHA. Store-page price retrieval can become unreliable when sign-in, location cookies, promotions or browser rendering are needed.
+
+## Product intelligence and automatic estimates
+
+`intelligence.js` is a pure, tested decision layer used for automatic prices. It checks unit-normalized package size (e.g. 4 L vs 4000 mL), explicitly required brand, enabled stores, source freshness, confidence, and geographic scope. The closest appropriate evidence takes priority over a cheaper but less relevant national estimate. Among equally relevant sources, the currently assigned store is preferred, followed by price and user-ranked stores. This is **not** a guarantee of a branch-specific checkout price.
+
+A national average is never automatically matched to an unspecified package size. GroceryPulse's exact one-line catalogue matches may be used as **estimates** for the requested size, but its response does not independently provide the physical package size; GrabList records `sizeEvidence=requested_exact_catalog_line` and discloses this uncertainty. A specific brand is never inferred from a generic reference. The app keeps learning item size and department from explicit edits, without locking in a brand.
+
+The source freshness defaults are 30 days for a specific observed price, 45 days for GroceryPulse and 400 days for dated Statistics Canada averages. These are conservative application thresholds, not guarantees of validity. Manual prices are not automatically replaced. The app still needs broader authorized retailer coverage and a richer product catalogue to handle every generic item.
