@@ -377,6 +377,7 @@ function newItem(raw){
   const item={id:uid(),name:parsed.name,barcode:'',quantity:'1',size:parsed.size||profile.size||'',brand:parsed.brand||'',department:profile.department||detectDepartment(parsed.name),storeId:null,storeAutoAssigned:false,storeManuallyCleared:false,offers:[],price:null,priceSource:null,priceEvidence:null,complete:false,order:state.nextOrder++,createdAt:Date.now()};
   state.items.unshift(item);
   update();
+  if(mode==='shopping')globalThis.GrabListAutoPrices?.();
   return item;
 }
 
