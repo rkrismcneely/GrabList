@@ -578,12 +578,142 @@ async function reefLookup(request,mode){
     note:mode==='stores'?'Select the correct branch before looking up prices.':'Live selected-branch retailer search. Confirm product variants, weight-price estimates and promotions.'});
 }
 
+
+// Free, attributed Québec price-reference search. This is deliberately a
+// benchmark, not an Ontario branch price. Public, no-key, documented API.
+// Keep traffic modest: short in-isolate cache and at most one detail lookup
+// per query, rather than crawling an entire retailer catalogue.
+const EPICERIES_CACHE=new Map();
+const FR_TERMS=[
+ [/^mini\s+marshmallows?$/i,'mini guimauves','guimauv'],
+ [/marshmallows?/i,'guimauves','guimauv'],
+ [/peanut butter/i,"beurre d'arachide",'arachide'],
+ [/orange juice/i,"jus d'orange",'orange'],
+ [/potato chips/i,'croustilles','croustill'],
+ [/\bmilk\b/i,'lait','lait'],
+ [/\bbutter\b/i,'beurre','beurre'],
+ [/\beggs?\b/i,'oeufs','oeuf'],
+ [/\bcheese\b/i,'fromage','fromag'],
+ [/\bbread\b/i,'pain','pain'],
+ [/\byogur?t\b/i,'yogourt','yogourt'],
+ [/\bbananas?\b/i,'bananes','banan'],
+ [/\bapples?\b/i,'pommes','pomm'],
+ [/\bflour\b/i,'farine','farin'],
+ [/\bsugar\b/i,'sucre','sucr'],
+ [/\bcoffee\b/i,'café','caf'],
+ [/\bchicken\b/i,'poulet','poulet'],
+ [/\bbeef\b/i,'boeuf','boeuf'],
+ [/\bpasta\b/i,'pâtes','pât'],
+ [/\brice\b/i,'riz','riz'],
+ [/\bpotatoes?\b/i,'pommes de terre','pomme de terre']
+];
+function epiceriesTerm(name){
+ const nameText=String(name||'').trim().toLowerCase();
+ for(const [test,term,stem] of FR_TERMS)if(test.test(nameText))return {term,stem};
+ return {term:nameText,stem:nameText.slice(0,Math.max(3,nameText.length-1))};
+}
+function stripAccents(value){
+ return String(value||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
+}
+function epiceriesMatchesProduct(name,stem,brand){
+ const product=stripAccents(name),root=stripAccents(stem);
+ if(!root||!product.includes(root))return false;
+ if(brand&&!product.includes(stripAccents(brand)))return false;
+ return true;
+}
+async function epiceriesSearch(request){
+ if(request.method!=='GET')return responseError('GET required',405);
+ const u=new URL(request.url);
+ const name=String(u.searchParams.get('name')||'').trim().slice(0,90);
+ const brand=String(u.searchParams.get('brand')||'').trim().slice(0,55);
+ const barcode=String(u.searchParams.get('barcode')||'').trim();
+ const size=String(u.searchParams.get('size')||'').trim().slice(0,40);
+ const byBarcode=/^\d{8,14}$/.test(barcode);
+ if(!byBarcode&&(name.length<3||name.length>90||!/^[\p{L}\p{N} .,'&()-]+$/u.test(name)))
+  return responseError('Enter a product name or valid UPC.',400);
+ const key=[name.toLowerCase(),brand.toLowerCase(),size,barcode].join('|');
+ const cached=EPICERIES_CACHE.get(key);
+ if(cached?.expires>Date.now())return json(cached.value);
+ const translated=epiceriesTerm(name);
+ const target=new URL('https://epiceries.ca/api');
+ target.searchParams.set('endpoint',byBarcode?'barcode':'search');
+ if(byBarcode)target.searchParams.set('code',barcode);
+ else{
+  target.searchParams.set('q',translated.term);
+  target.searchParams.set('limit','18');
+  target.searchParams.set('sort','updated_desc');
+ }
+ const data=await upstreamJson(target.toString());
+ if(data instanceof Response)return data;
+ if(data?.ok!==true)return responseError('Épiceries.ca search returned no usable data.',502,'epiceries_invalid');
+ let entries=[];
+ if(byBarcode){
+  const p=data.data?.product;
+  if(p?.id)entries=[p];
+ }else entries=Array.isArray(data.data?.results)?data.data.results:[];
+ const matching=entries.filter(p=>{
+  if(!p?.id||!p.name)return false;
+  if(byBarcode)return !brand||stripAccents(p.name+' '+(p.brand||'')).includes(stripAccents(brand));
+  return epiceriesMatchesProduct(p.name+' '+(p.brand||''),translated.stem,brand);
+ });
+ // Choose a product with matching package first; if no specified package,
+ // pick the source's best current match but retain its actual pack size.
+ const normalized=normalMeasure(size);
+ const ordered=matching.slice().sort((a,b)=>{
+  const ax=normalized&&normalMeasure(a.size)===normalized?0:1;
+  const bx=normalized&&normalMeasure(b.size)===normalized?0:1;
+  return ax-bx||(Number(a.price)||Infinity)-(Number(b.price)||Infinity);
+ });
+ const match=ordered[0];
+ let rows=[];
+ if(match){
+  const detailUrl=new URL('https://epiceries.ca/api');
+  detailUrl.searchParams.set('endpoint','product');
+  detailUrl.searchParams.set('id',String(match.id).slice(0,55));
+  const detail=await upstreamJson(detailUrl.toString());
+  if(detail instanceof Response)return detail;
+  const p=detail?.ok?detail.data:match;
+  const productName=String(p?.name||match.name).slice(0,135);
+  const productBrand=String(p?.brand||match.brand||'').slice(0,70);
+  const packageSize=String(p?.size||match.size||'').slice(0,40);
+  const observations=Array.isArray(p?.prices)&&p.prices.length?p.prices:
+    [{store:p?.store||match.store,price:p?.price??match.price,
+      size:packageSize,date:p?.updated||match.updated}];
+  rows=observations.filter(r=>{
+    const price=Number(r.price);
+    return Number.isFinite(price)&&price>0&&price<10000&&
+      (!size||normalMeasure(r.size||packageSize)===normalized);
+  }).map(r=>{
+    const store=String(r.store||'').toLowerCase();
+    const iso=String(r.date||p.updated||match.updated||'');
+    const date=/^\d{4}-\d{2}-\d{2}/.test(iso)?iso.slice(0,10):null;
+    const href='https://epiceries.ca/view?i='+encodeURIComponent(String(p.id));
+    return {price:Number(r.price),currency:'CAD',date,
+      source:'Épiceries.ca',storeId:store==='walmart'?'walmart':null,
+      storeName:store==='walmart'?'Walmart (Québec reference)':(store||'Québec grocery')+' (Québec reference)',
+      priceStore:store,productName:productName+(productBrand?' · '+productBrand:''),
+      brand:productBrand,packageSize:String(r.size||packageSize).slice(0,40),
+      scope:'quebec_reference',city:'Québec, not your local branch',
+      sourceUrl:href,confidence:'high',matchType:byBarcode?'barcode':'verified_search',
+      barcode:byBarcode?barcode:'',sizeEvidence:'catalogue_reported',
+      observedAt:date};
+  }).filter(r=>Boolean(r.date));
+ }
+ const result={provider:'Épiceries.ca',results:rows.slice(0,7),
+  sourceUrl:'https://epiceries.ca/developers',country:'CA',province:'QC',
+  note:'Prices observed at Québec chains. NOT verified at an Ontario branch. Source: épiceries.ca (free public API); observations are indicative.'};
+ EPICERIES_CACHE.set(key,{value:result,expires:Date.now()+10*60000});
+ if(EPICERIES_CACHE.size>150)EPICERIES_CACHE.delete(EPICERIES_CACHE.keys().next().value);
+ return json(result);
+}
+
 export default {
   async fetch(request,env){
     const {pathname}=new URL(request.url);
     if(pathname==='/api/pricing/status')return json({ready:true,sources:['open-prices-barcode','grocerypulse-reference-cities','statistics-canada-national-averages'],optionalSources:['vynn-ai-user-key','reefapi-selected-branch-user-key','savvi-apify-user-key'],liveStoreFeeds:false,userConnectedStoreFeeds:true});
     if(pathname==='/api/pricing/open-prices')return openPrices(request);
     if(pathname==='/api/pricing/catalog-search')return catalogSearch(request);
+    if(pathname==='/api/pricing/epiceries')return epiceriesSearch(request);
     if(pathname==='/api/pricing/grocerypulse-plan')return groceryPulse(request);
     if(pathname==='/api/pricing/savvi')return savviLookup(request);
     if(pathname==='/api/pricing/vynn')return vynnLookup(request);
