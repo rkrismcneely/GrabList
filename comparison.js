@@ -30,6 +30,10 @@
     return item.offers.filter(o=>o.storeId===storeId&&validOffer(item,o,now))
       .sort((a,b)=>b.observedAt-a.observedAt)[0]||null;
   }
+  function quantity(item){
+    const n=parseFloat(String(item.quantity||'1'));
+    return Number.isFinite(n)&&n>0?n:1;
+  }
   function evaluate(items,enabledStoreIds,minimumExtraStoreSavings=5,now=Date.now()){
     const enabled=[...new Set(enabledStoreIds)].filter(Boolean);
     const active=items.filter(item=>!item.complete&&!item.storeManuallyCleared&&enabled.includes(item.storeId));
@@ -60,7 +64,7 @@
         let cents=0;
         for(const p of planned.values()){
           const offer=comparableOffer(p.item,candidate,now);
-          if(offer)cents+=Math.max(0,Math.round(p.offer.price*100)-Math.round(offer.price*100));
+          if(offer)cents+=Math.max(0,Math.round((p.offer.price-offer.price)*quantity(p.item)*100));
         }
         if(cents>0&&cents>=threshold&&(!best||cents>best.cents))best={storeId:candidate,cents};
       }
@@ -70,7 +74,7 @@
     }
     const changes=[...planned.values()]
       .filter(p=>p.storeId!==p.originalStore)
-      .map(p=>({id:p.item.id,name:p.item.name,from:p.originalStore,to:p.storeId,originalPrice:p.originalPrice,newPrice:p.offer.price,source:p.offer.source,observedAt:p.offer.observedAt,savings:Math.round((p.originalPrice-p.offer.price)*100)/100}));
+      .map(p=>({id:p.item.id,name:p.item.name,from:p.originalStore,to:p.storeId,originalPrice:p.originalPrice,newPrice:p.offer.price,source:p.offer.source,observedAt:p.offer.observedAt,savings:Math.round((p.originalPrice-p.offer.price)*quantity(p.item)*100)/100}));
     return {changes,totalSavings:Math.round(changes.reduce((sum,c)=>sum+Math.round(c.savings*100),0))/100,addedStores:[...route].filter(id=>!originalStores.has(id)),eligibleCount:planned.size,activeCount:items.filter(i=>!i.complete).length};
   }
   return {normalizedSize,comparableOffer,evaluate,STALE_MS};
