@@ -310,7 +310,9 @@ $id('clear-reef-token').addEventListener('click',()=>{
 $id('vynn-auto-optin').addEventListener('change',e=>{
  vynnAutoEnabled=Boolean(vynnToken&&e.target.checked);
  setSessionToken('grablist-vynn-auto',vynnAutoEnabled?'yes':'');
- if(vynnAutoEnabled&&mode==='shopping')globalThis.GrabListAutoPrices?.();
+ if(vynnAutoEnabled&&mode==='shopping'){
+   attempted.clear();globalThis.GrabListAutoPrices?.();
+ }
 });
 function dailyVynnUsed(){
  const today=new Date().toISOString().slice(0,10);
@@ -716,6 +718,13 @@ async function autoPriceOne(item){
  if(responses[2].status==='fulfilled')
    choices.push(...(Array.isArray(responses[2].value?.results)?responses[2].value.results:[])
      .map(result=>fromOpenPrice(lookup,result)).filter(Boolean));
+ // Never consume a paid/limited allowance if an eligible non-national
+ // free reference already exists. User explicitly opts into at most eight
+ // automatic VynnAI requests per day; credentials remain session-only.
+ const noPaidBest=autoPick(lookup,choices);
+ if(vynnToken&&vynnAutoEnabled&&(!noPaidBest||noPaidBest.scope==='national_average')){
+   try{choices.push(...await queryVynn(lookup,true));}catch{}
+ }
  const current=state.items.find(i=>i.id===item.id);
  if(!current||current.complete||current.priceSource==='manual'||current.priceSource==='demo')return;
  if(autoKey(current)!==key)return; // Item changed during lookup.
