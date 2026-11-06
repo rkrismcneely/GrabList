@@ -3,9 +3,10 @@
 'use strict';
 const clean=x=>String(x||'').toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g,' ').trim();
 const measure=x=>{
- const s=clean(x).replace(/\s+/g,'');
+ // Keep decimal points: "1.5 L" must not turn into "15 L".
+ const s=String(x||'').toLowerCase().trim().replace(/,/g,'.').replace(/\s+/g,'');
  const m=s.match(/^(\d+(?:\.\d+)?)(kg|g|ml|l|lb|oz|ct|count|pack|pk)$/);
- if(!m)return s||null;
+ if(!m)return clean(x).replace(/\s+/g,'')||null;
  const n=Number(m[1]),unit=m[2];
  if(unit==='kg')return String(Math.round(n*1000))+'g';
  if(unit==='l')return String(Math.round(n*1000))+'ml';
