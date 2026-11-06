@@ -605,7 +605,34 @@ const FR_TERMS=[
  [/\bbeef\b/i,'boeuf','boeuf'],
  [/\bpasta\b/i,'pâtes','pât'],
  [/\brice\b/i,'riz','riz'],
- [/\bpotatoes?\b/i,'pommes de terre','pomme de terre']
+ [/\bpotatoes?\b/i,'pommes de terre','pomme de terre'],
+ [/ground beef/i,'boeuf haché','boeuf hach'],
+ [/\bsausages?\b/i,'saucisses','sauciss'],
+ [/\bbacon\b/i,'bacon','bacon'],
+ [/\btomatoes?\b/i,'tomates','tomat'],
+ [/\bonions?\b/i,'oignons','oignon'],
+ [/\bcarrots?\b/i,'carottes','carott'],
+ [/\bbroccoli\b/i,'brocoli','brocol'],
+ [/\bcucumbers?\b/i,'concombres','concomb'],
+ [/\bgrapes?\b/i,'raisins','raisin'],
+ [/\bstrawberries?\b/i,'fraises','frais'],
+ [/\bblueberries?\b/i,'bleuets','bleuet'],
+ [/\bras?pberries\b/i,'framboises','frambois'],
+ [/\bcereals?\b/i,'céréales','cereal'],
+ [/\bcookies?\b/i,'biscuits','biscuit'],
+ [/\bcrackers?\b/i,'craquelins','craquelin'],
+ [/\bchips\b/i,'croustilles','croustill'],
+ [/\bice cream\b/i,'crème glacée','creme glac'],
+ [/\bcoffee\b/i,'café','caf'],
+ [/\bjuice\b/i,'jus','jus'],
+ [/\bfrozen pizza\b/i,'pizza surgelée','pizza'],
+ [/\bpizza\b/i,'pizza','pizza'],
+ [/\bpasta sauce\b/i,'sauce pour pâtes','sauce pour pat'],
+ [/\bspaghetti\b/i,'spaghetti','spaghetti'],
+ [/\bketchup\b/i,'ketchup','ketchup'],
+ [/\bmayonnaise\b/i,'mayonnaise','mayonn'],
+ [/\bpaper towels?\b/i,'essuie-tout','essuie'],
+ [/\btoilet paper\b/i,'papier hygiénique','papier hygien']
 ];
 function epiceriesTerm(name){
  const nameText=String(name||'').trim().toLowerCase();
@@ -671,8 +698,10 @@ async function epiceriesSearch(request){
   detailUrl.searchParams.set('endpoint','product');
   detailUrl.searchParams.set('id',String(match.id).slice(0,55));
   const detail=await upstreamJson(detailUrl.toString());
-  if(detail instanceof Response)return detail;
-  const p=detail?.ok?detail.data:match;
+  // Search results themselves carry a dated product price. If the optional
+  // detail endpoint is temporarily unavailable, keep that one genuine
+  // observation rather than declaring the whole item unpriced.
+  const p=!(detail instanceof Response)&&detail?.ok?detail.data:match;
   const productName=String(p?.name||match.name).slice(0,135);
   const productBrand=String(p?.brand||match.brand||'').slice(0,70);
   const packageSize=String(p?.size||match.size||'').slice(0,40);
