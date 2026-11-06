@@ -820,7 +820,8 @@ function renderComparisonReferenceOffers(scanned,total,updated){
    if(!c.storeId)continue;
    if(!bestByStore.has(c.storeId))bestByStore.set(c.storeId,c);
   }
-  const comparisons=[...bestByStore.values()];
+  const comparisons=[...bestByStore.values()].sort((a,b)=>
+    state.storeOrderIds.indexOf(a.storeId)-state.storeOrderIds.indexOf(b.storeId));
   for(const c of comparisons){
     if(!storeTotals.has(c.storeId))storeTotals.set(c.storeId,{count:0,total:0});
     const row=storeTotals.get(c.storeId);
