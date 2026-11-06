@@ -28,3 +28,7 @@ The project is independent of Tales Without End.
 ## Deployment refresh
 
 The Cloudflare Workers Builds integration deploys pushes to the `main` branch. Static assets are configured in `wrangler.jsonc` without an assets binding.
+
+## Git integration check
+
+Cloudflare GitHub authorization was reconnected on November 6, 2026. This commit checks whether pushes to `main` trigger automatic Workers Builds.
