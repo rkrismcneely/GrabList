@@ -111,8 +111,8 @@ async function catalogSearch(request){
   });
   candidates.sort((a,b)=>
     (a.countryCoverage==='canada'?0:1)-(b.countryCoverage==='canada'?0:1)||
-    tokens.filter(t=>a.productName.toLowerCase().includes(t)).length-
-      tokens.filter(t=>b.productName.toLowerCase().includes(t)).length
+    tokens.filter(t=>b.productName.toLowerCase().includes(t)).length-
+      tokens.filter(t=>a.productName.toLowerCase().includes(t)).length
   );
   const result={provider:'Open Food Facts',priceSource:false,results:candidates.slice(0,16),
     note:'Product catalogue only. Barcodes, labels and package sizes are crowdsourced; they are not store availability or price evidence. Data © Open Food Facts contributors, ODbL.'};
