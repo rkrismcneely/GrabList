@@ -763,6 +763,159 @@ async function autoPriceOne(item){
  if(current.price!==null&&chosen.source==='Statistics Canada')return;
  if(recordReference(current,chosen))autoFound++;
 }
+
+/* One-tap comparison: fetch all active items from sources that permit direct
+   queries. Delivery apps are review links, never silently scraped. */
+const comparisonCandidates=new Map();
+let comparisonBusy=false;
+function referenceScopeRank(scope){
+ return ({
+  observed_branch:0,covered_postal_area:1,nearest_reference_city:2,
+  province_reference:3,reference_city:4,canadian_reference:5,national_average:6
+ })[scope]??8;
+}
+function comparisonRefreshAllowed(item,newChoice){
+ if(!newChoice||item.priceSource==='manual'||item.priceSource==='demo')return false;
+ if(item.price===null)return !newChoice.storeId||newChoice.storeId===item.storeId;
+ if(item.priceSource!=='reference'||item.priceEvidence?.scope==='delivery_shopper_confirmed')return false;
+ if(newChoice.storeId&&newChoice.storeId!==item.storeId)return false;
+ const previous=item.priceEvidence||{},oldRank=referenceScopeRank(previous.scope);
+ const newRank=referenceScopeRank(newChoice.scope);
+ if(newRank>oldRank)return false;
+ if(newRank<oldRank)return true;
+ return Boolean(newChoice.date&&(!previous.observedAt||newChoice.date>previous.observedAt));
+}
+function renderDeliveryCompareShortcuts(){
+ const order=(state.deliveryOrder||[]).filter(id=>state.deliveryEnabled?.includes(id));
+ if(!order.length)return '<p class="sheet-help">All delivery apps are disabled in Settings.</p>';
+ const stores=state.storeOrderIds.filter(id=>state.enabledStoreIds.includes(id));
+ const cards=[];
+ for(const id of stores){
+  const links=order.map(service=>{
+   const saved=state.deliveryLinks?.[id+':'+service];
+   const branch=state.deliveryBranches?.[id+':'+service]||saved?.label||'';
+   const url=saved?.url||'';
+   return url?'<a href="'+safe(url)+'" target="_blank" rel="noopener noreferrer">'+
+       safe(GrabListDelivery.SERVICES[service].label)+'</a>':
+     branch?'<span>'+safe(GrabListDelivery.SERVICES[service].label)+' · '+safe(branch)+'</span>':'';
+  }).filter(Boolean);
+  if(links.length)cards.push('<div class="compare-card"><strong>'+safe(storeById(id).name)+
+    '</strong><p>'+links.join(' · ')+'</p></div>');
+ }
+ return cards.length?cards.join(''):'<p class="sheet-help">Save exact delivery storefronts or branch addresses in Settings to see shortcuts here.</p>';
+}
+function renderComparisonReferenceOffers(scanned,total,updated){
+ const root=$id('compare-auto-results');
+ if(!root)return;
+ const rows=[];
+ for(const record of comparisonCandidates.values()){
+  const item=state.items.find(i=>i.id===record.id);
+  if(!item||item.complete||autoKey(item)!==record.key)continue;
+  const choices=record.choices;
+  const bestByStore=new Map();
+  for(const c of choices){
+   if(!c.storeId)continue;
+   if(!bestByStore.has(c.storeId))bestByStore.set(c.storeId,c);
+  }
+  const comparisons=[...bestByStore.values()];
+  if(!comparisons.length){
+   rows.push('<div class="compare-card"><strong>'+safe(item.name)+'</strong><p>No comparable store price returned by the connected lookup sources.</p></div>');
+   continue;
+  }
+  rows.push('<div class="compare-card"><strong>'+safe(item.name)+
+   (item.size?' · '+safe(item.size):'')+'</strong>'+
+   comparisons.map((c,i)=>{
+    const estimate=c.scope==='observed_branch'?'Dated branch observation':
+      c.scope==='nearest_reference_city'?'Nearest tracked reference city':
+      c.scope==='covered_postal_area'?'Covered postal market':
+      c.scope==='province_reference'?'Province-wide reference':'Reference-market estimate';
+    return '<p><b>'+safe(c.storeName||storeById(c.storeId)?.name||c.storeId)+'</b> · ≈'+money(c.price)+
+      ' · '+safe(estimate)+' · '+safe(c.date||'date unreported')+
+      '<button type="button" class="source-price-use" data-compare-choose="'+safe(record.id)+
+      '" data-offer-index="'+i+'">Choose</button></p>';
+   }).join('')+'</div>');
+  record.displayChoices=comparisons;
+ }
+ root.innerHTML='<p class="sheet-help"><strong>Automatic source check:</strong> '+scanned+' of '+total+
+  ' active items checked; '+updated+' list prices updated. These are eligible reference prices, not verified local checkout quotes. '+
+  'Existing manual and personally checked delivery prices were preserved.</p>'+
+  (rows.length?rows.join(''):'<p class="sheet-help">No priced items were checked yet.</p>')+
+  '<h3 style="font-size:14px;margin:14px 0 7px">Delivery-app review shortcuts</h3>'+
+  '<p class="sheet-help">DoorDash, Uber Eats and Instacart are ordered by your preferences. Their prices have <strong>not</strong> been automatically retrieved. Follow a saved storefront to check a missing offer.</p>'+
+  renderDeliveryCompareShortcuts();
+}
+async function runFullPriceComparison(){
+ if(comparisonBusy)return;
+ const root=$id('compare-auto-results');
+ if(!root)return;
+ const items=state.items.filter(item=>!item.complete);
+ if(!items.length){root.textContent='Add grocery items to compare prices.';return;}
+ const run=items.slice(0,50);
+ comparisonBusy=true;comparisonCandidates.clear();
+ const refresh=$id('compare-refresh-prices');
+ if(refresh)refresh.disabled=true;
+ let scanned=0,updated=0;
+ try{
+  root.innerHTML='<p class="sheet-help">Checking current reference sources for '+run.length+
+    ' items. No delivery platforms are being scraped; limited-key sources are used only if you opted in.</p>';
+  for(let index=0;index<run.length;index+=2){
+   if($id('compare-sheet').hidden)break;
+   const results=await Promise.allSettled(run.slice(index,index+2).map(async original=>{
+    const key=autoKey(original),lookup={...original};
+    const candidates=await lookupComparisonCandidates(lookup);
+    const current=state.items.find(i=>i.id===original.id);
+    if(!current||current.complete||autoKey(current)!==key)return;
+    const eligible=GrabListIntelligence.select(current,candidates,{
+      enabledStores:state.enabledStoreIds,storeOrder:state.storeOrderIds
+    });
+    comparisonCandidates.set(current.id,{id:current.id,key,choices:eligible.eligible.map(x=>x.candidate),displayChoices:[]});
+    const sameStore=eligible.eligible.map(x=>x.candidate)
+      .find(c=>c.storeId&&c.storeId===current.storeId);
+    // A national estimate may fill a gap; a reference for an entirely
+    // different retailer must never be displayed as this store's price.
+    const selected=sameStore||eligible.best&&(!eligible.best.storeId?eligible.best:null);
+    if(comparisonRefreshAllowed(current,selected)){
+      if(recordReference(current,selected))updated++;
+    }
+   }));
+   scanned+=Math.min(2,run.length-index);
+   root.textContent='Checking sources… '+scanned+' of '+run.length+
+     ' items. '+updated+' price'+(updated===1?'':'s')+' refreshed.';
+  }
+  renderComparisonReferenceOffers(scanned,items.length,updated);
+  if(items.length>run.length){
+   root.insertAdjacentHTML('afterbegin','<p class="sheet-help">'+
+    (items.length-run.length)+' additional items were not checked. The comparison limit is 50 per run to protect free API quotas.</p>');
+  }
+ }finally{
+  comparisonBusy=false;
+  if(refresh)refresh.disabled=false;
+ }
+}
+globalThis.GrabListRunComparison=()=>runFullPriceComparison();
+$id('compare-refresh-prices').addEventListener('click',()=>runFullPriceComparison());
+$id('compare-auto-results').addEventListener('click',event=>{
+ const button=event.target.closest('[data-compare-choose]');
+ if(!button)return;
+ const record=comparisonCandidates.get(button.dataset.compareChoose);
+ const item=state.items.find(i=>i.id===record?.id);
+ const choice=record?.displayChoices[Number(button.dataset.offerIndex)];
+ if(!item||!choice||autoKey(item)!==record.key)return;
+ if(item.priceSource==='manual'||item.priceSource==='demo'){
+  if(!confirm('Replace the manually recorded price with this reference estimate?'))return;
+ }else if(item.priceEvidence?.scope==='delivery_shopper_confirmed'){
+  if(!confirm('Replace your personally checked delivery price with this other estimate?'))return;
+ }
+ if(choice.storeId!==item.storeId&&
+   !confirm('Move '+item.name+' to '+(storeById(choice.storeId)?.name||choice.storeName)+
+    ' using a reference-market price, not a confirmed shelf price?'))return;
+ item.price=null;item.priceSource=null;item.priceEvidence=null;
+ item.storeId=choice.storeId;item.storeAutoAssigned=false;item.storeManuallyCleared=false;
+ if(recordReference(item,choice)){
+  renderComparisonReferenceOffers(comparisonCandidates.size,comparisonCandidates.size,0);
+ }
+});
+
 async function fillMissingPrices(){
  if(autoReferencePending)return;
  const missing=state.items.filter(i=>!i.complete&&
