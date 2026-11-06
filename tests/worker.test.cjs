@@ -14,7 +14,7 @@ test('returns source status without calling upstream',async()=>{
  const api=await worker(),r=await api.fetch(new Request('https://grablist.example/api/pricing/status'),{});
  assert.equal(r.status,200);
  const data=await r.json();
- assert.deepEqual(data.sources,['open-prices-barcode','grocerypulse-covered-cities']);
+ assert.deepEqual(data.sources,['open-prices-barcode','grocerypulse-reference-cities','statistics-canada-national-averages']);
 });
 test('blocks arbitrary unsupported paths or invalid product searches',async()=>{
  const api=await worker();
@@ -67,4 +67,49 @@ test('does not call GroceryPulse with invalid postal code',async()=>{
  const api=await worker();
  const r=await api.fetch(new Request('https://grablist.example/api/pricing/grocerypulse-plan',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({postalCode:'invalid',list:'Milk'})}),{});
  assert.equal(r.status,400);
+});
+
+test('uncovered postal codes fall back to a plainly labelled province reference market',async()=>{
+ let n=0;
+ global.fetch=async(req,opts)=>{
+   n++;
+   const body=JSON.parse(opts.body);
+   if(n===1){
+     assert.equal(body.postalCode,'K9J');
+     return response({error:{code:'postal_code_not_covered',message:'Not covered'}},400);
+   }
+   assert.equal(body.city,'Toronto');
+   return response({city:{name:'Toronto',province:'ON'},lines:[{status:'exact'}],
+      stores:[{key:'nofrills',name:'No Frills',totalCad:4.83,totalScope:'complete_requested_list',itemObservationDates:[{observedAt:'2026-11-04'}]}]});
+ };
+ const api=await worker();
+ const r=await api.fetch(new Request('https://grablist.example/api/pricing/grocerypulse-plan',{
+   method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({postalCode:'K9J 7B5',list:'Large eggs 12-pack'})}),{});
+ const data=await r.json();
+ assert.equal(n,2);
+ assert.equal(data.isFallback,true);
+ assert.equal(data.scope,'province_reference');
+ assert.equal(data.data.stores[0].totalCad,4.83);
+});
+test('Statistics Canada fallback only matches known staple and retains actual 2026-09 pack size',async()=>{
+ global.fetch=()=>{throw Error('No upstream necessary')};
+ const api=await worker();
+ const milk=await (await api.fetch(new Request('https://grablist.example/api/pricing/national-reference?name=Milk&size=2%20L'),{})).json();
+ assert.equal(milk.scope,'national_average');
+ assert.equal(milk.results[0].price,5.50);
+ assert.equal(milk.results[0].matchStatus,'reference_size');
+ assert.equal(milk.results[0].observedAt,'2026-09');
+ const wrong=await (await api.fetch(new Request('https://grablist.example/api/pricing/national-reference?name=Milk&size=4%20L'),{})).json();
+ assert.equal(wrong.results[0].matchStatus,'different_size');
+ const untracked=await (await api.fetch(new Request('https://grablist.example/api/pricing/national-reference?name=Kimchi'),{})).json();
+ assert.equal(untracked.results.length,0);
+});
+test('does not treat provider network errors as grounds to invent a regional fallback',async()=>{
+ let count=0;
+ global.fetch=async()=>{count++;return response({error:{code:'temporarily_unavailable',message:'Unavailable'}},503)};
+ const api=await worker();
+ const r=await api.fetch(new Request('https://grablist.example/api/pricing/grocerypulse-plan',{
+   method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({postalCode:'K9J 7B5',list:'Milk'})}),{});
+ assert.equal(r.status,503);
+ assert.equal(count,1);
 });
