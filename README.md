@@ -1,34 +1,63 @@
 # GrabList
 
-A minimalist, mobile-first grocery list and price-comparison app.
+*Grab what you need. Spend less.*
 
-## Status
+A mobile-first, swipe-driven grocery shopping Progressive Web App. Hosted on Cloudflare Workers, deployed automatically from this independent GitHub repository.
 
-Phase 1 prototype is complete locally; the source files still need to be imported into this repository before the Cloudflare deployment can serve the app. Live retailer prices and automatic store optimization are not yet connected.
+## What works
 
-## Cloudflare Pages configuration
+### Phase 1 — list and shopping UX
 
-- Framework preset: **None**
-- Production branch: **main**
-- Build command: **(leave empty)**
-- Build output directory: **/** (repository root)
+- Clear-inspired coloured, solid item rows and swipe gestures.
+- Enter adds a new item without dismissing the keyboard; pull down also starts a new entry.
+- Shop mode groups items by enabled retailer and the preferred aisle/department order.
+- Swipe right to mark bought, left to delete, with Undo.
+- Completed items remain at the bottom with a strikethrough style.
+- Unpriced, unassigned items default to the busiest enabled store; Edit offers manual override.
+- Data is stored on this device; export/import JSON for backup.
 
-The prototype is a static Progressive Web App: `index.html`, `styles.css`, `app.js`, `manifest.webmanifest`, `sw.js`, and `icons/`. There is no npm build.
+### Phase 2A — comparison foundations (in progress)
 
-## Development
+- Enter separately observed **manual** prices for the same item at multiple enabled stores from its Edit panel.
+- In Shop mode tap **Compare store prices** to review proposed changes and total potential savings.
+- No additional store is recommended unless its basket-wide savings meet the configured threshold (default **$5**). Improvements within stores you already visit need no extra-stop threshold.
+- Quantity affects calculated savings. Unpriced items are not considered free.
+- Only explicitly recorded offers with the same item size/required brand and an observation date within **30 days** participate.
+- The preview never reassigns stores until you tap **Apply suggestions**.
+- Example/demo prices never count toward savings.
 
-The app stores list data locally on the device, supports swipe-to-complete and swipe-to-delete, grouping by store, department inference, manual prices, and JSON backup. Any displayed sample prices are fictional, not live store prices.
+**Not yet implemented:** automatic live retailer prices, local branch validation, barcode product matching, discounts requiring membership, automatic price freshness updates, or synchronized accounts. A manual quote is **not** a live verified store price.
+
+## Supported retailers
+
+Walmart, No Frills, FreshCo, Your Independent Grocer, Costco, Giant Tiger.
+
+The app does not imply coverage at every retailer; enabled stores are *shopping preferences*, not a claim of connected pricing.
+
+## Price integration design
+
+See [providers/CONTRACT.md](providers/CONTRACT.md). The price comparison engine is a standalone, provider-neutral module, [comparison.js](comparison.js). Providers will need to attach source, product identity, exact size, observed date, store/region scope and eligibility restrictions. Missing matches remain unknown.
+
+Possible sources are under evaluation. Open Prices is open community data but may have sparse Canadian coverage. Other APIs can have account and licensing constraints. **Never put provider API keys in client-side code or GitHub.**
+
+## Tests
+
+```bash
+node --test tests/comparison.test.cjs
+```
+
+Tests exercise the comparison engine without external calls. This does not replace real-device iPhone gesture tests.
 
 ## Deployment
 
-Connect this GitHub repository to a new Cloudflare Pages project. Each push to `main` will automatically trigger a deployment after the Cloudflare integration is configured.
+- Cloudflare **Workers Builds**, linked to `main` of `rkrismcneely/GrabList`
+- Deploy command: `npx wrangler deploy`
+- Asset-only Worker configuration: [wrangler.jsonc](wrangler.jsonc)
+- Production URL: https://grablist.rkrismcneely.workers.dev
+- No manual build command or npm dependencies required
 
-The project is independent of Tales Without End.
+This repository and deployment are independent of Tales Without End.
 
-## Deployment refresh
+## Privacy, offline access and backups
 
-The Cloudflare Workers Builds integration deploys pushes to the `main` branch. Static assets are configured in `wrangler.jsonc` without an assets binding.
-
-## Git integration check
-
-Cloudflare GitHub authorization was reconnected on November 6, 2026. This commit checks whether pushes to `main` trigger automatic Workers Builds.
+The list, quote history and preferences are kept in browser localStorage. The service worker caches the app shell to enable offline use after an initial successful load. There is no account synchronization. Clearing Safari website data can erase the list, so export a backup regularly.
