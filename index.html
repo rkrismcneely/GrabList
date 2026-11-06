@@ -694,6 +694,7 @@ function openItemSheet(id){
   $('edit-price').value=item.price===null?'':item.price.toFixed(2);
   $('edit-source-note').textContent=item.priceSource==='demo'?'This is an example price, not a live price. Changing it saves a manual price.':item.priceSource==='manual'?'This price was entered manually, not checked against a store.':item.priceSource==='reference'?'Approximate reference price from '+(item.priceEvidence?.storeName||'another store')+' in '+(item.priceEvidence?.location||'Canada')+', observed '+(item.priceEvidence?.observedAt||'date unknown')+'. '+(item.priceEvidence?.sizeEvidence==='requested_exact_catalog_line'?'Package size was requested but not independently reported. ':'')+'Not confirmed locally.':item.storeAutoAssigned?'Price unknown. Store was automatically chosen because it has the most items; you can change it above.':'Enter a manual price or search public reference prices.';
   beginOfferEditing(item);
+  globalThis.GrabListDeliverySync?.();
 }
 $('edit-store').addEventListener('change',()=>{
   captureSelectedOffer();
