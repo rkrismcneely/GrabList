@@ -158,7 +158,7 @@ function fromGroceryPulse(payload,item){
 function fromNational(payload,item){
   const results=Array.isArray(payload?.results)?payload.results:[];
   return results.map(r=>({
-    price:Number(r.price),source:'Statistics Canada',date:String(r.observedAt||''),
+    price:Number(r.price),source:'Statistics Canada',date:/^\d{4}-\d{2}$/.test(String(r.observedAt||''))?r.observedAt+'-01':String(r.observedAt||''),
     storeId:null,storeName:'Statistics Canada · national average',city:'Canada',
     scope:'national_average',url:r.sourceUrl||'https://www.statcan.gc.ca/en/topics-start/food-price',
     productName:r.productName+' ('+r.pack+')',pricePer:'UNIT',
@@ -466,7 +466,7 @@ function setAutoStatus(message,refresh=false){
  if(refresh){const button=document.createElement('button');button.type='button';button.textContent='Refresh prices';button.addEventListener('click',()=>{attempted.clear();globalThis.GrabListAutoPrices();});autoStatus.append(' · ',button);}
 }
 function autoKey(item){
- return [item.name,item.size,item.brand,state.postalCode,(state.enabledStoreIds||[]).join(',')].join('|').toLowerCase();
+ return [item.name,item.size,item.brand,item.barcode||'',item.catalogueSize||'',state.postalCode,(state.enabledStoreIds||[]).join(',')].join('|').toLowerCase();
 }
 function compatibleAuto(item,candidate){
  return GrabListIntelligence.assess(item,candidate,{enabledStores:state.enabledStoreIds}).ok;
@@ -484,11 +484,17 @@ async function autoPriceOne(item){
  // First get the national average; if a regional match exists, it takes priority.
  const responses=await Promise.allSettled([
    getPulse(lookup),
-   requestJson('/api/pricing/national-reference?'+new URLSearchParams({name:lookup.name,size:lookup.size||''}))
+   requestJson('/api/pricing/national-reference?'+new URLSearchParams({name:lookup.name,size:lookup.size||''})),
+   /^\d{8,14}$/.test(lookup.barcode||'')
+     ?requestJson('/api/pricing/open-prices?'+new URLSearchParams({barcode:lookup.barcode}))
+     :Promise.resolve({results:[]})
  ]);
  const choices=[];
  if(responses[0].status==='fulfilled')choices.push(...fromGroceryPulse(responses[0].value,lookup));
  if(responses[1].status==='fulfilled')choices.push(...fromNational(responses[1].value,lookup));
+ if(responses[2].status==='fulfilled')
+   choices.push(...(Array.isArray(responses[2].value?.results)?responses[2].value.results:[])
+     .map(result=>fromOpenPrice(lookup,result)).filter(Boolean));
  const current=state.items.find(i=>i.id===item.id);
  if(!current||current.complete||current.priceSource==='manual'||current.priceSource==='demo')return;
  if(autoKey(current)!==key)return; // Item changed during lookup.
