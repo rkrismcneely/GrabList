@@ -26,9 +26,10 @@ const scopeRank=c=>({
 function assess(item,c,opts={}){
  if(!c||!Number.isFinite(c.price)||c.price<=0)return {ok:false,reason:'invalid_price'};
  if(c.storeId&&opts.enabledStores&&!opts.enabledStores.includes(c.storeId))return {ok:false,reason:'disabled_store'};
- if(item.brand){
-  // Generic references cannot establish brand. Explicit named-brand product
-  // listings must contain the required brand as a separate word sequence.
+ const exactBarcode=Boolean(item.barcode&&c.barcode&&item.barcode===c.barcode&&c.matchType==='barcode');
+ if(item.brand&&!exactBarcode){
+  // A barcode-confirmed record is the same selected SKU even if the price
+  // service omits the brand in its product label.
   if(!c.productName||!(' '+clean(c.productName)+' ').includes(' '+clean(item.brand)+' '))
    return {ok:false,reason:'brand_unverified'};
  }
