@@ -288,7 +288,19 @@ function sanitizeItem(raw,index){
     // Preserve a deliberate "Needs a store" choice made in Edit.
     storeManuallyCleared:Boolean(raw.storeManuallyCleared&&!storeId),
     price:Number.isFinite(price)&&price>=0&&price<=99999?Math.round(price*100)/100:null,
-    priceSource:['manual','demo'].includes(raw.priceSource)?raw.priceSource:null,
+    priceSource:['manual','demo','reference'].includes(raw.priceSource)?raw.priceSource:null,
+    priceEvidence:raw.priceEvidence&&typeof raw.priceEvidence==='object'?{
+      source:String(raw.priceEvidence.source||'').slice(0,60),
+      sourceUrl:String(raw.priceEvidence.sourceUrl||'').slice(0,250),
+      observedAt:String(raw.priceEvidence.observedAt||'').slice(0,24),
+      location:String(raw.priceEvidence.location||'').slice(0,160),
+      scope:String(raw.priceEvidence.scope||'').slice(0,60),
+      storeName:String(raw.priceEvidence.storeName||'').slice(0,100),
+      storeId:String(raw.priceEvidence.storeId||'').slice(0,40),
+      productName:String(raw.priceEvidence.productName||'').slice(0,160),
+      pricePer:String(raw.priceEvidence.pricePer||'').slice(0,30),
+      recordedAt:Number(raw.priceEvidence.recordedAt)||0
+    }:null,
     complete:Boolean(raw.complete), order:Number.isFinite(Number(raw.order))?Number(raw.order):index+1,
     createdAt:Number.isFinite(Number(raw.createdAt))?Number(raw.createdAt):Date.now()
   };
@@ -362,7 +374,7 @@ function detectDepartment(value){
 function newItem(raw){
   const parsed=parseEntry(raw);
   const profile=state.profiles[normalizedKey(parsed.name)]||{};
-  const item={id:uid(),name:parsed.name,barcode:'',quantity:'1',size:parsed.size||profile.size||'',brand:parsed.brand||'',department:profile.department||detectDepartment(parsed.name),storeId:null,storeAutoAssigned:false,storeManuallyCleared:false,offers:[],price:null,priceSource:null,complete:false,order:state.nextOrder++,createdAt:Date.now()};
+  const item={id:uid(),name:parsed.name,barcode:'',quantity:'1',size:parsed.size||profile.size||'',brand:parsed.brand||'',department:profile.department||detectDepartment(parsed.name),storeId:null,storeAutoAssigned:false,storeManuallyCleared:false,offers:[],price:null,priceSource:null,priceEvidence:null,complete:false,order:state.nextOrder++,createdAt:Date.now()};
   state.items.unshift(item);
   update();
   return item;
@@ -378,7 +390,7 @@ function atGradient(colors,t){
   return mixColor(colors[i],colors[i+1],p-i);
 }
 function textColor(hex){const v=hexToRGB(hex).map(c=>{c/=255;return c<=.04045?c/12.92:Math.pow((c+.055)/1.055,2.4)});const l=v[0]*.2126+v[1]*.7152+v[2]*.0722;return l>.39?'#29231d':'#ffffff'}
-function formatPrice(item){return item.price===null?'—':currency.format(item.price*itemQty(item));}
+function formatPrice(item){return item.price===null?'—':(item.priceSource==='reference'?'≈':'')+currency.format(item.price*itemQty(item));}
 function itemRow(item,index,total,colors,departmentLabel='',completed=false){
   // Use roughly ten rows to travel through a store's complete palette.
   // With 2–3 items, adjacent rows remain similar rather than leaping to the palest shade.
@@ -386,8 +398,8 @@ function itemRow(item,index,total,colors,departmentLabel='',completed=false){
   const palettePosition=Math.min(index/9,1);
   const rowBg=completed?'#e5ddd4':atGradient(colors,palettePosition);
   const ink=completed?'#6f665f':textColor(rowBg);
-  const detail=[item.quantity&&item.quantity!=='1'?`${item.quantity} ×`:null,item.size||null,item.brand?`· ${item.brand}`:null].filter(Boolean).join(' ');
-  const text=[item.name,detail,item.price===null?'Price unknown':`${formatPrice(item)} (${item.priceSource==='demo'?'demo':'manual'} price)`].filter(Boolean).join(', ');
+  const detail=[item.quantity&&item.quantity!=='1'?`${item.quantity} ×`:null,item.size||null,item.brand?`· ${item.brand}`:null,item.priceSource==='reference'?`· estimate: ${item.priceEvidence?.location||'Canada'}`:null].filter(Boolean).join(' ');
+  const text=[item.name,detail,item.price===null?'Price unknown':`${formatPrice(item)} (${item.priceSource==='reference'?'reference estimate':item.priceSource==='demo'?'demo':'manual'} price)`].filter(Boolean).join(', ');
   return `<div class="swipe-shell">
     <span class="swipe-action complete" aria-hidden="true"><svg viewBox="0 0 32 32"><path d="M6 17l7 7L27 9"/></svg></span>
     <span class="swipe-action delete" aria-hidden="true"><svg viewBox="0 0 32 32"><path d="M7 7l18 18M25 7L7 25"/></svg></span>
@@ -412,7 +424,7 @@ function renderShopping(items){
     const subset=sortedStoreItems(items.filter(i=>storeId===UNASSIGNED.id?(!i.storeId||!activeStoreIds.includes(i.storeId)):i.storeId===storeId));
     if(!subset.length)continue;
     const priced=knownCount(subset),unknown=subset.length-priced;
-    html+=`<section class="store-group" aria-label="${escapeHTML(store.name)}" style="--store-deep:${store.deep}"><div class="store-header"><div><span class="store-title">${escapeHTML(store.name)}</span><span class="store-sub">${subset.length} ${subset.length===1?'item':'items'}${unknown?` · ${unknown} without prices`:''}</span></div><div class="store-total">${priced?currency.format(knownTotal(subset)):'—'}<small>${priced?(subset.some(i=>i.priceSource==='demo')?'example/manual':'manual prices only'):'no prices yet'}</small></div></div>`;
+    html+=`<section class="store-group" aria-label="${escapeHTML(store.name)}" style="--store-deep:${store.deep}"><div class="store-header"><div><span class="store-title">${escapeHTML(store.name)}</span><span class="store-sub">${subset.length} ${subset.length===1?'item':'items'}${unknown?` · ${unknown} without prices`:''}</span></div><div class="store-total">${priced?currency.format(knownTotal(subset)):'—'}<small>${priced?(subset.some(i=>i.priceSource==='demo')?'example/manual':'recorded/reference prices'):'no prices yet'}</small></div></div>`;
     let priorDept='';
     subset.forEach((item,index)=>{let label='';if(item.department!==priorDept){label=item.department;priorDept=item.department;}html+=itemRow(item,index,subset.length,store.gradient,label);});
     html+='</section>';
@@ -428,7 +440,7 @@ function render(){
   $('shopping-tab').setAttribute('aria-selected',String(mode==='shopping'));
   const active=state.items.filter(i=>!i.complete),completed=state.items.filter(i=>i.complete),unknown=active.filter(i=>i.price===null).length;
   const hasDemo=state.items.some(i=>i.priceSource==='demo');
-  const known=knownTotal(active);const demoCount=active.filter(i=>i.priceSource==='demo').length;const priceLabel=knownCount(active)?`${currency.format(known)} in ${demoCount?'example/manual':'manual'} prices`:'Prices not yet connected';
+  const known=knownTotal(active);const demoCount=active.filter(i=>i.priceSource==='demo').length;const referenceCount=active.filter(i=>i.priceSource==='reference').length;const priceLabel=knownCount(active)?`${currency.format(known)} in ${referenceCount?'reference/manual':demoCount?'example/manual':'recorded'} prices`:'Prices not yet connected';
   $('summary').textContent=state.items.length?`${active.length} remaining · ${priceLabel}`:'Your list, your stores';
   let markup='';
   if(hasDemo)markup+='<div class="notice-bar">Sample prices are fictional — not current store prices</div>';
@@ -532,7 +544,7 @@ function openItemSheet(id){
   fillSelect($('edit-store'),[{value:'',label:'Needs a store (manual)'},...state.enabledStoreIds.map(id=>storeById(id)).filter(Boolean).map(s=>({value:s.id,label:s.name})),...(item.storeId&&!state.enabledStoreIds.includes(item.storeId)?[{value:item.storeId,label:`${storeById(item.storeId)?.name} (disabled)`}]:[])],item.storeId||'');
   fillSelect($('edit-department'),DEPARTMENTS.map(d=>({value:d,label:d})),item.department);
   $('edit-price').value=item.price===null?'':item.price.toFixed(2);
-  $('edit-source-note').textContent=item.priceSource==='demo'?'This is an example price, not a live price. Changing it saves a manual price.':item.priceSource==='manual'?'This price was entered manually, not checked against a store.':item.storeAutoAssigned?'Price unknown. Store was automatically chosen because it has the most items; you can change it above.':'No live price provider is connected. You can enter prices you have checked yourself.';
+  $('edit-source-note').textContent=item.priceSource==='demo'?'This is an example price, not a live price. Changing it saves a manual price.':item.priceSource==='manual'?'This price was entered manually, not checked against a store.':item.priceSource==='reference'?'Approximate reference price from '+(item.priceEvidence?.storeName||'another store')+' in '+(item.priceEvidence?.location||'Canada')+', observed '+(item.priceEvidence?.observedAt||'date unknown')+'. Not confirmed locally.':item.storeAutoAssigned?'Price unknown. Store was automatically chosen because it has the most items; you can change it above.':'Enter a manual price or search public reference prices.';
   beginOfferEditing(item);
 }
 $('edit-store').addEventListener('change',()=>{
@@ -553,7 +565,8 @@ $('edit-form').addEventListener('submit',e=>{
   if(price!==null&&(!Number.isFinite(price)||price<0||price>99999)){showToast('Enter a valid price');return;}
   item.name=name;item.barcode=/^\d{8,14}$/.test($('edit-barcode').value.trim())?$('edit-barcode').value.trim():'';item.quantity=quantity;item.size=$('edit-size').value.trim();item.brand=$('edit-brand').value.trim();item.storeId=storeId;item.storeAutoAssigned=false;item.storeManuallyCleared=!storeId;item.department=$('edit-department').value;
   item.price=price===null?null:Math.round(price*100)/100;
-  item.priceSource=item.price===null?null:(item.priceSource==='demo'&&item.price===previousPrice&&item.storeId===previousStore?'demo':'manual');
+  item.priceSource=item.price===null?null:(['demo','reference'].includes(item.priceSource)&&item.price===previousPrice&&item.storeId===previousStore?item.priceSource:'manual');
+   if(item.priceSource!=='reference')item.priceEvidence=null;
   state.profiles[normalizedKey(item.name)]={department:item.department,size:item.size};
   closeSheet();update();showToast(`${item.name} updated`);
 });
@@ -830,7 +843,7 @@ compareSheet.setAttribute('role','dialog');
 compareSheet.setAttribute('aria-modal','true');
 compareSheet.setAttribute('aria-labelledby','compare-title');
 compareSheet.hidden=true;
-compareSheet.innerHTML='<div class="sheet-grabber"></div><div class="sheet-heading"><h2 id="compare-title">Compare prices</h2><button class="sheet-close" type="button" data-compare-close aria-label="Close">×</button></div><p class="sheet-help">Only manually recorded prices less than 30 days old are compared. This is not a live store search; check prices and product sizes before shopping.</p><div id="comparison-summary" style="margin-top:12px"></div><button type="button" id="search-online-price-button">Check Canadian online prices</button><div id="online-price-results" role="status" aria-live="polite"></div><div class="sheet-actions"><button type="button" class="button-danger" data-compare-close>Cancel</button><button type="button" class="button-primary" id="apply-price-comparison">Apply suggestions</button></div>';
+compareSheet.innerHTML='<div class="sheet-grabber"></div><div class="sheet-heading"><h2 id="compare-title">Compare prices</h2><button class="sheet-close" type="button" data-compare-close aria-label="Close">×</button></div><p class="sheet-help">Savings comparisons use recent manual offers. Estimated reference prices in your list are informational and not used to calculate savings.</p><div id="comparison-summary" style="margin-top:12px"></div><button type="button" id="search-online-price-button">Check Canadian online prices</button><div id="online-price-results" role="status" aria-live="polite"></div><div class="sheet-actions"><button type="button" class="button-danger" data-compare-close>Cancel</button><button type="button" class="button-primary" id="apply-price-comparison">Apply suggestions</button></div>';
 $('settings-sheet').before(compareSheet);
 compareSheet.querySelectorAll('[data-compare-close]').forEach(btn=>btn.addEventListener('click',closeSheet));
 function showPriceComparison(){
