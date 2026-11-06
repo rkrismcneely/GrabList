@@ -694,6 +694,21 @@ function openItemSheet(id){
   fillSelect($('edit-department'),DEPARTMENTS.map(d=>({value:d,label:d})),item.department);
   $('edit-price').value=item.price===null?'':item.price.toFixed(2);
   $('edit-source-note').textContent=item.priceSource==='demo'?'This is an example price, not a live price. Changing it saves a manual price.':item.priceSource==='manual'?'This price was entered manually, not checked against a store.':item.priceSource==='reference'?'Approximate reference price from '+(item.priceEvidence?.storeName||'another store')+' in '+(item.priceEvidence?.location||'Canada')+', observed '+(item.priceEvidence?.observedAt||'date unknown')+'. '+(item.priceEvidence?.sizeEvidence==='requested_exact_catalog_line'?'Package size was requested but not independently reported. ':'')+'Not confirmed locally.':item.storeAutoAssigned?'Price unknown. Store was automatically chosen because it has the most items; you can change it above.':'Enter a manual price or search public reference prices.';
+  if(item.priceSource==='reference'&&item.priceEvidence?.scope==='delivery_shopper_confirmed'){
+    const evidence=item.priceEvidence;
+    $('edit-source-note').textContent=(evidence.source||'Delivery app')+' price you recorded for '+
+      (evidence.storeName||'the selected store')+' on '+(evidence.observedAt||'date unknown')+
+      '. This may include delivery markup and is not a confirmed in-store shelf price.';
+    const service=/^DoorDash/i.test(evidence.source)?'doordash':
+      /^Uber Eats/i.test(evidence.source)?'ubereats':
+      /^Instacart/i.test(evidence.source)?'instacart':null;
+    const href=service?GrabListDelivery.sanitizeUrl(evidence.sourceUrl||'',service,false):null;
+    if(href){
+      const a=document.createElement('a');a.href=href;a.target='_blank';a.rel='noopener noreferrer';
+      a.textContent=' Open source';a.style.color='#a34436';
+      $('edit-source-note').appendChild(a);
+    }
+  }
   beginOfferEditing(item);
   globalThis.GrabListDeliverySync?.();
 }
