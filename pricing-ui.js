@@ -754,13 +754,9 @@ async function autoPriceOne(item){
  const current=state.items.find(i=>i.id===item.id);
  if(!current||current.complete||current.priceSource==='manual'||current.priceSource==='demo')return;
  if(autoKey(current)!==key)return; // Item changed during lookup.
- const priced=GrabListIntelligence.select(current,choices,{
+ const chosen=GrabListIntelligence.bestForAssignedStore(current,choices,{
    enabledStores:state.enabledStoreIds,storeOrder:state.storeOrderIds
- }).eligible.map(x=>x.candidate);
- // Only the actual assigned retailer (or a clearly labelled national
- // average) may supply the row's price.
- const chosen=priced.find(c=>c.storeId===current.storeId&&c.storeId)||
-   priced.find(c=>!c.storeId)||null;
+ });
  if(!chosen)return;
  // Preserve any user-selected reference. Only replace a national average
  // with a geographically more useful, same-size regional observation.
@@ -898,11 +894,11 @@ async function runFullPriceComparison(){
       enabledStores:state.enabledStoreIds,storeOrder:state.storeOrderIds
     });
     comparisonCandidates.set(current.id,{id:current.id,key,choices:eligible.eligible.map(x=>x.candidate),displayChoices:[]});
-    const sameStore=eligible.eligible.map(x=>x.candidate)
-      .find(c=>c.storeId&&c.storeId===current.storeId);
-    // A national estimate may fill a gap; a reference for an entirely
-    // different retailer must never be displayed as this store's price.
-    const selected=sameStore||eligible.eligible.map(x=>x.candidate).find(c=>!c.storeId)||null;
+    // A national estimate may fill a gap; another retailer's reference
+    // never becomes the current store's price.
+    const selected=GrabListIntelligence.bestForAssignedStore(current,candidates,{
+      enabledStores:state.enabledStoreIds,storeOrder:state.storeOrderIds
+    });
     if(comparisonRefreshAllowed(current,selected)){
       if(recordReference(current,selected))updated++;
     }
