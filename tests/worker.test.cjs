@@ -385,3 +385,26 @@ test('Épiceries.ca does not use a product whose category name does not match',a
  const data=await res.json();
  assert.deepEqual(data.results,[]);
 });
+
+test('generic 4 L milk excludes cheaper chocolate milk when using Québec catalogue',async()=>{
+ const api=await worker();
+ global.fetch=async req=>{
+  const u=new URL(req);
+  if(u.searchParams.get('endpoint')==='search')return response({ok:true,data:{results:[
+   {id:'chocolate-4l',name:'Lait au chocolat',size:'4 L',price:3.99,store:'maxi'},
+   {id:'regular-4l',name:'Lait 2% partiellement écrémé',size:'4 L',price:6.44,store:'walmart'}
+  ]}});
+  assert.equal(u.searchParams.get('id'),'regular-4l');
+  return response({ok:true,data:{
+   id:'regular-4l',name:'Lait 2% partiellement écrémé',size:'4 L',
+   prices:[{store:'walmart',price:6.44,size:'4 L',date:'2026-11-06T12:00:00Z'}]
+  }});
+ };
+ const r=await api.fetch(new Request('https://grablist.test/api/pricing/epiceries?name=Milk&size=4%20L'),{});
+ const data=await r.json();
+ assert.equal(r.status,200);
+ assert.equal(data.results.length,1);
+ assert.equal(data.results[0].price,6.44);
+ assert.equal(data.results[0].storeId,null);
+ assert.ok(data.results[0].productName.includes('partiellement'));
+});
