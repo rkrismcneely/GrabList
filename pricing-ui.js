@@ -1056,7 +1056,7 @@ async function fillMissingPrices(){
  const missing=state.items.filter(i=>!i.complete&&
    (i.price===null||(i.priceSource==='reference'&&i.priceEvidence?.source==='Statistics Canada')))
    .filter(i=>!attempted.has(i.id)||attempted.get(i.id).key!==autoKey(i)||
-      Date.now()-attempted.get(i.id).at>=AUTO_RETRY_MS).slice(0,20);
+      Date.now()-attempted.get(i.id).at>=AUTO_RETRY_MS).slice(0,6);
  if(!missing.length){
    const unpriced=state.items.filter(i=>!i.complete&&i.price===null).length;
    setAutoStatus(unpriced?unpriced+' item'+(unpriced===1?'':'s')+' still without a matching price.':'Available prices checked.',true);
@@ -1076,14 +1076,12 @@ async function fillMissingPrices(){
    autoReferencePending=false;
    const unpriced=state.items.filter(i=>!i.complete&&i.price===null).length;
    setAutoStatus(autoFound+' price'+(autoFound===1?'':'s')+' found'+
-      (unpriced?' · '+unpriced+' still unavailable':' · all items priced'),true);
+      (unpriced?' · '+unpriced+' remaining · Compare searches the full list':' · all items priced'),true);
    // Items added during the active batch were not included in its snapshot.
-   const remaining=state.items.some(i=>!i.complete&&i.price===null&&
-     (!attempted.has(i.id)||attempted.get(i.id).key!==autoKey(i)));
    if(comparisonQueued&&!$id('compare-sheet').hidden){
     comparisonQueued=false;
     void runFullPriceComparison();
-  }else if(remaining&&mode==='shopping')globalThis.GrabListAutoPrices();
+  } // Compare searches the other unpriced items only when requested.
  }
 }
 let referenceTimer=null;
