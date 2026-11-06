@@ -800,4 +800,171 @@ globalThis.GrabListAutoPrices=()=>{
 $id('shopping-tab').addEventListener('click',()=>globalThis.GrabListAutoPrices());
 if(mode==='shopping')globalThis.GrabListAutoPrices();
 
+
+/* Delivery-platform assistance. A shopper opens their own storefront and
+   explicitly confirms any copied price; no platform data is fetched here. */
+const deliveryUi={
+ service:$id('delivery-service'),store:$id('delivery-store'),
+ link:$id('delivery-storefront-url'),open:$id('delivery-open-store'),
+ current:$id('delivery-storefront-current'),suggestions:$id('delivery-local-suggestions'),
+ message:$id('delivery-link-message'),copied:$id('delivery-copied-text'),
+ price:$id('delivery-capture-price'),size:$id('delivery-capture-size'),
+ product:$id('delivery-capture-name'),source:$id('delivery-capture-url'),
+ confirm:$id('delivery-confirm'),status:$id('delivery-capture-status')
+};
+let deliveryEditId=null;
+function deliverySaved(store,service){
+ return state.deliveryLinks?.[store+':'+service]||null;
+}
+function renderDeliveryTools(resetStore=false){
+ const item=state.items.find(i=>i.id===$id('edit-id').value);
+ if(!item)return;
+ const service=deliveryUi.service.value;
+ const options=state.enabledStoreIds.map(id=>storeById(id)).filter(Boolean);
+ const prev=deliveryUi.store.value;
+ deliveryUi.store.innerHTML=options.map(store=>'<option value="'+safe(store.id)+'">'+safe(store.name)+'</option>').join('');
+ const selected=resetStore?(item.storeId&&state.enabledStoreIds.includes(item.storeId)?item.storeId:state.enabledStoreIds[0]):
+   (prev&&state.enabledStoreIds.includes(prev)?prev:(item.storeId||state.enabledStoreIds[0]));
+ deliveryUi.store.value=selected||'';
+ const storeId=deliveryUi.store.value;
+ const chosen=deliverySaved(storeId,service);
+ const provider=GrabListDelivery.SERVICES[service];
+ deliveryUi.open.href=chosen?.url||provider.url;
+ deliveryUi.open.textContent=chosen?'Open saved '+provider.label+' store':'Find your store on '+provider.label;
+ deliveryUi.current.textContent=chosen?'Saved: '+(chosen.label||storeById(storeId)?.name||storeId):
+   'No specific branch saved for '+provider.label+'. Open the service, select your store, and paste its storefront link here once.';
+ deliveryUi.link.placeholder=chosen?.url||'https://…';
+ const examples=String(state.postalCode||'').toUpperCase().startsWith('K9')?
+   (GrabListDelivery.EXAMPLES[storeId]||[]).filter(x=>x.service===service):[];
+ deliveryUi.suggestions.innerHTML=examples.length?
+   '<p class="sheet-help">Known Peterborough storefront (choose only if you use this branch):</p>'+
+    examples.map((x,i)=>'<button type="button" data-delivery-suggest="'+i+'">'+safe(x.label)+'</button>').join(''):'';
+ deliveryUi.suggestions._examples=examples;
+ if(resetStore||deliveryEditId!==item.id){
+   deliveryEditId=item.id;
+   deliveryUi.copied.value='';
+   deliveryUi.price.value='';
+   deliveryUi.product.value='';
+   deliveryUi.source.value='';
+   deliveryUi.confirm.checked=false;
+   deliveryUi.size.value=$id('edit-size').value.trim();
+   deliveryUi.status.textContent='';
+ }
+}
+globalThis.GrabListDeliverySync=()=>renderDeliveryTools(true);
+deliveryUi.service.addEventListener('change',()=>renderDeliveryTools());
+deliveryUi.store.addEventListener('change',()=>renderDeliveryTools());
+$id('delivery-price-tools').addEventListener('toggle',()=>{
+ if($id('delivery-price-tools').open)renderDeliveryTools();
+});
+$id('edit-store').addEventListener('change',()=>{
+ if($id('delivery-price-tools').open)renderDeliveryTools(true);
+});
+deliveryUi.suggestions.addEventListener('click',event=>{
+ const button=event.target.closest('[data-delivery-suggest]');
+ if(!button)return;
+ const suggestion=deliveryUi.suggestions._examples?.[Number(button.dataset.deliverySuggest)];
+ if(!suggestion)return;
+ deliveryUi.link.value=suggestion.url;
+ deliveryUi.message.textContent='Store page selected: '+suggestion.label+'. Tap Save this store page to remember it.';
+});
+$id('delivery-save-storefront').addEventListener('click',()=>{
+ const service=deliveryUi.service.value,store=deliveryUi.store.value;
+ if(!state.enabledStoreIds.includes(store)){
+   deliveryUi.message.textContent='Choose an enabled store first.';return;
+ }
+ const url=GrabListDelivery.sanitizeUrl(deliveryUi.link.value,service,true);
+ if(!url){
+   deliveryUi.message.textContent='Paste an exact store page URL from '+GrabListDelivery.SERVICES[service].label+
+     ', not a search, referral, or account link.';return;
+ }
+ const known=(GrabListDelivery.EXAMPLES[store]||[]).find(x=>x.service===service&&x.url===url);
+ const label=known?.label||('My '+storeById(store).name+' branch');
+ if(!state.deliveryLinks)state.deliveryLinks={};
+ state.deliveryLinks[store+':'+service]={url,label};
+ save();deliveryUi.link.value='';
+ deliveryUi.message.textContent='Store saved on this device and in your GrabList backup.';
+ renderDeliveryTools();
+});
+function extractDeliveryPaste(){
+ const parsed=GrabListDelivery.parse(deliveryUi.copied.value.trim());
+ deliveryUi.price.value=parsed.price!==null?parsed.price.toFixed(2):'';
+ if(parsed.size)deliveryUi.size.value=parsed.size;
+ const links=deliveryUi.copied.value.match(/https:\/\/[^\s<>"']+/gi)||[];
+ if(links.length===1){
+   const url=GrabListDelivery.sanitizeUrl(links[0],deliveryUi.service.value,false);
+   if(url)deliveryUi.source.value=url;
+ }
+ deliveryUi.confirm.checked=false;
+ deliveryUi.status.textContent=parsed.note+
+   (parsed.size?' Detected package: '+parsed.size+'.':' Confirm the actual package size below.');
+}
+deliveryUi.copied.addEventListener('change',extractDeliveryPaste);
+$id('delivery-read-clipboard').addEventListener('click',async()=>{
+ // If the user has already pasted text, do not overwrite it with stale clipboard data.
+ if(!deliveryUi.copied.value.trim()&&navigator.clipboard?.readText){
+   try{deliveryUi.copied.value=await navigator.clipboard.readText();}
+   catch{deliveryUi.status.textContent='Clipboard access not available. Paste the copied product text into the field above.';return;}
+ }
+ extractDeliveryPaste();
+});
+$id('delivery-save-price').addEventListener('click',()=>{
+ const item=state.items.find(i=>i.id===$id('edit-id').value);
+ const service=deliveryUi.service.value,store=deliveryUi.store.value;
+ const provider=GrabListDelivery.SERVICES[service];
+ if(!item||!state.enabledStoreIds.includes(store)||!provider){
+   deliveryUi.status.textContent='Select an enabled store.';return;
+ }
+ const value=Number(deliveryUi.price.value),size=deliveryUi.size.value.trim();
+ if(!deliveryUi.price.value.trim()||!Number.isFinite(value)||value<=0||value>9999){
+   deliveryUi.status.textContent='Enter the product price in Canadian dollars.';return;
+ }
+ if(!size){
+   deliveryUi.status.textContent='Enter the product package size, or use "each" for a fixed unit.';return;
+ }
+ if(!deliveryUi.confirm.checked){
+   deliveryUi.status.textContent='Confirm the product, package size, branch, and shown price before saving.';return;
+ }
+ const rawLink=deliveryUi.source.value.trim();
+ const direct=rawLink?GrabListDelivery.sanitizeUrl(rawLink,service,false):null;
+ if(rawLink&&!direct){
+   deliveryUi.status.textContent='The product link must be an HTTPS link from the selected delivery service.';return;
+ }
+ const sourceUrl=direct||deliverySaved(store,service)?.url;
+ if(!sourceUrl){
+   deliveryUi.status.textContent='Save the store page above or paste an item link before recording its price.';return;
+ }
+ const previousSize=$id('edit-size').value.trim();
+ if(previousSize&&GrabListIntelligence.measure(previousSize)!==GrabListIntelligence.measure(size)){
+   if(!confirm('Your item is '+previousSize+' but this delivery product is '+size+
+      '. Update the shopping item to '+size+' and use this price?'))return;
+ }
+ if(item.price!==null&&item.priceSource==='manual'&&
+    !confirm('Replace the manually recorded price with this delivery estimate?'))return;
+ item.size=size;
+ $id('edit-size').value=size;
+ item.storeId=store;item.storeAutoAssigned=false;item.storeManuallyCleared=false;
+ $id('edit-store').value=store;
+ editingStoreId=store;
+ state.profiles[normalizedKey(item.name)]={department:item.department,size};
+ if(item.priceSource==='manual'||item.priceSource==='demo'){
+   item.price=null;item.priceSource=null;item.priceEvidence=null;
+ }
+ const candidate={
+   price:Math.round(value*100)/100,source:provider.label+' (shopper recorded)',
+   date:new Date().toLocaleDateString('en-CA',{year:'numeric',month:'2-digit',day:'2-digit'}),
+   storeId:store,storeName:storeById(store).name,
+   city:'Delivery listing for your selected store',
+   scope:'delivery_shopper_confirmed',url:sourceUrl,
+   productName:deliveryUi.product.value.trim()||item.name,
+   packageSize:size,sizeEvidence:'shopper_confirmed',pricePer:'UNIT',
+   confidence:'shopper_confirmed'
+ };
+ if(recordReference(item,candidate)){
+   deliveryUi.status.textContent=provider.label+' price ≈'+money(value)+' saved for '+storeById(store).name+
+     ' ('+size+'). This is a manually checked delivery price, not a confirmed in-store price.';
+   deliveryUi.confirm.checked=false;
+ }
+});
+
 })();
