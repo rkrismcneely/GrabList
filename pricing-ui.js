@@ -286,7 +286,9 @@ $id('look-up-item-price').addEventListener('click',async()=>{
   const barcode=$id('edit-barcode').value.trim(),name=$id('edit-name').value.trim();
   if(barcode&&!/^\d{8,14}$/.test(barcode)){status.textContent='Enter an 8–14 digit barcode.';return;}
   if(!barcode&&name.length<3){status.textContent='Enter at least 3 letters of the item name.';return;}
-  const lookupItem={...item,barcode:barcode||'',name,size:$id('edit-size').value.trim(),brand:$id('edit-brand').value.trim()};
+  const lookupItem={...item,barcode:barcode||'',
+    catalogueSize:barcode===item.barcode?item.catalogueSize||'':'',
+    name,size:$id('edit-size').value.trim(),brand:$id('edit-brand').value.trim()};
   referenceChoices=[];catalogueChoices=[];
   const button=$id('look-up-item-price');
   button.disabled=true;button.textContent='Searching…';
