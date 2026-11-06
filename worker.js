@@ -415,7 +415,7 @@ function findRows(source,keys){
 }
 function vynnResults(data,searchType,query){
   const products=findRows(data,['products','results','items','matches']);
-  const entries=products.length?products:[data?.canonical_product||data?.product||data];
+  const entries=products.length?products:[data?.data&&typeof data.data==='object'?data.data:data];
   const rows=[];
   for(const entry of entries.slice(0,24)){
     if(!entry||typeof entry!=='object')continue;
