@@ -62,10 +62,24 @@ function recordReference(item,candidate){
 }
 function chooseCandidate(item,candidates){
   const enabled=new Set(state.enabledStoreIds);
-  return candidates.slice().sort((a,b)=>{
-    const score=x=>(x.storeId&&x.storeId===item.storeId?0:x.storeId&&enabled.has(x.storeId)?1:2);
-    return score(a)-score(b) || (a.scope==='observed_branch'?-1:0)-(b.scope==='observed_branch'?-1:0) || (b.date||'').localeCompare(a.date||'') || a.price-b.price;
-  })[0]||null;
+  // Geographical relevance outranks store preference; missing local coverage
+  // broadens to a province market, then Canada. No false nearest-branch claim.
+  const geographicScore=x=>{
+    if(x.scope==='observed_branch'){
+      const r=x.geographicRank;
+      return r===0?0:r===1?1:r===2?3:6;
+    }
+    if(x.scope==='covered_postal_area')return 2;
+    if(x.scope==='province_reference')return 4;
+    if(x.scope==='canadian_reference')return 7;
+    if(x.scope==='national_average')return 8;
+    return 9;
+  };
+  const storeScore=x=>x.storeId===item.storeId?0:x.storeId&&enabled.has(x.storeId)?1:2;
+  return candidates.slice().sort((a,b)=>
+    geographicScore(a)-geographicScore(b)||storeScore(a)-storeScore(b)||
+    (b.date||'').localeCompare(a.date||'')||a.price-b.price
+  )[0]||null;
 }
 function candidateCard(candidate,index){
   const distance=candidate.scope==='observed_branch'?'Store observation, not a guaranteed price':candidate.scope==='national_average'?'Published Canadian average, not a local shelf price':'Reference market estimate, not a local shelf price';
@@ -97,7 +111,7 @@ function fromOpenPrice(item,result){
   if(!Number.isFinite(price)||price<=0||!date||Date.now()-Date.parse(date+'T12:00:00Z')>31*86400000)return null;
   const storeId=storeIdForName(result.storeName);
   return {price,source:'Open Prices',date,storeId,storeName:result.storeName||'Observed Canadian store',
-    city:result.city||result.storeAddress||'Canada',scope:'observed_branch',url:result.sourceUrl,
+    city:result.city||result.storeAddress||'Canada',scope:'observed_branch',geographicRank:rankLocation(result,state.postalCode),url:result.sourceUrl,
     productName:result.productName||item.name,pricePer:'UNIT'};
 }
 function fromGroceryPulse(payload,item){
