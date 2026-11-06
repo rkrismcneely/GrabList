@@ -221,7 +221,7 @@ function governmentMatch(name,size){
   if(!record)return null;
   return {
     price:record.price,currency:'CAD',productName:record.name,pack:record.pack,
-    matchStatus:!size||normalMeasure(size)===normalMeasure(record.pack)?'reference_size':'different_size',
+    matchStatus:!size?'size_unspecified':normalMeasure(size)===normalMeasure(record.pack)?'reference_size':'different_size',
     requestedSize:size||null,observedAt:'2026-09',sourceMonth:'September 2026',
     city:'Canada',storeName:'Canadian average (all retailers)',
     sourceUrl:'https://www.statcan.gc.ca/en/topics-start/food-price',
