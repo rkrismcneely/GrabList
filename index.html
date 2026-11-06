@@ -142,6 +142,14 @@ body.sheet-open {overflow:hidden}
 .source-price-use {background:#d65b43;color:#fff;border:0;border-radius:8px;min-height:37px;padding:6px 12px;font-weight:750;font-size:12px;margin-top:8px}
 .source-price-small strong {color:#64483b}
 .savvi-lookup-button {align-self:flex-end;border:1px solid #e2c2af;border-radius:10px;padding:11px;background:#fff6eb;color:#a34a36;font-size:13px;font-weight:700}
+.extra-price-tools,.provider-settings {margin:9px 0;border:1px solid #e9d8c8;padding:10px;border-radius:12px;background:#fff9f3}
+.extra-price-tools summary,.provider-settings summary {cursor:pointer;font-size:13px;font-weight:750;color:#8d4a36;padding:4px}
+.extra-price-tools[open] {display:flex;flex-direction:column;gap:7px}
+.provider-settings h3 {margin-top:16px}
+.provider-settings #vynn-token-input,.provider-settings #reef-token-input {display:block;width:100%;height:42px;border:1px solid #e5cfc3;border-radius:10px;padding:0 11px;font-size:15px}
+.provider-settings select {display:block;width:100%;height:44px;border-radius:10px;border:1px solid #e5cfc3;background:#fff;padding:0 10px}
+.provider-checkbox {display:flex;align-items:start;gap:9px;padding:9px 2px;font-size:12px;font-weight:600;color:#645146}
+.provider-checkbox input {flex:0 0 auto;width:19px;height:19px;accent-color:#cf563b}
 .savvi-token-actions {display:flex;gap:8px}
 .savvi-token-actions button {flex:1;border:1px solid #e2c2af;border-radius:9px;min-height:40px;background:#fff4e8;color:#81513b;font-weight:700;font-size:12px}
 #apify-token-input {height:42px;width:100%;border:1px solid #e5cfc3;border-radius:10px;padding:0 11px;font-size:15px}
@@ -217,8 +225,14 @@ body.sheet-open {overflow:hidden}
       <label>Price (CAD) <span class="label-extra">Manual or approximate reference</span><input id="edit-price" inputmode="decimal" type="number" min="0" step="0.01" placeholder="Unknown" /></label>
       <p id="edit-source-note" class="sheet-help">Prices entered here are manual, not live quotes.</p>
       <button type="button" id="look-up-item-price">Search public prices</button>
-      <button type="button" id="look-up-savvi-price" class="savvi-lookup-button">Search Savvi (your Apify credits)</button>
-      <button type="button" id="look-up-retailer-pages" class="savvi-lookup-button">Check retailer websites</button>
+      <details class="extra-price-tools">
+        <summary>More price sources</summary>
+        <p class="sheet-help">Optional sources use your own provider account. Nothing is charged or queried until you choose a search.</p>
+        <button type="button" id="look-up-vynn-price" class="savvi-lookup-button">Search VynnAI prices</button>
+        <button type="button" id="look-up-reef-price" class="savvi-lookup-button">Search selected No Frills / Independent branch</button>
+        <button type="button" id="look-up-savvi-price" class="savvi-lookup-button">Search Savvi (Apify credits)</button>
+        <button type="button" id="look-up-retailer-pages" class="savvi-lookup-button">Open retailer websites</button>
+      </details>
       <div id="lookup-item-results" aria-live="polite"></div>
       <div class="sheet-actions"><button type="button" id="delete-item" class="button-danger">Delete</button><button type="submit" class="button-primary">Save item</button></div>
     </form>
@@ -248,6 +262,34 @@ body.sheet-open {overflow:hidden}
         <button type="button" id="clear-apify-token">Disconnect</button>
       </div>
       <p id="apify-token-status" class="sheet-help" role="status" aria-live="polite">Not connected</p>
+      <details class="provider-settings">
+        <summary>More Canadian price providers</summary>
+        <h3>VynnAI · optional free monthly API</h3>
+        <p class="sheet-help">Connect your own <a href="https://vynn.ai/developers/docs" target="_blank" rel="noopener noreferrer">VynnAI key</a>. The free plan currently includes 500 requests per month. Your key is held only in this browser session, not stored on GrabList's server.</p>
+        <label for="vynn-token-input" class="settings-label">VynnAI API key</label>
+        <input id="vynn-token-input" type="password" autocomplete="off" placeholder="Paste VynnAI key" />
+        <div class="savvi-token-actions">
+          <button type="button" id="save-vynn-token">Use for this session</button>
+          <button type="button" id="clear-vynn-token">Disconnect</button>
+        </div>
+        <p id="vynn-token-status" class="sheet-help" role="status" aria-live="polite">Not connected</p>
+        <label class="provider-checkbox"><input type="checkbox" id="vynn-auto-optin" /> Automatically check missing prices with VynnAI (up to 8 searches per day on this device, using your allowance)</label>
+        <h3>ReefAPI · nearby Loblaw-chain branches</h3>
+        <p class="sheet-help">Connect your own <a href="https://reefapi.com/loblaws-api" target="_blank" rel="noopener noreferrer">ReefAPI key</a>. One-time introductory credits are available. Each successful branch search costs credits. Never used automatically.</p>
+        <label for="reef-token-input" class="settings-label">ReefAPI key</label>
+        <input id="reef-token-input" type="password" autocomplete="off" placeholder="Paste ReefAPI key" />
+        <div class="savvi-token-actions">
+          <button type="button" id="save-reef-token">Use for this session</button>
+          <button type="button" id="clear-reef-token">Disconnect</button>
+        </div>
+        <p id="reef-token-status" class="sheet-help" role="status" aria-live="polite">Not connected</p>
+        <button type="button" id="reef-find-branches" class="savvi-lookup-button">Find No Frills / Independent branches near postal code (uses credits)</button>
+        <label class="settings-label" for="reef-nofrills-branch">No Frills branch</label>
+        <select id="reef-nofrills-branch"><option value="">Select a branch</option></select>
+        <label class="settings-label" for="reef-independent-branch">Independent branch</label>
+        <select id="reef-independent-branch"><option value="">Select a branch</option></select>
+        <p id="reef-branch-status" class="sheet-help" role="status" aria-live="polite">Choose an exact branch to avoid default-store prices.</p>
+      </details>
       <h3>Shopping preferences</h3>
       <label class="settings-label" for="savings-input">Savings needed to add another store</label>
       <div class="input-row"><span>$</span><input id="savings-input" type="number" min="0" max="100" step="0.50" value="5" inputmode="decimal" /><span>CAD</span></div>
@@ -258,7 +300,7 @@ body.sheet-open {overflow:hidden}
       <button type="button" class="settings-action" id="import-list">Import a backup <span>Replace this device’s list</span></button>
       <input id="import-file" type="file" accept="application/json,.json" hidden />
       <button type="button" class="settings-action destructive" id="reset-list">Clear entire list <span>Removes all items and purchase history</span></button>
-      <p class="prototype-disclaimer">GrabList Phase 2 preview · Price comparisons use your recorded prices, not live store feeds. Data is stored on this device, not synced. Export a backup to keep it safe.</p>
+      <p class="prototype-disclaimer">GrabList preview · Prices may be manually recorded, store-specific, or approximate references. Confirm checkout prices. Data is stored on this device, not synced. Export a backup to keep it safe.</p>
     </div>
   </section>
 
