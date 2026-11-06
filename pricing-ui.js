@@ -51,7 +51,8 @@ function recordReference(item,candidate){
     observedAt:candidate.date||'',location:candidate.city||'Canada',
     scope:candidate.scope||'reference',storeName:candidate.storeName||'',
     storeId:candidate.storeId||null,productName:candidate.productName||'',
-    pricePer:candidate.pricePer||'UNIT',recordedAt:Date.now()
+    pricePer:candidate.pricePer||'UNIT',packageSize:candidate.packageSize||'',
+    sizeEvidence:candidate.sizeEvidence||'reported',recordedAt:Date.now()
   };
   update();
   const isCurrent=$id('edit-id').value===item.id;
@@ -146,7 +147,7 @@ function fromGroceryPulse(payload,item){
       storeId:storeIdForName(store.key||storeName),storeName,city,scope:payload.scope||'reference_city',
       url:plan.comparisonUrl||payload.sourceUrl||'https://grocerypulse.ca/agents',
       productName:item.name+(item.size?' · '+item.size:''),pricePer:'UNIT',
-      packageSize:item.size||'',confidence:'high'};
+      packageSize:item.size||'',sizeEvidence:'requested_exact_catalog_line',confidence:'high'};
   });
 }
 function fromNational(payload,item){
@@ -396,35 +397,12 @@ function autoKey(item){
  return [item.name,item.size,item.brand,state.postalCode,(state.enabledStoreIds||[]).join(',')].join('|').toLowerCase();
 }
 function compatibleAuto(item,candidate){
- if(!candidate||!Number.isFinite(candidate.price)||candidate.price<=0)return false;
- if(candidate.source==='Open Prices')return false; // Name-only matches aren't proven equivalents.
- if(candidate.source==='GroceryPulse'&&candidate.confidence!=='high')return false;
- if(candidate.source==='Statistics Canada'&&candidate.matchStatus!=='reference_size')return false;
- if(item.brand&&candidate.source==='Statistics Canada')return false; // Generic average cannot honour named brand.
- if(item.brand&&candidate.source==='GroceryPulse')return false; // Generic reference catalogue cannot prove brand.
- if(item.size){
-   if(!candidate.packageSize)return false;
-   if(GrabListComparison.normalizedSize(item.size)!==GrabListComparison.normalizedSize(candidate.packageSize))return false;
- } else if(candidate.source==='GroceryPulse'&&!candidate.packageSize){
-   // A reference-market item without a reported pack size is an estimate,
-   // never a verified 4 L/2 L match. The list must not invent a size.
- }
- if(candidate.storeId&&!state.enabledStoreIds.includes(candidate.storeId))return false;
- return true;
+ return GrabListIntelligence.assess(item,candidate,{enabledStores:state.enabledStoreIds}).ok;
 }
 function autoPick(item,candidates){
- const good=candidates.filter(c=>compatibleAuto(item,c));
- if(!good.length)return null;
- // An item already assigned to FreshCo should use FreshCo's observed
- // reference rather than an equally-priced offer at another chain.
- const priority=id=>{const i=state.storeOrderIds?.indexOf(id)??-1;return i<0?999:i;};
- const scope=c=>c.scope==='covered_postal_area'?0:c.scope==='nearest_reference_city'?1:
-   c.scope==='province_reference'?2:c.scope==='canadian_reference'?3:c.scope==='reference_city'?3:
-   c.scope==='national_average'?4:5;
- good.sort((a,b)=>scope(a)-scope(b)||
-   Number(b.storeId===item.storeId)-Number(a.storeId===item.storeId)||
-   a.price-b.price||priority(a.storeId)-priority(b.storeId));
- return good[0];
+ return GrabListIntelligence.select(item,candidates,{
+  enabledStores:state.enabledStoreIds,storeOrder:state.storeOrderIds
+ }).best;
 }
 async function autoPriceOne(item){
  const key=autoKey(item);
