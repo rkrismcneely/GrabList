@@ -68,6 +68,29 @@ This JSON is a **schema example**, not a real price or an actual connected provi
 
 All prices are per requested package. Values should be interpreted as CAD. Saving another store's manual quote does not automatically change the item's assigned store. Manual quotes older than 30 days, quotes with a mismatched size or required brand, and examples are excluded from recommendations.
 
+## Geographic precision and fallback policy
+
+A Canadian postal code is stored locally in GrabList Settings (validated and formatted; never guessed from GPS). The first three characters form the **FSA**, a coarse postal geography. The first letter can identify a province for most Canadian postal codes, but **X** spans Nunavut and Northwest Territories and does not prove either province or territory.
+
+The location engine (`location.js`) ranks **applicable** offers by:
+
+1. Preferred or nearest confirmed **store branch** with a matching branch identifier.
+2. Exact six-character postal-code coverage.
+3. Matching postal-code FSA.
+4. Verified matching city.
+5. Verified matching region.
+6. Matching province or territory.
+7. Explicitly national price.
+8. Manually recorded quote without verified location metadata (labelled **location unverified**).
+
+A scoped offer for a different city, region, province or branch **must not** be treated as a match. Within the same scope, prefer the most recently observed eligible quote. Quotes outside the existing freshness cutoff remain ineligible.
+
+**Closest branch is not yet determined in the UI.** That requires an authorized store directory with accurate branch coordinates and a permitted postal-code geocoder or explicit device location. A postal code alone is not enough to assert that a particular branch is the closest. The engine includes a deterministic nearest-branch helper for later integration with confirmed coordinates.
+
+Prices for one locale cannot necessarily be assumed valid throughout a province. Show exact coverage and source date next to any future automatically retrieved quote, including promotions' eligibility and effective date. A national reference price must remain labelled national/indicative, never guaranteed in-store.
+
+Flipp offers relevant geographic distribution via retailer partnerships, flyers, online and local-store catalogues. Its FlyerKit APIs are documented primarily for retailer/publisher integrations and require appropriate authorization. Do not imply unrestricted public API access or scrape protected resources without permission.
+
 ## Provider selection notes
 
 - **Open Prices / Open Food Facts:** open community price records with documented location and date, but not guaranteed product/retailer coverage in a given Ontario city. Its Open Database License has attribution and share-alike conditions that must be assessed before integrating. See https://prices.openfoodfacts.org/api/docs and https://openfoodfacts.github.io/open-prices/guides/data/.
