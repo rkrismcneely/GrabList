@@ -374,6 +374,199 @@ async function savviLookup(request){
   return json({provider:'Savvi via Apify',chargedTo:'user_apify_account',results:prices,
     searchedStores:retailers,location:postal||'unspecified',note:'User-funded lookup, product matching is not guaranteed. Confirm variant, package, location and observed date before choosing.'});
 }
+
+// User-owned price-source adapters. No site-owner keys, shared cache, or
+// background polling. Credentials only travel in explicit POST bodies from the
+// user's session to the fixed allowlisted upstream and never enter logs/output.
+const API_PROVINCES={A:'NL',B:'NS',C:'PE',E:'NB',G:'QC',H:'QC',J:'QC',K:'ON',L:'ON',M:'ON',N:'ON',P:'ON',R:'MB',S:'SK',T:'AB',V:'BC',Y:'YT'};
+function provinceForPostal(value){
+  const postal=normalizePostal(value);
+  return postal?API_PROVINCES[postal[0]]||null:null;
+}
+function plain(value,max=160){return String(value??'').trim().slice(0,max);}
+function validKey(token){
+  return token.length>=20&&token.length<=500&&/^[A-Za-z0-9._~-]+$/.test(token);
+}
+async function readSmallJson(request,max=4000){
+  let raw;
+  try{raw=await request.text();}catch{return null;}
+  if(raw.length>max)return null;
+  try{return JSON.parse(raw);}catch{return null;}
+}
+function dated(value){
+  const str=plain(value,32);
+  return /^\d{4}-\d{2}-\d{2}/.test(str)?str.slice(0,10):null;
+}
+function nameToGrabListStore(banner){
+  const key=plain(banner,100).toLowerCase().replace(/[^a-z0-9]/g,'');
+  if(key.includes('nofrills'))return 'nofrills';
+  if(key.includes('independentgrocer')||key==='independent')return 'independent';
+  if(key.includes('walmart'))return 'walmart';
+  if(key.includes('freshco'))return 'freshco';
+  if(key.includes('costco'))return 'costco';
+  if(key.includes('gianttiger'))return 'gianttiger';
+  return null;
+}
+function findRows(source,keys){
+  if(Array.isArray(source))return source;
+  for(const key of keys)if(Array.isArray(source?.[key]))return source[key];
+  if(source?.data&&source.data!==source)return findRows(source.data,keys);
+  return [];
+}
+function vynnResults(data,searchType,query){
+  const products=findRows(data,['products','results','items','matches']);
+  const entries=products.length?products:[data?.canonical_product||data?.product||data];
+  const rows=[];
+  for(const entry of entries.slice(0,24)){
+    if(!entry||typeof entry!=='object')continue;
+    const product=entry.canonical_product||entry.product||entry;
+    const name=plain(product.display_name||product.product_name||product.name||entry.title,150);
+    const barcode=plain(product.upc||product.gtin||product.barcode||entry.upc,20);
+    const size=plain(product.size||product.quantity||product.package_size||entry.package_size,45);
+    const brand=plain(product.brand||product.brands||entry.brand,65);
+    const offers=findRows(entry,['offers','latest_offers','prices','observations']);
+    // A catalogue-only row cannot be used as a price. Show only priced offers.
+    for(const offer of offers.slice(0,30)){
+      if(!offer||typeof offer!=='object')continue;
+      const price=Number(offer.current_price??offer.effective_price??offer.price);
+      if(!Number.isFinite(price)||price<=0||price>10000)continue;
+      if(offer.currency&&String(offer.currency).toUpperCase()!=='CAD')continue;
+      const banner=plain(offer.banner||offer.retailer||offer.retailer_name||offer.chain,100);
+      const store=offer.store&&typeof offer.store==='object'?offer.store:{};
+      const oBarcode=plain(offer.upc||offer.gtin||barcode,20);
+      const oSize=plain(offer.size||offer.package_size||size,45);
+      rows.push({
+        price,source:'VynnAI',storeId:nameToGrabListStore(banner),storeName:banner||'Canadian reference retailer',
+        storeIdentifier:plain(offer.store_id||store.id,80),
+        storeAddress:plain(offer.store_address||store.address,150),
+        city:plain(offer.city||store.city,90),
+        province:plain(offer.province||store.province,2),
+        productName:plain(offer.product_name||name,150),
+        brand,barcode:oBarcode,packageSize:oSize,
+        observedAt:dated(offer.observed_at||offer.last_observed_at||offer.collected_at||offer.last_updated||offer.date),
+        sale:Boolean(offer.is_on_sale||offer.on_sale),
+        currency:'CAD',scope:'province_reference',
+        matchType:searchType==='barcode'&&oBarcode===query?'barcode':'name',
+        confidence:searchType==='barcode'&&oBarcode===query?'high':'unverified',
+        sourceUrl:'https://vynn.ai/'
+      });
+    }
+  }
+  return rows.slice(0,50);
+}
+async function vynnLookup(request){
+  if(request.method!=='POST')return responseError('POST required',405);
+  const body=await readSmallJson(request,4000);
+  if(!body)return responseError('Invalid request',400);
+  const token=plain(body.apiToken,500);
+  if(!validKey(token))return responseError('Connect your own VynnAI API key in Settings.',400,'vynn_key_required');
+  const barcode=plain(body.barcode,20);
+  const query=plain(body.query,100);
+  if(!(/^\d{8,14}$/.test(barcode))&&(query.length<3||query.length>100))
+    return responseError('Enter a product name or barcode.',400);
+  if(body.postalCode&&!normalizePostal(body.postalCode))return responseError('Invalid Canadian postal code.',400);
+  const province=provinceForPostal(body.postalCode);
+  if(body.postalCode&&!province)return responseError('Province cannot be determined from that postal code.',400);
+  const byBarcode=/^\d{8,14}$/.test(barcode);
+  const endpoint=new URL('https://vynn.ai/v1/products/'+(byBarcode?'lookup':'search'));
+  endpoint.searchParams.set(byBarcode?'upc':'q',byBarcode?barcode:query);
+  endpoint.searchParams.set('limit','20');
+  if(province)endpoint.searchParams.set('province',province);
+  let response;
+  try{response=await fetch(endpoint.toString(),{
+    headers:{Accept:'application/json',Authorization:'Bearer '+token},
+    signal:AbortSignal.timeout(14000),redirect:'manual'
+  });}catch{return responseError('VynnAI could not be reached. No prices were changed.',503,'vynn_unavailable');}
+  if(response.status===404)return json({provider:'VynnAI',results:[],province,sourceUrl:'https://vynn.ai/',note:'No matching product recorded.'});
+  if(response.status===401||response.status===403)return responseError('VynnAI rejected this API key. Verify it in your account.',401,'vynn_key_invalid');
+  if(response.status===429)return responseError('VynnAI rate or monthly quota limit reached. Check your account before retrying.',429,'vynn_quota');
+  if(!response.ok)return responseError('VynnAI could not return a price search right now.',503,'vynn_unavailable');
+  let data;
+  try{data=await response.json();}catch{return responseError('VynnAI returned unreadable JSON.',502,'vynn_invalid_response');}
+  const results=vynnResults(data,byBarcode?'barcode':'name',byBarcode?barcode:query);
+  return json({provider:'VynnAI',results,province,chargedTo:'user_vynn_account',
+    sourceUrl:'https://vynn.ai/',note:'Province-scoped reference store offers, not guaranteed prices at your own nearest branch. Undated or unverified matches require review.'});
+}
+const REEF_BANNERS={nofrills:'nofrills',independent:'independent'};
+function reefBranchRows(data,storeId){
+  const rows=findRows(data,['stores','results','items','locations']);
+  return rows.slice(0,40).map(v=>{
+    const lat=Number(v.lat??v.latitude??v.coordinates?.latitude);
+    const lon=Number(v.lon??v.lng??v.longitude??v.coordinates?.longitude);
+    return {
+      id:plain(v.store_id||v.id||v.storeNumber,75),
+      name:plain(v.name||v.store_name||v.display_name,100),
+      address:plain(v.address||v.street_address||v.full_address,160),
+      city:plain(v.city,70),
+      postalCode:plain(v.postal_code||v.postalCode,16),
+      lat:Number.isFinite(lat)&&lat>=40&&lat<=85?lat:null,
+      lon:Number.isFinite(lon)&&lon>=-142&&lon<=-52?lon:null,
+      distanceKm:Number.isFinite(Number(v.distance_km))?Number(v.distance_km):null,
+      storeId
+    };
+  }).filter(v=>v.id);
+}
+function reefSearchRows(data,storeId,branchId){
+  const rows=findRows(data,['products','results','items','listings']);
+  return rows.slice(0,40).map(row=>{
+    const price=Number(row.price?.value??row.price?.amount??row.price);
+    const name=plain(row.name||row.product_name||row.title||row.display_name,150);
+    const barcode=plain(row.gtin||row.upc||row.ean||row.barcode,20);
+    const date=dated(row.price_date||row.last_updated||row.observed_at);
+    return {
+      price,source:'ReefAPI Loblaw',storeId,
+      storeName:storeId==='nofrills'?'No Frills':'Your Independent Grocer',
+      branchId,productName:name,brand:plain(row.brand,70),
+      packageSize:plain(row.pack_size||row.package_size||row.size||row.quantity,45),
+      barcode,date,observedAt:date,
+      currentPriceIsEstimate:Boolean(row.price_is_estimate),
+      priceScope:'selected_branch',scope:'selected_branch',
+      originalPrice:Number.isFinite(Number(row.original_price))?Number(row.original_price):null,
+      memberPrice:Number.isFinite(Number(row.member_price))?Number(row.member_price):null,
+      sale:Boolean(row.deal?.type==='sale'||row.sale),
+      stock:plain(row.stock_status,35),
+      sourceUrl:plain(row.url||row.product_url,250),
+      currency:'CAD',
+      confidence:'unverified',sizeEvidence:'retailer_catalogue'
+    };
+  }).filter(r=>r.productName&&Number.isFinite(r.price)&&r.price>0&&r.price<10000);
+}
+async function reefLookup(request,mode){
+  if(request.method!=='POST')return responseError('POST required',405);
+  const body=await readSmallJson(request,4000);
+  if(!body)return responseError('Invalid request',400);
+  const token=plain(body.apiToken,500),storeId=plain(body.storeId,40);
+  if(!validKey(token))return responseError('Connect your own ReefAPI key in Settings.',400,'reef_key_required');
+  if(!REEF_BANNERS[storeId])return responseError('Select No Frills or Independent.',400,'reef_store_invalid');
+  const query=plain(body.query,100),branchId=plain(body.branchId,70);
+  if(mode==='search'&&(query.length<2||!branchId||!/^[A-Za-z0-9_-]{1,70}$/.test(branchId)))
+    return responseError('Select a specific retailer branch in Settings and enter an item.',400,'reef_branch_required');
+  const postal=plain(body.postalCode,9);
+  if(mode==='stores'&&!normalizePostal(postal))return responseError('Save a valid Canadian postal code first.',400,'reef_postal_required');
+  const input=mode==='stores'?{
+    banner:REEF_BANNERS[storeId],postal_code:normalizePostal(postal).slice(0,3),limit:16
+  }:{
+    banner:REEF_BANNERS[storeId],store_id:branchId,query,page:1,page_size:24
+  };
+  let response;
+  try{response=await fetch('https://api.reefapi.com/loblaws/v1/'+mode,{
+    method:'POST',redirect:'manual',headers:{
+      Accept:'application/json','Content-Type':'application/json','x-api-key':token
+    },body:JSON.stringify(input),signal:AbortSignal.timeout(14000)
+  });}catch{return responseError('ReefAPI could not be reached. Check your account before retrying.',503,'reef_unavailable');}
+  if(response.status===401||response.status===403)return responseError('ReefAPI rejected the API key.',401,'reef_key_invalid');
+  if(response.status===402||response.status===429)return responseError('ReefAPI credits or rate limit reached. Check your account.',429,'reef_quota');
+  if(!response.ok)return responseError('Retailer lookup unavailable at ReefAPI.',503,'reef_unavailable');
+  let data;try{data=await response.json();}catch{return responseError('ReefAPI returned unreadable JSON.',502);}
+  if(data?.ok===false)return responseError('ReefAPI did not return usable retailer data.',422,'reef_provider_error');
+  const cost=Number(data?.meta?.charged_credits);
+  return json({provider:'ReefAPI',storeId,branchId:mode==='search'?branchId:null,
+    branches:mode==='stores'?reefBranchRows(data.data??data,storeId):undefined,
+    results:mode==='search'?reefSearchRows(data.data??data,storeId,branchId):undefined,
+    chargedCredits:Number.isFinite(cost)?cost:null,sourceUrl:'https://reefapi.com/loblaws-api',
+    note:mode==='stores'?'Select the correct branch before looking up prices.':'Live selected-branch retailer search. Confirm product variants, weight-price estimates and promotions.'});
+}
+
 export default {
   async fetch(request,env){
     const {pathname}=new URL(request.url);
@@ -382,6 +575,9 @@ export default {
     if(pathname==='/api/pricing/catalog-search')return catalogSearch(request);
     if(pathname==='/api/pricing/grocerypulse-plan')return groceryPulse(request);
     if(pathname==='/api/pricing/savvi')return savviLookup(request);
+    if(pathname==='/api/pricing/vynn')return vynnLookup(request);
+    if(pathname==='/api/pricing/reef-stores')return reefLookup(request,'stores');
+    if(pathname==='/api/pricing/reef-search')return reefLookup(request,'search');
     if(pathname==='/api/pricing/national-reference')return governmentReference(request);
     if(pathname==='/api/pricing/national-reference-list')return governmentList(request);
     if(pathname.startsWith('/api/'))return responseError('Unknown API route',404,'not_found');
