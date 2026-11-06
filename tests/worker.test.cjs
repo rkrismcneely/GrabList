@@ -201,3 +201,96 @@ test('catalogue does not accept arbitrary URLs or too-short names',async()=>{
   assert.equal((await api.fetch(new Request('https://grablist.example/api/pricing/catalog-search?name=x'),{})).status,400);
   assert.equal((await api.fetch(new Request('https://grablist.example/api/pricing/catalog-search?name=https%3A%2F%2Fevil.example'),{})).status,400);
 });
+
+test('VynnAI exact barcode lookup uses shopper key and preserves observed store evidence',async()=>{
+ const api=await worker(),token='vynn_pk_test_example_123456789';
+ let requested=0;
+ global.fetch=async(req,opts)=>{
+  requested++;
+  const u=new URL(req);
+  assert.equal(u.hostname,'vynn.ai');
+  assert.equal(u.pathname,'/v1/products/lookup');
+  assert.equal(u.searchParams.get('upc'),'0060383682057');
+  assert.equal(u.searchParams.get('province'),'ON');
+  assert.equal(opts.headers.Authorization,'Bearer '+token);
+  return response({
+    canonical_product:{display_name:'Milk 4 L',brand:'Natrel',size:'4 L',upc:'0060383682057'},
+    offers:[{current_price:6.44,banner:'FreshCo',province:'ON',store_id:'F144',
+      observed_at:'2026-11-06T12:00:00Z',currency:'CAD'}]
+  });
+ };
+ const r=await api.fetch(new Request('https://grablist.test/api/pricing/vynn',{
+  method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({
+   apiToken:token,barcode:'0060383682057',postalCode:'K9J 7B5'
+  })
+ }),{});
+ const data=await r.json();
+ assert.equal(r.status,200);assert.equal(requested,1);
+ assert.equal(data.results[0].storeId,'freshco');
+ assert.equal(data.results[0].price,6.44);
+ assert.equal(data.results[0].barcode,'0060383682057');
+ assert.equal(data.results[0].confidence,'high');
+ assert.equal(data.results[0].packageSize,'4 L');
+ assert.equal(data.results[0].observedAt,'2026-11-06');
+ assert.equal(data.results[0].scope,'province_reference');
+ assert.ok(!JSON.stringify(data).includes(token));
+});
+test('VynnAI does not invent prices for catalogue-only search results',async()=>{
+ const api=await worker();
+ global.fetch=async()=>response({products:[
+  {display_name:'Marshmallows 400 g',upc:'1234567890123',size:'400 g',offers:[]}
+ ]});
+ const r=await api.fetch(new Request('https://grablist.test/api/pricing/vynn',{
+  method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({
+   apiToken:'vynn_pk_test_example_123456789',query:'marshmallows',postalCode:'K9J 7B5'
+  })
+ }),{});
+ assert.equal((await r.json()).results.length,0);
+});
+test('ReefAPI requires explicit branch and returns only store-specific priced products',async()=>{
+ const api=await worker(),key='reef_key_sample_example_123456789';
+ global.fetch=async(req,opts)=>{
+  assert.equal(new URL(req).pathname,'/loblaws/v1/search');
+  assert.equal(opts.headers['x-api-key'],key);
+  const body=JSON.parse(opts.body);
+  assert.equal(body.banner,'nofrills');assert.equal(body.store_id,'1534');
+  assert.equal(body.query,'marshmallows');
+  return response({ok:true,data:{products:[
+   {product_name:'Mini Marshmallows',pack_size:'400 g',price:3.99,
+    price_date:'2026-11-06',stock_status:'in_stock',original_price:4.99},
+   {product_name:'Marshmallow Fluff',pack_size:'200 g',price:4.49,price_date:'2026-11-06'},
+   {product_name:'Missing Price',pack_size:'200 g'}
+  ]},meta:{charged_credits:2}});
+ };
+ const url='https://grablist.test/api/pricing/reef-search';
+ const missing=await api.fetch(new Request(url,{method:'POST',headers:{'content-type':'application/json'},
+  body:JSON.stringify({apiToken:key,storeId:'nofrills',query:'marshmallows'})}),{});
+ assert.equal(missing.status,400);
+ const res=await api.fetch(new Request(url,{method:'POST',headers:{'content-type':'application/json'},
+  body:JSON.stringify({apiToken:key,storeId:'nofrills',branchId:'1534',query:'marshmallows'})}),{});
+ const data=await res.json();
+ assert.equal(res.status,200);assert.equal(data.results.length,2);
+ assert.equal(data.results[0].price,3.99);assert.equal(data.results[0].packageSize,'400 g');
+ assert.equal(data.results[0].branchId,'1534');assert.equal(data.results[0].scope,'selected_branch');
+ assert.equal(data.chargedCredits,2);
+ assert.ok(!JSON.stringify(data).includes(key));
+});
+test('ReefAPI store directory uses postal area, not full residential postal code',async()=>{
+ const api=await worker(),key='reef_key_sample_example_123456789';
+ global.fetch=async(req,opts)=>{
+  assert.equal(new URL(req).pathname,'/loblaws/v1/stores');
+  const body=JSON.parse(opts.body);
+  assert.equal(body.postal_code,'K9J');assert.equal(body.banner,'independent');
+  return response({ok:true,data:{stores:[{store_id:'8811',name:'Your Independent Grocer',
+   address:'Example street',city:'Peterborough',latitude:44.3,longitude:-78.32,distance_km:2.1}]}});
+ };
+ const r=await api.fetch(new Request('https://grablist.test/api/pricing/reef-stores',{
+  method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({
+   apiToken:key,storeId:'independent',postalCode:'K9J 7B5'
+  })
+ }),{});
+ const data=await r.json();
+ assert.equal(r.status,200);
+ assert.equal(data.branches[0].id,'8811');
+ assert.equal(data.branches[0].distanceKm,2.1);
+});
