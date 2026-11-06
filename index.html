@@ -248,7 +248,7 @@ body.sheet-open {overflow:hidden}
       <button type="button" id="look-up-item-price">Search public prices</button>
       <details id="delivery-price-tools" class="delivery-price-tools">
         <summary>Check DoorDash, Uber Eats or Instacart</summary>
-        <p class="sheet-help">Open your selected store's delivery catalogue, copy the product price and details, then return here. Delivery prices may differ from in-store prices. No automated platform scraping.</p>
+        <p class="sheet-help">Delivery app priority and store branches are managed in Settings. Check a product listing here only when needed; delivery-platform prices cannot be searched automatically without approved access.</p>
         <div class="two-cols">
           <label>Platform<select id="delivery-service"><option value="doordash">DoorDash</option><option value="ubereats">Uber Eats</option><option value="instacart">Instacart</option></select></label>
           <label>Store<select id="delivery-store"></select></label>
@@ -256,13 +256,14 @@ body.sheet-open {overflow:hidden}
         <div id="delivery-storefront-current" class="sheet-help"></div>
         <button type="button" id="delivery-copy-search" class="savvi-lookup-button">Copy item name for searching</button>
         <a id="delivery-open-store" class="delivery-open-link" href="https://www.doordash.com/" target="_blank" rel="noopener noreferrer">Open DoorDash</a>
-        <p class="sheet-help">If the store opens in its app without a shareable URL, skip the optional link setup. Just confirm the branch address below.</p>
-        <label>Save your branch's store page <span class="label-extra">Optional — not needed to record prices</span>
+        <div id="delivery-item-url-setup" hidden>
+        <label>Save your branch's store page <span class="label-extra">Configure in Settings instead</span>
           <input id="delivery-storefront-url" type="url" placeholder="Paste the exact delivery storefront URL" autocomplete="off" />
         </label>
         <div id="delivery-local-suggestions"></div>
         <button type="button" id="delivery-save-storefront" class="savvi-lookup-button">Save this store page</button>
         <p id="delivery-link-message" class="sheet-help" role="status"></p>
+        </div>
         <label>Branch name or street address <span class="label-extra">Required when you don't have a store URL</span>
           <input id="delivery-branch-label" maxlength="140" placeholder="e.g. No Frills · 1866 Lansdowne St W" autocomplete="off" />
         </label>
@@ -1124,5 +1125,6 @@ if('serviceWorker' in navigator && (location.protocol==='https:' || location.hos
 
 </script>
   <script src="./pricing-ui.js"></script>
+  <script src="./delivery-settings.js"></script>
 </body>
 </html>
