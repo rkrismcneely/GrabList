@@ -1,6 +1,6 @@
-/* GrabList public-price gateway.
-   Two explicitly allowlisted providers; no credentials, scraping, analytics, or price database.
-   Requests are initiated by the shopper, never scheduled or bulk-crawled. */
+/* GrabList price gateway: public sources plus optional user-keyed providers.
+   Fixed upstream destinations; no platform API keys or shared provider caches.
+   User-funded searches are explicit or require the shopper's opt-in. */
 const JSON_HEADERS={'content-type':'application/json; charset=utf-8','cache-control':'no-store','x-content-type-options':'nosniff'};
 const json=(value,status=200)=>new Response(JSON.stringify(value),{status,headers:JSON_HEADERS});
 const responseError=(message,status=400,code='invalid_request')=>json({error:{code,message}},status);
@@ -424,7 +424,8 @@ function vynnResults(data,searchType,query){
     const barcode=plain(product.upc||product.gtin||product.barcode||entry.upc,20);
     const size=plain(product.size||product.quantity||product.package_size||entry.package_size,45);
     const brand=plain(product.brand||product.brands||entry.brand,65);
-    const offers=findRows(entry,['offers','latest_offers','prices','observations']);
+    const nested=findRows(entry,['offers','latest_offers','prices','observations']);
+    const offers=nested.length?nested:(entry.current_price!=null?[entry]:[]);
     // A catalogue-only row cannot be used as a price. Show only priced offers.
     for(const offer of offers.slice(0,30)){
       if(!offer||typeof offer!=='object')continue;
@@ -466,7 +467,7 @@ async function vynnLookup(request){
     return responseError('Enter a product name or barcode.',400);
   if(body.postalCode&&!normalizePostal(body.postalCode))return responseError('Invalid Canadian postal code.',400);
   const province=provinceForPostal(body.postalCode);
-  if(body.postalCode&&!province)return responseError('Province cannot be determined from that postal code.',400);
+  if(!province)return responseError('Save a Canadian postal code with an identifiable province in Settings first.',400,'province_required');
   const byBarcode=/^\d{8,14}$/.test(barcode);
   const endpoint=new URL('https://vynn.ai/v1/products/'+(byBarcode?'lookup':'search'));
   endpoint.searchParams.set(byBarcode?'upc':'q',byBarcode?barcode:query);
@@ -521,8 +522,8 @@ function reefSearchRows(data,storeId,branchId){
       barcode,date,observedAt:date,
       currentPriceIsEstimate:Boolean(row.price_is_estimate),
       priceScope:'selected_branch',scope:'selected_branch',
-      originalPrice:Number.isFinite(Number(row.original_price))?Number(row.original_price):null,
-      memberPrice:Number.isFinite(Number(row.member_price))?Number(row.member_price):null,
+      originalPrice:row.original_price!=null&&Number.isFinite(Number(row.original_price))?Number(row.original_price):null,
+      memberPrice:row.member_price!=null&&Number.isFinite(Number(row.member_price))?Number(row.member_price):null,
       sale:Boolean(row.deal?.type==='sale'||row.sale),
       stock:plain(row.stock_status,35),
       sourceUrl:(()=>{
@@ -578,7 +579,7 @@ async function reefLookup(request,mode){
 export default {
   async fetch(request,env){
     const {pathname}=new URL(request.url);
-    if(pathname==='/api/pricing/status')return json({ready:true,sources:['open-prices-barcode','grocerypulse-reference-cities','statistics-canada-national-averages'],liveStoreFeeds:false});
+    if(pathname==='/api/pricing/status')return json({ready:true,sources:['open-prices-barcode','grocerypulse-reference-cities','statistics-canada-national-averages'],optionalSources:['vynn-ai-user-key','reefapi-selected-branch-user-key','savvi-apify-user-key'],liveStoreFeeds:'user_connected_only'});
     if(pathname==='/api/pricing/open-prices')return openPrices(request);
     if(pathname==='/api/pricing/catalog-search')return catalogSearch(request);
     if(pathname==='/api/pricing/grocerypulse-plan')return groceryPulse(request);
