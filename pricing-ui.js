@@ -878,6 +878,19 @@ deliveryUi.suggestions.addEventListener('click',event=>{
  deliveryUi.link.value=suggestion.url;
  deliveryUi.message.textContent='Store page selected: '+suggestion.label+'. Tap Save this store page to remember it.';
 });
+$id('delivery-copy-search').addEventListener('click',async()=>{
+ const name=$id('edit-name').value.trim(),size=$id('edit-size').value.trim(),
+   brand=$id('edit-brand').value.trim();
+ const query=[name,size,brand].filter(Boolean).join(' ').slice(0,160);
+ if(!query){deliveryUi.message.textContent='Enter an item name first.';return;}
+ try{
+  if(!navigator.clipboard?.writeText)throw Error('Clipboard not supported');
+  await navigator.clipboard.writeText(query);
+  deliveryUi.message.textContent='Copied "'+query+'". Open the store and paste into its search field.';
+ }catch{
+  deliveryUi.message.textContent='Search the delivery store for: '+query;
+ }
+});
 $id('delivery-save-storefront').addEventListener('click',()=>{
  const service=deliveryUi.service.value,store=deliveryUi.store.value;
  if(!state.enabledStoreIds.includes(store)){
