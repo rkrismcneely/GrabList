@@ -143,6 +143,11 @@ body.sheet-open {overflow:hidden}
 .source-price-small strong {color:#64483b}
 .savvi-lookup-button {align-self:flex-end;border:1px solid #e2c2af;border-radius:10px;padding:11px;background:#fff6eb;color:#a34a36;font-size:13px;font-weight:700}
 .extra-price-tools,.provider-settings {margin:9px 0;border:1px solid #e9d8c8;padding:10px;border-radius:12px;background:#fff9f3}
+.delivery-settings-panel {margin:12px 0;border:1px solid #e5d4c6;padding:12px;border-radius:12px;background:#fff7f0}
+.delivery-settings-panel input,.delivery-settings-panel select {display:block;width:100%;min-height:42px;margin:4px 0 10px;padding:8px;border-radius:9px;border:1px solid #dfc8b8;background:#fff;color:#342d29}
+.delivery-settings-panel button {cursor:pointer;margin:6px 0;border-radius:9px}
+.delivery-settings-panel #delivery-settings-suggestions button {display:block;background:#fff;border:1px solid #e3caba;color:#92523d;padding:8px;font-size:12px;border-radius:9px;text-align:left}
+#delivery-item-url-setup[hidden]{display:none!important}
 .delivery-price-tools {border:1px solid #dfcbbd;background:#fff7ef;border-radius:12px;margin:10px 0;padding:10px}
 .delivery-price-tools summary {font-size:13px;font-weight:780;color:#8e4e39;cursor:pointer;padding:5px 0}
 .delivery-price-tools label {font-size:12px}
@@ -303,6 +308,22 @@ body.sheet-open {overflow:hidden}
       <h3>My stores</h3>
       <p class="sheet-help">Check the stores you use. Move your favourites to the top; this order breaks price ties and orders stores in Shop mode.</p>
       <div id="store-options" class="store-options"></div>
+      <h3>Delivery app preferences</h3>
+      <p class="sheet-help">Enable and rank the delivery apps you use. Save a branch once per retailer and app. These are shortcuts for checking listings; they cannot be silently queried without provider API access.</p>
+      <div id="delivery-platform-options" class="store-options"></div>
+      <div class="delivery-settings-panel">
+        <label class="settings-label" for="settings-delivery-store">Configure retailer</label>
+        <select id="settings-delivery-store"></select>
+        <label class="settings-label" for="settings-delivery-service">On delivery app</label>
+        <select id="settings-delivery-service"></select>
+        <label class="settings-label" for="settings-delivery-branch">My branch or address (optional)</label>
+        <input id="settings-delivery-branch" maxlength="140" placeholder="e.g. No Frills · 1866 Lansdowne St W" />
+        <label class="settings-label" for="settings-delivery-url">Exact storefront URL (optional)</label>
+        <input id="settings-delivery-url" type="url" autocomplete="off" placeholder="Paste store link if available" />
+        <div id="delivery-settings-suggestions"></div>
+        <button type="button" id="settings-save-delivery" class="settings-action">Save this delivery branch</button>
+        <p id="delivery-settings-status" class="sheet-help" role="status" aria-live="polite">No branch selected yet.</p>
+      </div>
       <h3>Optional Savvi price source</h3>
       <p class="sheet-help">Savvi uses your own Apify account and may consume credits. Supports No Frills and Independent here. A token is kept only in this browser tab, not exported with your grocery list.</p>
       <label class="settings-label" for="apify-token-input">Apify API token
@@ -392,7 +413,9 @@ const normalizedKey = str => String(str||'').toLowerCase().normalize('NFKD').rep
 
 const DEFAULT_SIZES={'milk':'4 L'}; // Starter preference; explicit user choices always override.
 function inferredSize(name,profile){return profile?.size||DEFAULT_SIZES[normalizedKey(name)]||'';}
-function blankState(){return {version:1,items:[],enabledStoreIds:STORES.map(s=>s.id),storeOrderIds:STORES.map(s=>s.id),profiles:{},deliveryLinks:{},postalCode:'',savingsThreshold:5,nextOrder:1};}
+function blankState(){return {version:1,items:[],enabledStoreIds:STORES.map(s=>s.id),storeOrderIds:STORES.map(s=>s.id),
+  deliveryOrder:['doordash','ubereats','instacart'],deliveryEnabled:['doordash','ubereats','instacart'],
+  deliveryBranches:{},profiles:{},deliveryLinks:{},postalCode:'',savingsThreshold:5,nextOrder:1};}
 function sanitizeItem(raw,index){
   if(!raw||typeof raw!=='object'||typeof raw.name!=='string'||!raw.name.trim())return null;
   const price = raw.price===null||raw.price===undefined||raw.price===''?null:Number(raw.price);
@@ -452,7 +475,20 @@ function sanitizeState(raw){
       if(url)deliveryLinks[key]={url,label:String(rawValue?.label||'').slice(0,100)};
     }
   }
-  return {...base,items:arr,storeOrderIds,enabledStoreIds:storeOrderIds.filter(id=>enabled.includes(id)),profiles,deliveryLinks,postalCode:GrabListLocation.normalizePostalCode(raw.postalCode)||'',savingsThreshold:Math.min(100,Math.max(0,Number(raw.savingsThreshold)||0)),nextOrder:Math.max(1,Number(raw.nextOrder)||1,...arr.map(i=>i.order+1))};
+  const deliveryOrder=[...new Set([...(Array.isArray(raw.deliveryOrder)?raw.deliveryOrder:base.deliveryOrder),...base.deliveryOrder]
+    .filter(id=>Boolean(GrabListDelivery.SERVICES[id])))];
+  const deliveryEnabled=Array.isArray(raw.deliveryEnabled)
+    ?deliveryOrder.filter(id=>raw.deliveryEnabled.includes(id)):base.deliveryEnabled;
+  const deliveryBranches={};
+  if(raw.deliveryBranches&&typeof raw.deliveryBranches==='object'){
+    for(const [key,value] of Object.entries(raw.deliveryBranches).slice(0,40)){
+      const [storeId,service]=key.split(':');
+      if(STORES.some(x=>x.id===storeId)&&GrabListDelivery.SERVICES[service]&&typeof value==='string')
+        deliveryBranches[key]=value.trim().slice(0,140);
+    }
+  }
+  return {...base,items:arr,storeOrderIds,enabledStoreIds:storeOrderIds.filter(id=>enabled.includes(id)),
+    profiles,deliveryLinks,deliveryOrder,deliveryEnabled,deliveryBranches,postalCode:GrabListLocation.normalizePostalCode(raw.postalCode)||'',savingsThreshold:Math.min(100,Math.max(0,Number(raw.savingsThreshold)||0)),nextOrder:Math.max(1,Number(raw.nextOrder)||1,...arr.map(i=>i.order+1))};
 }
 function loadState(){try{return sanitizeState(JSON.parse(localStorage.getItem(STORAGE_KEY)))}catch{return blankState()}}
 let state=loadState();
