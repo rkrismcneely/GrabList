@@ -2,7 +2,7 @@
 
 ## State of integration — Phase 2A
 
-**No live retailer-price service is connected.** The browser currently collects user-entered quotes per item and store and feeds them into `comparison.js`. Stored sample prices are fictional and excluded from comparisons.
+**No direct retailer-price service is connected.** The browser currently collects user-entered quotes per item and store and feeds them into `comparison.js`. Public source searches are available for review but do not automatically become checkout prices or savings offers. Stored sample prices are fictional and excluded from comparisons.
 
 Do **not** describe the manually recorded prices as verified, current, shelf, or checkout prices.
 
@@ -90,6 +90,20 @@ A scoped offer for a different city, region, province or branch **must not** be 
 Prices for one locale cannot necessarily be assumed valid throughout a province. Show exact coverage and source date next to any future automatically retrieved quote, including promotions' eligibility and effective date. A national reference price must remain labelled national/indicative, never guaranteed in-store.
 
 Flipp offers relevant geographic distribution via retailer partnerships, flyers, online and local-store catalogues. Its FlyerKit APIs are documented primarily for retailer/publisher integrations and require appropriate authorization. Do not imply unrestricted public API access or scrape protected resources without permission.
+
+## Connected public sources — Phase 2B
+
+**Open Prices / Open Food Facts:** on-demand search for an item using its optional barcode or name. GrabList filters to recent (last 31 days) CAD observations physically recorded in Canada, includes precise store address, date, product name/size, quantity unit and source link, and ranks based on the saved postal code. No API key required for public reads. The data is licensed under the ODbL; attribute the contributors and preserve provenance. An individual store observation is **not** a province-wide or national price and is not silently entered into an optimizer as if it were a quote from the user's preferred store. The API may return no relevant Canadian observations.
+
+**GroceryPulse public shopper plan:** a user-initiated POST with a maximum 60 lines and the first **three characters** of the shopper's postal code. Its 16 supported cities and 50 standard reference items are a hard coverage boundary; an unsupported FSA is not replaced with a nearby city. Returned prices represent dated **city-level chain medians**, not a confirmed individual branch price or inventory. Show unmatched items, date, scope and excluded items. The shopper API is free/read-only, but forbids bulk extraction, redistribution as a price database, systematic scraping or quota evasion. Use only for individual on-demand shopping queries, with source credit. No API key required.
+
+Cloudflare Worker gateway paths:
+
+- `GET /api/pricing/status`
+- `GET /api/pricing/open-prices?barcode=...` or `?name=...`
+- `POST /api/pricing/grocerypulse-plan`
+
+These are fixed-destination, validated gateways rather than arbitrary open proxies. User lists and FSA requests are not retained by GrabList's Worker. The service worker explicitly excludes API paths from its offline cache. No request is sent to a price provider until a person taps a search button. In-app notes explain unverified/reference prices and source coverage.
 
 ## Provider selection notes
 
