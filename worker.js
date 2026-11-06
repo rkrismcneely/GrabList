@@ -75,11 +75,10 @@ async function groceryPulse(request){
   const lines=String(body?.list||'').trim();
   if(!postal)return responseError('Save a valid Canadian postal code in Settings first.',400,'postal_required');
   if(!lines||lines.length>3000||lines.split(/\r?\n/).length>60)return responseError('Choose up to 60 list items.',400,'list_invalid');
-  const storeMap={walmart:'Walmart',nofrills:'No Frills',freshco:'FreshCo',independent:'Your Independent Grocer',gianttiger:'Giant Tiger'};
-  // Costco isn't listed in GroceryPulse; do not ask it for an untracked chain.
-  const stores=Array.isArray(body.stores)?body.stores.filter(id=>storeMap[id]).map(id=>storeMap[id]).slice(0,10):[];
+  // Ask for the tracked city comparison as a whole. Restricting this query to
+  // a user's stores could fail if even one chain isn't tracked in that city.
+  // The client displays only the stores the shopper enabled.
   const payload={postalCode:postal.slice(0,3),list:lines,language:'en'};
-  if(stores.length)payload.stores=stores;
   const data=await upstreamJson('https://grocerypulse.ca/api/shopper/plan',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(payload)});
   if(data instanceof Response)return data;
   return json({provider:'GroceryPulse',scope:'city_chain_median',data,sourceUrl:'https://grocerypulse.ca/agents',note:'City-level chain median from sampled online prices, not a branch quote. Review dates, matching and exclusions before acting.'});
