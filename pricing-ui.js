@@ -384,6 +384,14 @@ planButton.addEventListener('click',async()=>{
 let autoReferencePending=false;
 const attempted=new Map();
 const AUTO_RETRY_MS=20*60*1000;
+const autoStatus=$id('auto-price-status');
+let autoDone=0,autoFound=0,autoTotal=0;
+function setAutoStatus(message,refresh=false){
+ if(mode!=='shopping'){autoStatus.hidden=true;return;}
+ autoStatus.hidden=false;
+ autoStatus.textContent=message;
+ if(refresh){const button=document.createElement('button');button.type='button';button.textContent='Refresh prices';button.addEventListener('click',()=>{attempted.clear();globalThis.GrabListAutoPrices();});autoStatus.append(' · ',button);}
+}
 function autoKey(item){
  return [item.name,item.size,item.brand,state.postalCode,(state.enabledStoreIds||[]).join(',')].join('|').toLowerCase();
 }
@@ -437,7 +445,7 @@ async function autoPriceOne(item){
  if(current.price!==null&&current.priceSource!=='reference')return;
  if(current.price!==null&&current.priceEvidence?.source!=='Statistics Canada')return;
  if(current.price!==null&&chosen.source==='Statistics Canada')return;
- recordReference(current,chosen);
+ if(recordReference(current,chosen))autoFound++;
 }
 async function fillMissingPrices(){
  if(autoReferencePending)return;
@@ -445,15 +453,31 @@ async function fillMissingPrices(){
    (i.price===null||(i.priceSource==='reference'&&i.priceEvidence?.source==='Statistics Canada')))
    .filter(i=>!attempted.has(i.id)||attempted.get(i.id).key!==autoKey(i)||
       Date.now()-attempted.get(i.id).at>=AUTO_RETRY_MS).slice(0,20);
- if(!missing.length)return;
- autoReferencePending=true;
+ if(!missing.length){
+   const unpriced=state.items.filter(i=>!i.complete&&i.price===null).length;
+   setAutoStatus(unpriced?unpriced+' item'+(unpriced===1?'':'s')+' still without a matching price.':'Available prices checked.',true);
+   return;
+ }
+ autoReferencePending=true;autoDone=0;autoFound=0;autoTotal=missing.length;
  try{
+   setAutoStatus('Finding prices… 0 of '+autoTotal);
    // Two lookups at a time avoids flooding the public reference provider.
    for(let i=0;i<missing.length;i+=2){
      if(mode!=='shopping')break;
      await Promise.allSettled(missing.slice(i,i+2).map(autoPriceOne));
+     autoDone+=Math.min(2,missing.length-i);
+     setAutoStatus('Finding prices… '+autoDone+' of '+autoTotal);
    }
- }finally{autoReferencePending=false;}
+ }finally{
+   autoReferencePending=false;
+   const unpriced=state.items.filter(i=>!i.complete&&i.price===null).length;
+   setAutoStatus(autoFound+' price'+(autoFound===1?'':'s')+' found'+
+      (unpriced?' · '+unpriced+' still unavailable':' · all items priced'),true);
+   // Items added during the active batch were not included in its snapshot.
+   const remaining=state.items.some(i=>!i.complete&&i.price===null&&
+     (!attempted.has(i.id)||attempted.get(i.id).key!==autoKey(i)));
+   if(remaining&&mode==='shopping')globalThis.GrabListAutoPrices();
+ }
 }
 let referenceTimer=null;
 globalThis.GrabListAutoPrices=()=>{
