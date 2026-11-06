@@ -642,11 +642,23 @@ function epiceriesTerm(name){
 function stripAccents(value){
  return String(value||'').toLowerCase().replace(/œ/g,'oe').normalize('NFD').replace(/[\u0300-\u036f]/g,'');
 }
-function epiceriesMatchesProduct(name,stem,brand){
+function epiceriesMatchesProduct(name,stem,brand,requested=''){
  const product=stripAccents(name),root=stripAccents(stem);
  if(!root||!product.includes(root))return false;
  if(brand&&!product.includes(stripAccents(brand)))return false;
- return true;
+ // Broad catalogue searches for simple generic groceries can return cheap
+ // but fundamentally different derivatives. Never treat those as equivalents.
+ const request=stripAccents(requested).trim();
+ const exclusions=[
+  [/^milk$/,/(chocolat|amande|avoine|soya|coco|condense|evapore|lait de)/],
+  [/^butter$/,/(arachide|amande|noisette|beurre de|beurre d')/],
+  [/^tomatoes?$/,/(sauce|conserve|pate|jus|soupe|ketchup)/],
+  [/^potatoes?$/,/(croustille|frite|puree|poudre|chips)/],
+  [/^marshmallows?$/,/(tartinade|fluff|creme de guimauve)/],
+  [/^bread$/,/(chapelure|crouton|pouding)/],
+  [/^carrots?$/,/(jus|gateau|soupe)/]
+ ];
+ return !exclusions.some(([when,bad])=>when.test(request)&&bad.test(product));
 }
 async function epiceriesSearch(request){
  if(request.method!=='GET')return responseError('GET required',405);
@@ -681,7 +693,7 @@ async function epiceriesSearch(request){
  const matching=entries.filter(p=>{
   if(!p?.id||!p.name)return false;
   if(byBarcode)return !brand||stripAccents(p.name+' '+(p.brand||'')).includes(stripAccents(brand));
-  return epiceriesMatchesProduct(p.name+' '+(p.brand||''),translated.stem,brand);
+  return epiceriesMatchesProduct(p.name+' '+(p.brand||''),translated.stem,brand,name);
  });
  // Choose a product with matching package first; if no specified package,
  // pick the source's best current match but retain its actual pack size.
