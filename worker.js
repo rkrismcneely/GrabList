@@ -613,7 +613,7 @@ function epiceriesTerm(name){
  return {term:nameText,stem:nameText.slice(0,Math.max(3,nameText.length-1))};
 }
 function stripAccents(value){
- return String(value||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
+ return String(value||'').toLowerCase().replace(/œ/g,'oe').normalize('NFD').replace(/[\u0300-\u036f]/g,'');
 }
 function epiceriesMatchesProduct(name,stem,brand){
  const product=stripAccents(name),root=stripAccents(stem);
@@ -689,7 +689,7 @@ async function epiceriesSearch(request){
     const date=/^\d{4}-\d{2}-\d{2}/.test(iso)?iso.slice(0,10):null;
     const href='https://epiceries.ca/view?i='+encodeURIComponent(String(p.id));
     return {price:Number(r.price),currency:'CAD',date,
-      source:'Épiceries.ca',storeId:store==='walmart'?'walmart':null,
+      source:'Épiceries.ca',storeId:null, // Never claim that a Québec Walmart quote applies in Ontario.
       storeName:store==='walmart'?'Walmart (Québec reference)':(store||'Québec grocery')+' (Québec reference)',
       priceStore:store,productName:productName+(productBrand?' · '+productBrand:''),
       brand:productBrand,packageSize:String(r.size||packageSize).slice(0,40),
