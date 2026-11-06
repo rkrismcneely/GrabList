@@ -132,6 +132,15 @@ body.sheet-open {overflow:hidden}
 .compare-card strong {display:block;font-size:14px}
 .compare-card p {font-size:12px;color:#775d50;margin:6px 0 0}
 .compare-summary {font-size:13px;line-height:1.5;color:#70584b;margin-bottom:10px}
+.source-price-card {border:1px solid #ebddcc;background:#fff;border-radius:10px;padding:10px 12px;margin:7px 0}
+.source-price-head {display:flex;align-items:baseline;justify-content:space-between;gap:10px;font-size:13px}
+.source-price-head b {white-space:nowrap;font-size:15px;color:#a84432}
+.source-price-small {font-size:11px;line-height:1.4;color:#756154;margin-top:4px}
+.source-price-foot {font-size:10px;color:#a07662;margin-top:7px;line-height:1.5}
+.source-price-foot a,#online-price-results a {color:#a34436;text-decoration:underline}
+#look-up-item-price,#search-online-price-button {background:#f4e5d8;color:#9f4330;border:1px solid #e4c8b6;border-radius:10px;padding:11px;font-size:13px;font-weight:760;cursor:pointer}
+#look-up-item-price {align-self:flex-end}
+#online-price-results:not(:empty) {max-height:35dvh;overflow-y:auto;overscroll-behavior:contain;margin:8px 0 14px}
 </style>
   <title>GrabList</title>
   <link rel="manifest" href="./manifest.webmanifest" />
@@ -181,6 +190,7 @@ body.sheet-open {overflow:hidden}
     <form id="edit-form" class="sheet-form">
       <input type="hidden" id="edit-id" />
       <label>Item name<input id="edit-name" required maxlength="110" /></label>
+      <label>Product barcode <span class="label-extra">Optional — helps find exact product prices</span><input id="edit-barcode" type="text" inputmode="numeric" maxlength="14" placeholder="UPC / EAN" autocomplete="off" /></label>
       <div class="two-cols">
         <label>Quantity<input id="edit-quantity" inputmode="decimal" placeholder="1" maxlength="16" /></label>
         <label>Preferred size<input id="edit-size" placeholder="e.g. 4 L" maxlength="40" /></label>
@@ -191,7 +201,9 @@ body.sheet-open {overflow:hidden}
         <label>Department<select id="edit-department"></select></label>
       </div>
       <label>Known price (CAD) <span class="label-extra">Manual only — not live</span><input id="edit-price" inputmode="decimal" type="number" min="0" step="0.01" placeholder="Unknown" /></label>
-      <p id="edit-source-note" class="sheet-help">Online price lookups are not connected in this prototype.</p>
+      <p id="edit-source-note" class="sheet-help">Prices entered here are manual, not live quotes.</p>
+      <button type="button" id="look-up-item-price">Search public prices</button>
+      <div id="lookup-item-results" aria-live="polite"></div>
       <div class="sheet-actions"><button type="button" id="delete-item" class="button-danger">Delete</button><button type="submit" class="button-primary">Save item</button></div>
     </form>
   </section>
@@ -264,7 +276,7 @@ function sanitizeItem(raw,index){
   const storeId = STORES.some(s=>s.id===raw.storeId)?raw.storeId:null;
   return {
     id: typeof raw.id==='string'&&raw.id.length<=100?raw.id:uid(),
-    name:raw.name.trim().slice(0,110), quantity:String(raw.quantity||'1').slice(0,16),
+    name:raw.name.trim().slice(0,110),barcode:/^\d{8,14}$/.test(String(raw.barcode||''))?String(raw.barcode):'',quantity:String(raw.quantity||'1').slice(0,16),
     size:String(raw.size||'').slice(0,40), brand:String(raw.brand||'').slice(0,75),
     department:normalizeDepartment(raw.department)||detectDepartment(raw.name),
 
@@ -350,7 +362,7 @@ function detectDepartment(value){
 function newItem(raw){
   const parsed=parseEntry(raw);
   const profile=state.profiles[normalizedKey(parsed.name)]||{};
-  const item={id:uid(),name:parsed.name,quantity:'1',size:parsed.size||profile.size||'',brand:parsed.brand||'',department:profile.department||detectDepartment(parsed.name),storeId:null,storeAutoAssigned:false,storeManuallyCleared:false,offers:[],price:null,priceSource:null,complete:false,order:state.nextOrder++,createdAt:Date.now()};
+  const item={id:uid(),name:parsed.name,barcode:'',quantity:'1',size:parsed.size||profile.size||'',brand:parsed.brand||'',department:profile.department||detectDepartment(parsed.name),storeId:null,storeAutoAssigned:false,storeManuallyCleared:false,offers:[],price:null,priceSource:null,complete:false,order:state.nextOrder++,createdAt:Date.now()};
   state.items.unshift(item);
   update();
   return item;
@@ -516,7 +528,7 @@ function fillSelect(select,options,value){select.innerHTML=options.map(o=>`<opti
 function openItemSheet(id){
   const item=state.items.find(i=>i.id===id);if(!item)return;
   openSheet('item');
-  $('edit-id').value=item.id;$('edit-name').value=item.name;$('edit-quantity').value=item.quantity;$('edit-size').value=item.size;$('edit-brand').value=item.brand;
+  $('edit-id').value=item.id;$('edit-name').value=item.name;$('edit-barcode').value=item.barcode||'';$('lookup-item-results').textContent='';$('edit-quantity').value=item.quantity;$('edit-size').value=item.size;$('edit-brand').value=item.brand;
   fillSelect($('edit-store'),[{value:'',label:'Needs a store (manual)'},...state.enabledStoreIds.map(id=>storeById(id)).filter(Boolean).map(s=>({value:s.id,label:s.name})),...(item.storeId&&!state.enabledStoreIds.includes(item.storeId)?[{value:item.storeId,label:`${storeById(item.storeId)?.name} (disabled)`}]:[])],item.storeId||'');
   fillSelect($('edit-department'),DEPARTMENTS.map(d=>({value:d,label:d})),item.department);
   $('edit-price').value=item.price===null?'':item.price.toFixed(2);
@@ -539,7 +551,7 @@ $('edit-form').addEventListener('submit',e=>{
   const storeId=$('edit-store').value||null;
   const price=priceText===''?null:Number(priceText);
   if(price!==null&&(!Number.isFinite(price)||price<0||price>99999)){showToast('Enter a valid price');return;}
-  item.name=name;item.quantity=quantity;item.size=$('edit-size').value.trim();item.brand=$('edit-brand').value.trim();item.storeId=storeId;item.storeAutoAssigned=false;item.storeManuallyCleared=!storeId;item.department=$('edit-department').value;
+  item.name=name;item.barcode=/^\d{8,14}$/.test($('edit-barcode').value.trim())?$('edit-barcode').value.trim():'';item.quantity=quantity;item.size=$('edit-size').value.trim();item.brand=$('edit-brand').value.trim();item.storeId=storeId;item.storeAutoAssigned=false;item.storeManuallyCleared=!storeId;item.department=$('edit-department').value;
   item.price=price===null?null:Math.round(price*100)/100;
   item.priceSource=item.price===null?null:(item.priceSource==='demo'&&item.price===previousPrice&&item.storeId===previousStore?'demo':'manual');
   state.profiles[normalizedKey(item.name)]={department:item.department,size:item.size};
@@ -818,7 +830,7 @@ compareSheet.setAttribute('role','dialog');
 compareSheet.setAttribute('aria-modal','true');
 compareSheet.setAttribute('aria-labelledby','compare-title');
 compareSheet.hidden=true;
-compareSheet.innerHTML='<div class="sheet-grabber"></div><div class="sheet-heading"><h2 id="compare-title">Compare prices</h2><button class="sheet-close" type="button" data-compare-close aria-label="Close">×</button></div><p class="sheet-help">Only manually recorded prices less than 30 days old are compared. This is not a live store search; check prices and product sizes before shopping.</p><div id="comparison-summary" style="margin-top:12px"></div><div class="sheet-actions"><button type="button" class="button-danger" data-compare-close>Cancel</button><button type="button" class="button-primary" id="apply-price-comparison">Apply suggestions</button></div>';
+compareSheet.innerHTML='<div class="sheet-grabber"></div><div class="sheet-heading"><h2 id="compare-title">Compare prices</h2><button class="sheet-close" type="button" data-compare-close aria-label="Close">×</button></div><p class="sheet-help">Only manually recorded prices less than 30 days old are compared. This is not a live store search; check prices and product sizes before shopping.</p><div id="comparison-summary" style="margin-top:12px"></div><button type="button" id="search-online-price-button">Check Canadian online prices</button><div id="online-price-results" role="status" aria-live="polite"></div><div class="sheet-actions"><button type="button" class="button-danger" data-compare-close>Cancel</button><button type="button" class="button-primary" id="apply-price-comparison">Apply suggestions</button></div>';
 $('settings-sheet').before(compareSheet);
 compareSheet.querySelectorAll('[data-compare-close]').forEach(btn=>btn.addEventListener('click',closeSheet));
 function showPriceComparison(){
@@ -855,5 +867,6 @@ if('serviceWorker' in navigator && (location.protocol==='https:' || location.hos
 }
 
 </script>
+  <script src="./pricing-ui.js"></script>
 </body>
 </html>
