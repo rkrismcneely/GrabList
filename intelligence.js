@@ -69,5 +69,10 @@ function select(item,candidates,opts={}){
   a.assessment.age-b.assessment.age);
  return {best:eligible[0]?.candidate||null,eligible,rejected:candidates.length-eligible.length};
 }
-return {clean,measure,ageDays,assess,select};
+function bestForAssignedStore(item,candidates,opts={}){
+ const applicable=select(item,candidates,opts).eligible.map(x=>x.candidate);
+ return applicable.find(c=>Boolean(c.storeId)&&c.storeId===item.storeId)||
+   applicable.find(c=>!c.storeId)||null;
+}
+return {clean,measure,ageDays,assess,select,bestForAssignedStore};
 });
