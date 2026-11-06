@@ -808,6 +808,7 @@ function renderComparisonReferenceOffers(scanned,total,updated){
  const root=$id('compare-auto-results');
  if(!root)return;
  const rows=[];
+ const storeTotals=new Map();
  for(const record of comparisonCandidates.values()){
   const item=state.items.find(i=>i.id===record.id);
   if(!item||item.complete||autoKey(item)!==record.key)continue;
@@ -818,6 +819,12 @@ function renderComparisonReferenceOffers(scanned,total,updated){
    if(!bestByStore.has(c.storeId))bestByStore.set(c.storeId,c);
   }
   const comparisons=[...bestByStore.values()];
+  for(const c of comparisons){
+    if(!storeTotals.has(c.storeId))storeTotals.set(c.storeId,{count:0,total:0});
+    const row=storeTotals.get(c.storeId);
+    const qty=Number.parseFloat(item.quantity),units=Number.isFinite(qty)&&qty>0?qty:1;
+    row.count++;row.total+=c.price*units;
+  }
   if(!comparisons.length){
    rows.push('<div class="compare-card"><strong>'+safe(item.name)+'</strong><p>No comparable store price returned by the connected lookup sources.</p></div>');
    continue;
@@ -836,9 +843,18 @@ function renderComparisonReferenceOffers(scanned,total,updated){
    }).join('')+'</div>');
   record.displayChoices=comparisons;
  }
+ const byStore=state.storeOrderIds.filter(id=>storeTotals.has(id)).map(id=>{
+  const entry=storeTotals.get(id);
+  return '<div class="compare-card"><strong>'+safe(storeById(id)?.name||id)+'</strong><p>≈'+
+    money(entry.total)+' for '+entry.count+' of '+total+' active item'+(total===1?'':'s')+
+    ' with a comparable store reference</p></div>';
+ }).join('');
+ const summaryByStore=byStore?'<h3 style="font-size:14px;margin:14px 0 6px">Reference coverage by retailer</h3>'+
+   '<p class="sheet-help">These are <strong>partial subtotals</strong>, not directly comparable whole-basket prices unless the same items are covered at each store.</p>'+byStore:'';
  root.innerHTML='<p class="sheet-help"><strong>Automatic source check:</strong> '+scanned+' of '+total+
   ' active items checked; '+updated+' list prices updated. These are eligible reference prices, not verified local checkout quotes. '+
   'Existing manual and personally checked delivery prices were preserved.</p>'+
+  summaryByStore+
   (rows.length?rows.join(''):'<p class="sheet-help">No priced items were checked yet.</p>')+
   '<h3 style="font-size:14px;margin:14px 0 7px">Delivery-app review shortcuts</h3>'+
   '<p class="sheet-help">DoorDash, Uber Eats and Instacart are ordered by your preferences. Their prices have <strong>not</strong> been automatically retrieved. Follow a saved storefront to check a missing offer.</p>'+
