@@ -232,6 +232,18 @@ $id('clear-apify-token').addEventListener('click',()=>{
   $id('apify-token-input').value='';
   showApifyStatus();
 });
+$id('look-up-retailer-pages').addEventListener('click',()=>{
+ const name=$id('edit-name').value.trim();
+ if(name.length<2){status.textContent='Enter a product name first.';return;}
+ const query=encodeURIComponent(name);
+ const retailers=[
+  {id:'nofrills',name:'No Frills',base:'https://www.nofrills.ca'},
+  {id:'independent',name:'Your Independent Grocer',base:'https://www.yourindependentgrocer.ca'}
+ ].filter(store=>state.enabledStoreIds.includes(store.id));
+ if(!retailers.length){status.textContent='Enable No Frills or Independent in My stores first.';return;}
+ status.innerHTML='<p class="sheet-help">Open the retailer catalogue to check its displayed products and prices. Select your store on the retailer site first; GrabList does not automatically read or verify these prices. Return here to record a manual price.</p>'+
+  retailers.map(store=>'<article class="source-price-card"><strong>'+safe(store.name)+'</strong><div class="source-price-foot"><a href="'+store.base+'/search?search-bar='+query+'" target="_blank" rel="noopener noreferrer">Search '+safe(store.name)+' website</a></div></article>').join('');
+});
 $id('look-up-savvi-price').addEventListener('click',async()=>{
   if(!cooldown())return;
   const id=$id('edit-id').value,item=state.items.find(i=>i.id===id);
