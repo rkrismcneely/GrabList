@@ -379,45 +379,88 @@ planButton.addEventListener('click',async()=>{
   }catch(error){planStatus.textContent='Comparison source unavailable: '+error.message+'. Try searching individual items.';}
   finally{planButton.disabled=false;planButton.textContent='Check Canadian online prices';}
 });
-// National averages are public, dated and fetched only from our own Worker.
-// One bulk request fills missing staple prices when opening Shop (no third-party
-// personal list transfer); city/store observations can replace them later.
+// Automatic lookup: prefer an exact, fresh reference for the existing store,
+// then another enabled store. Never invent a product, price or local branch.
 let autoReferencePending=false;
-async function fillMissingNationalEstimates(){
-  if(autoReferencePending)return;
-  const missing=state.items.filter(item=>!item.complete&&item.price===null).slice(0,75);
-  if(!missing.length)return;
-  autoReferencePending=true;
-  try{
-    const data=await requestJson('/api/pricing/national-reference-list',{
-      method:'POST',headers:{'content-type':'application/json'},
-      body:JSON.stringify({items:missing.map(i=>({id:i.id,name:i.name,size:i.size}))})
-    });
-    let found=0;
-    for(const hit of Array.isArray(data.results)?data.results:[]){
-      const item=state.items.find(i=>i.id===hit.id);
-      const r=hit.reference;
-      if(!item||item.complete||item.price!==null||!r||r.matchStatus!=='reference_size'||!Number.isFinite(r.price)||r.price<=0)continue;
-      item.price=r.price;item.priceSource='reference';
-      item.priceEvidence={
-        source:'Statistics Canada',sourceUrl:r.sourceUrl||'',observedAt:r.observedAt||'',
-        location:'Canada',scope:'national_average',
-        storeName:'Canadian average (all retailers)',storeId:null,
-        productName:r.productName+' ('+r.pack+')',pricePer:'UNIT',recordedAt:Date.now()
-      };
-      found++;
-    }
-    if(found)update();
-  }catch(error){
-    // Missing online estimates must never interrupt adding or shopping.
-    console.info('National reference prices unavailable:',error.message);
-  }finally{autoReferencePending=false;}
+const attempted=new Map();
+const AUTO_RETRY_MS=20*60*1000;
+function autoKey(item){
+ return [item.name,item.size,item.brand,state.postalCode,(state.enabledStoreIds||[]).join(',')].join('|').toLowerCase();
+}
+function compatibleAuto(item,candidate){
+ if(!candidate||!Number.isFinite(candidate.price)||candidate.price<=0)return false;
+ if(candidate.source==='Open Prices')return false; // Name-only matches aren't proven equivalents.
+ if(candidate.source==='GroceryPulse'&&candidate.confidence!=='high')return false;
+ if(candidate.source==='Statistics Canada'&&candidate.matchStatus!=='reference_size')return false;
+ if(item.brand&&candidate.source==='Statistics Canada')return false; // Generic average cannot honour named brand.
+ if(item.brand&&candidate.source==='GroceryPulse')return false; // Generic reference catalogue cannot prove brand.
+ if(item.size){
+   if(!candidate.packageSize)return false;
+   if(GrabListComparison.normalizedSize(item.size)!==GrabListComparison.normalizedSize(candidate.packageSize))return false;
+ }
+ if(candidate.storeId&&!state.enabledStoreIds.includes(candidate.storeId))return false;
+ return true;
+}
+function autoPick(item,candidates){
+ const good=candidates.filter(c=>compatibleAuto(item,c));
+ if(!good.length)return null;
+ // An item already assigned to FreshCo should use FreshCo's observed
+ // reference rather than an equally-priced offer at another chain.
+ const priority=id=>{const i=state.storeOrderIds?.indexOf(id)??-1;return i<0?999:i;};
+ const scope=c=>c.scope==='covered_postal_area'?0:c.scope==='nearest_reference_city'?1:
+   c.scope==='province_reference'?2:c.scope==='canadian_reference'?3:c.scope==='national_average'?4:5;
+ good.sort((a,b)=>scope(a)-scope(b)||
+   Number(b.storeId===item.storeId)-Number(a.storeId===item.storeId)||
+   a.price-b.price||priority(a.storeId)-priority(b.storeId));
+ return good[0];
+}
+async function autoPriceOne(item){
+ const key=autoKey(item);
+ if(Date.now()-(attempted.get(item.id)?.at||0)<AUTO_RETRY_MS&&attempted.get(item.id)?.key===key)return;
+ attempted.set(item.id,{key,at:Date.now()});
+ const lookup={...item};
+ // First get the national average; if a regional match exists, it takes priority.
+ const responses=await Promise.allSettled([
+   getPulse(lookup),
+   requestJson('/api/pricing/national-reference?'+new URLSearchParams({name:lookup.name,size:lookup.size||''}))
+ ]);
+ const choices=[];
+ if(responses[0].status==='fulfilled')choices.push(...fromGroceryPulse(responses[0].value,lookup));
+ if(responses[1].status==='fulfilled')choices.push(...fromNational(responses[1].value,lookup));
+ const current=state.items.find(i=>i.id===item.id);
+ if(!current||current.complete||current.priceSource==='manual'||current.priceSource==='demo')return;
+ if(autoKey(current)!==key)return; // Item changed during lookup.
+ const chosen=autoPick(current,choices);
+ if(!chosen)return;
+ // Preserve any user-selected reference. Only replace a national average
+ // with a geographically more useful, same-size regional observation.
+ if(current.price!==null&&current.priceSource!=='reference')return;
+ if(current.price!==null&&current.priceEvidence?.source!=='Statistics Canada')return;
+ if(current.price!==null&&chosen.source==='Statistics Canada')return;
+ recordReference(current,chosen);
+}
+async function fillMissingPrices(){
+ if(autoReferencePending)return;
+ const missing=state.items.filter(i=>!i.complete&&
+   (i.price===null||(i.priceSource==='reference'&&i.priceEvidence?.source==='Statistics Canada')))
+   .filter(i=>!attempted.has(i.id)||attempted.get(i.id).key!==autoKey(i)||
+      Date.now()-attempted.get(i.id).at>=AUTO_RETRY_MS).slice(0,20);
+ if(!missing.length)return;
+ autoReferencePending=true;
+ try{
+   // Two lookups at a time avoids flooding the public reference provider.
+   for(let i=0;i<missing.length;i+=2){
+     if(mode!=='shopping')break;
+     await Promise.allSettled(missing.slice(i,i+2).map(autoPriceOne));
+   }
+ }finally{autoReferencePending=false;}
 }
 let referenceTimer=null;
 globalThis.GrabListAutoPrices=()=>{
-  if(referenceTimer!==null)clearTimeout(referenceTimer);
-  referenceTimer=setTimeout(()=>{referenceTimer=null;fillMissingNationalEstimates();},250);
+ if(referenceTimer!==null)clearTimeout(referenceTimer);
+ referenceTimer=setTimeout(()=>{referenceTimer=null;fillMissingPrices();},300);
 };
 $id('shopping-tab').addEventListener('click',()=>globalThis.GrabListAutoPrices());
+if(mode==='shopping')globalThis.GrabListAutoPrices();
 
 })();
