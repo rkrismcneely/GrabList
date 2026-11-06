@@ -341,7 +341,11 @@ function atGradient(colors,t){
 function textColor(hex){const v=hexToRGB(hex).map(c=>{c/=255;return c<=.04045?c/12.92:Math.pow((c+.055)/1.055,2.4)});const l=v[0]*.2126+v[1]*.7152+v[2]*.0722;return l>.39?'#29231d':'#ffffff'}
 function formatPrice(item){return item.price===null?'—':currency.format(item.price*itemQty(item));}
 function itemRow(item,index,total,colors,departmentLabel='',completed=false){
-  const rowBg=completed?'#e5ddd4':atGradient(colors,total===1?.42:index/(total-1));
+  // Use roughly ten rows to travel through a store's complete palette.
+  // With 2–3 items, adjacent rows remain similar rather than leaping to the palest shade.
+  // Long lists use the full spectrum, while each row remains a single solid colour.
+  const palettePosition=Math.min(index/9,1);
+  const rowBg=completed?'#e5ddd4':atGradient(colors,palettePosition);
   const ink=completed?'#6f665f':textColor(rowBg);
   const detail=[item.quantity&&item.quantity!=='1'?`${item.quantity} ×`:null,item.size||null,item.brand?`· ${item.brand}`:null].filter(Boolean).join(' ');
   const text=[item.name,detail,item.price===null?'Price unknown':`${formatPrice(item)} (${item.priceSource==='demo'?'demo':'manual'} price)`].filter(Boolean).join(', ');
