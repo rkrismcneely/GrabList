@@ -1,0 +1,25 @@
+name: GrabList tests
+on:
+  push:
+    branches: [main]
+  pull_request:
+jobs:
+  comparison:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Validate comparison module and savings rules
+        run: node --test tests/comparison.test.cjs
+      - name: Check HTML inline JavaScript syntax
+        run: |
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const html = fs.readFileSync('index.html', 'utf8');
+          const scripts = [...html.matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/g)];
+          if (!scripts.length) throw new Error('No scripts found');
+          for (const script of scripts) if (script[1].trim()) new Function(script[1]);
+          NODE
