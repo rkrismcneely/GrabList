@@ -294,3 +294,38 @@ test('ReefAPI store directory uses postal area, not full residential postal code
  assert.equal(data.branches[0].id,'8811');
  assert.equal(data.branches[0].distanceKm,2.1);
 });
+
+test('VynnAI excludes offers outside the requested postal province',async()=>{
+ const api=await worker();
+ global.fetch=async()=>response({
+  canonical_product:{display_name:'4 L Milk',size:'4 L',upc:'0060383682057'},
+  offers:[
+   {current_price:3.00,banner:'FreshCo',province:'QC',observed_at:'2026-11-06'},
+   {current_price:6.44,banner:'FreshCo',province:'ON',observed_at:'2026-11-06'}
+  ]
+ });
+ const r=await api.fetch(new Request('https://grablist.example/api/pricing/vynn',{
+  method:'POST',headers:{'content-type':'application/json'},
+  body:JSON.stringify({apiToken:'vynn_pk_testing_example_123456789',
+    barcode:'0060383682057',postalCode:'K9J 7B5'})
+ }),{});
+ const data=await r.json();
+ assert.equal(data.results.length,1);
+ assert.equal(data.results[0].price,6.44);
+});
+test('ReefAPI never fabricates member prices from null or permits untrusted source URLs',async()=>{
+ const api=await worker();
+ global.fetch=async()=>response({ok:true,data:{products:[{
+  product_name:'Milk 4 L',pack_size:'4 L',price:6.44,
+  original_price:null,member_price:null,price_date:'2026-11-06',url:'javascript:alert(1)'
+ }]}});
+ const r=await api.fetch(new Request('https://grablist.example/api/pricing/reef-search',{
+  method:'POST',headers:{'content-type':'application/json'},
+  body:JSON.stringify({apiToken:'reef_key_sample_example_123456789',
+   storeId:'nofrills',branchId:'1234',query:'milk'})
+ }),{});
+ const data=await r.json();
+ assert.equal(data.results[0].memberPrice,null);
+ assert.equal(data.results[0].originalPrice,null);
+ assert.equal(data.results[0].sourceUrl,'');
+});
