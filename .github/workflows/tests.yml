@@ -13,7 +13,7 @@ jobs:
         with:
           node-version: '22'
       - name: Validate comparison module and savings rules
-        run: node --test tests/comparison.test.cjs
+        run: node --test tests/*.test.cjs
       - name: Check HTML inline JavaScript syntax
         run: |
           node - <<'NODE'
