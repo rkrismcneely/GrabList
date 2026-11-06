@@ -349,6 +349,10 @@ function fromVynn(data,item){
 }
 async function queryVynn(item,automatic=false){
  if(!vynnToken)return [];
+ if(!GrabListLocation.normalizePostalCode(state.postalCode)){
+  if(automatic)return [];
+  throw Error('Save your Canadian postal code in Settings to choose the correct province.');
+ }
  if(automatic&&(!vynnAutoEnabled||!useAutoVynnAllowance()))return [];
  const data=await requestJson('/api/pricing/vynn',{
   method:'POST',headers:{'content-type':'application/json'},
