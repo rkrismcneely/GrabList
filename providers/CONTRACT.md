@@ -110,6 +110,12 @@ Cloudflare Worker gateway paths:
 
 These are fixed-destination, validated gateways rather than arbitrary open proxies. User lists and FSA requests are not retained by GrabList's Worker. The service worker explicitly excludes API paths from its offline cache. No request is sent to a price provider until a person taps a search button. In-app notes explain unverified/reference prices and source coverage.
 
+## Open Food Facts product catalogue (no prices)
+
+`GET /api/pricing/catalog-search?name=...` is a single user-initiated full-text product search through `world.openfoodfacts.org/cgi/search.pl` with a bounded field selection, request size and output count. This endpoint only supplies catalogue attributes (name, brand, package size, country listing, barcode). It provides **no price evidence**. Selecting a result records the chosen barcode and its catalogue size, then requests `GET /api/pricing/open-prices?barcode=...`; when the user later opens Shop, only that exact barcode is eligible for an automatic Open Prices lookup.
+
+Open Food Facts requires attribution, Open Database License compliance, an identifying User-Agent, and respectful rate limits (10 search requests/minute/IP). The current Worker includes best-effort per-isolate throttling and short-lived caching; this is not a centralized distributed rate limiter. It is not permitted to treat a product listed in Canada as available at a particular store, or fabricate a price when no observation exists.
+
 ## Optional user-funded Savvi adapter
 
 The user can opt in by entering their **own** Apify API token in GrabList Settings, held in browser sessionStorage, and explicitly invoking `POST /api/pricing/savvi` for one product. GrabList passes the token as a Bearer header to the fixed Savvi comparison Actor `sunny_eternity~canada-grocery-price-comparison`. The Worker never stores or echoes the token or uses a site-owner key.
