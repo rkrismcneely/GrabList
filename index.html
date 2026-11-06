@@ -143,6 +143,22 @@ body.sheet-open {overflow:hidden}
 .source-price-small strong {color:#64483b}
 .savvi-lookup-button {align-self:flex-end;border:1px solid #e2c2af;border-radius:10px;padding:11px;background:#fff6eb;color:#a34a36;font-size:13px;font-weight:700}
 .extra-price-tools,.provider-settings {margin:9px 0;border:1px solid #e9d8c8;padding:10px;border-radius:12px;background:#fff9f3}
+.delivery-price-tools {border:1px solid #dfcbbd;background:#fff7ef;border-radius:12px;margin:10px 0;padding:10px}
+.delivery-price-tools summary {font-size:13px;font-weight:780;color:#8e4e39;cursor:pointer;padding:5px 0}
+.delivery-price-tools label {font-size:12px}
+.delivery-price-tools input:not([type=checkbox]),.delivery-price-tools select,.delivery-price-tools textarea {
+  display:block;width:100%;max-width:100%;border:1px solid #e4cdbf;border-radius:9px;background:#fff;font-size:14px;
+  min-height:41px;padding:8px;color:#342d29
+}
+.delivery-price-tools textarea {min-height:78px;resize:vertical}
+.delivery-price-tools .delivery-open-link {display:block;text-align:center;padding:11px 12px;margin:8px 0;border-radius:10px;
+  color:white;background:#ca543a;font-size:13px;font-weight:750;text-decoration:none}
+.delivery-price-tools button {cursor:pointer}
+.delivery-price-tools .source-price-use {width:100%;min-height:43px;font-size:13px}
+.delivery-price-tools .savvi-lookup-button {display:block;margin:7px 0}
+.delivery-price-tools #delivery-local-suggestions button {text-align:left;padding:6px 8px;background:#fff7ef;border:1px solid #e5cdb9;
+  color:#895137;border-radius:8px;font-size:12px;margin:4px 0}
+
 .extra-price-tools summary,.provider-settings summary {cursor:pointer;font-size:13px;font-weight:750;color:#8d4a36;padding:4px}
 .extra-price-tools[open] {display:flex;flex-direction:column;gap:7px}
 .provider-settings h3 {margin-top:16px}
@@ -225,6 +241,35 @@ body.sheet-open {overflow:hidden}
       <label>Price (CAD) <span class="label-extra">Manual or approximate reference</span><input id="edit-price" inputmode="decimal" type="number" min="0" step="0.01" placeholder="Unknown" /></label>
       <p id="edit-source-note" class="sheet-help">Prices entered here are manual, not live quotes.</p>
       <button type="button" id="look-up-item-price">Search public prices</button>
+      <details id="delivery-price-tools" class="delivery-price-tools">
+        <summary>Check DoorDash, Uber Eats or Instacart</summary>
+        <p class="sheet-help">Open your selected store's delivery catalogue, copy the product price and details, then return here. Delivery prices may differ from in-store prices. No automated platform scraping.</p>
+        <div class="two-cols">
+          <label>Platform<select id="delivery-service"><option value="doordash">DoorDash</option><option value="ubereats">Uber Eats</option><option value="instacart">Instacart</option></select></label>
+          <label>Store<select id="delivery-store"></select></label>
+        </div>
+        <div id="delivery-storefront-current" class="sheet-help"></div>
+        <a id="delivery-open-store" class="delivery-open-link" href="https://www.doordash.com/" target="_blank" rel="noopener noreferrer">Open DoorDash</a>
+        <label>Save your branch's store page <span class="label-extra">One-time setup, optional</span>
+          <input id="delivery-storefront-url" type="url" placeholder="Paste the exact delivery storefront URL" autocomplete="off" />
+        </label>
+        <div id="delivery-local-suggestions"></div>
+        <button type="button" id="delivery-save-storefront" class="savvi-lookup-button">Save this store page</button>
+        <p id="delivery-link-message" class="sheet-help" role="status"></p>
+        <label>Paste copied product details
+          <textarea id="delivery-copied-text" rows="3" placeholder="e.g. Sealtest Partly Skimmed Milk (4 L)  CA$6.44"></textarea>
+        </label>
+        <button type="button" id="delivery-read-clipboard" class="savvi-lookup-button">Paste &amp; extract price</button>
+        <div class="two-cols">
+          <label>Price (CAD)<input id="delivery-capture-price" inputmode="decimal" type="number" min="0.01" max="9999" step="0.01" placeholder="6.44" /></label>
+          <label>Package size<input id="delivery-capture-size" maxlength="40" placeholder="4 L" /></label>
+        </div>
+        <label>Product on delivery app<input id="delivery-capture-name" maxlength="120" placeholder="Name as displayed (optional)" /></label>
+        <label>Product link <span class="label-extra">Optional; exact page is better</span><input id="delivery-capture-url" type="url" autocomplete="off" placeholder="https://…" /></label>
+        <label class="provider-checkbox"><input id="delivery-confirm" type="checkbox" /> I checked the product, size, branch and current price. Record it as a delivery-platform estimate, not an in-store quote.</label>
+        <button type="button" id="delivery-save-price" class="source-price-use">Use this delivery price</button>
+        <p id="delivery-capture-status" class="sheet-help" role="status" aria-live="polite"></p>
+      </details>
       <details class="extra-price-tools">
         <summary>More price sources</summary>
         <p class="sheet-help">Optional sources use your own provider account. Nothing is charged or queried until you choose a search.</p>
@@ -307,6 +352,7 @@ body.sheet-open {overflow:hidden}
   <script src="./location.js"></script>
   <script src="./comparison.js"></script>
   <script src="./intelligence.js"></script>
+  <script src="./delivery.js"></script>
   <script>
 /* GrabList — swipe-first shopping list with manual store price comparisons.
    No live retail price feed is connected. Manual/demo prices are never represented as live data. */
@@ -340,7 +386,7 @@ const normalizedKey = str => String(str||'').toLowerCase().normalize('NFKD').rep
 
 const DEFAULT_SIZES={'milk':'4 L'}; // Starter preference; explicit user choices always override.
 function inferredSize(name,profile){return profile?.size||DEFAULT_SIZES[normalizedKey(name)]||'';}
-function blankState(){return {version:1,items:[],enabledStoreIds:STORES.map(s=>s.id),storeOrderIds:STORES.map(s=>s.id),profiles:{},postalCode:'',savingsThreshold:5,nextOrder:1};}
+function blankState(){return {version:1,items:[],enabledStoreIds:STORES.map(s=>s.id),storeOrderIds:STORES.map(s=>s.id),profiles:{},deliveryLinks:{},postalCode:'',savingsThreshold:5,nextOrder:1};}
 function sanitizeItem(raw,index){
   if(!raw||typeof raw!=='object'||typeof raw.name!=='string'||!raw.name.trim())return null;
   const price = raw.price===null||raw.price===undefined||raw.price===''?null:Number(raw.price);
@@ -391,7 +437,16 @@ function sanitizeState(raw){
     if(!p||typeof p!=='object')continue;
     profiles[String(key).slice(0,110)]={department:normalizeDepartment(p.department),size:String(p.size||'').slice(0,40)};
   }
-  return {...base,items:arr,storeOrderIds,enabledStoreIds:storeOrderIds.filter(id=>enabled.includes(id)),profiles,postalCode:GrabListLocation.normalizePostalCode(raw.postalCode)||'',savingsThreshold:Math.min(100,Math.max(0,Number(raw.savingsThreshold)||0)),nextOrder:Math.max(1,Number(raw.nextOrder)||1,...arr.map(i=>i.order+1))};
+  const deliveryLinks={};
+  if(raw.deliveryLinks&&typeof raw.deliveryLinks==='object'){
+    for(const [key,rawValue] of Object.entries(raw.deliveryLinks).slice(0,36)){
+      const [storeId,service]=key.split(':');
+      if(!STORES.some(x=>x.id===storeId)||!GrabListDelivery.SERVICES[service])continue;
+      const url=GrabListDelivery.sanitizeUrl(String(rawValue?.url||''),service,true);
+      if(url)deliveryLinks[key]={url,label:String(rawValue?.label||'').slice(0,100)};
+    }
+  }
+  return {...base,items:arr,storeOrderIds,enabledStoreIds:storeOrderIds.filter(id=>enabled.includes(id)),profiles,deliveryLinks,postalCode:GrabListLocation.normalizePostalCode(raw.postalCode)||'',savingsThreshold:Math.min(100,Math.max(0,Number(raw.savingsThreshold)||0)),nextOrder:Math.max(1,Number(raw.nextOrder)||1,...arr.map(i=>i.order+1))};
 }
 function loadState(){try{return sanitizeState(JSON.parse(localStorage.getItem(STORAGE_KEY)))}catch{return blankState()}}
 let state=loadState();
