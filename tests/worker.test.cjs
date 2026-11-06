@@ -329,3 +329,59 @@ test('ReefAPI never fabricates member prices from null or permits untrusted sour
  assert.equal(data.results[0].originalPrice,null);
  assert.equal(data.results[0].sourceUrl,'');
 });
+
+test('free Épiceries.ca lookup translates marshmallows, checks exact size and keeps Québec scope',async()=>{
+ const api=await worker();let requests=0;
+ global.fetch=async(req)=>{
+  requests++;
+  const u=new URL(req);
+  assert.equal(u.hostname,'epiceries.ca');
+  if(u.searchParams.get('endpoint')==='search'){
+   assert.equal(u.searchParams.get('q'),'guimauves');
+   return response({ok:true,data:{results:[
+    {id:'m123',name:'Mini guimauves',brand:'Sans nom',size:'400 g',
+     price:2.79,store:'walmart',updated:'2026-11-05T10:00:00Z'},
+    {id:'m250',name:'Mini guimauves',brand:'Sans nom',size:'250 g',
+     price:1.99,store:'maxi',updated:'2026-11-05T10:00:00Z'},
+    {id:'m999',name:'Chips de chocolat',brand:'Sans nom',size:'400 g',
+     price:1,store:'walmart',updated:'2026-11-05T10:00:00Z'}
+   ]}});
+  }
+  assert.equal(u.searchParams.get('endpoint'),'product');
+  assert.equal(u.searchParams.get('id'),'m123');
+  return response({ok:true,data:{
+   id:'m123',name:'Mini guimauves',brand:'Sans nom',size:'400 g',
+   prices:[
+    {store:'walmart',price:2.79,size:'400 g',date:'2026-11-05T10:00:00Z'},
+    {store:'maxi',price:3.19,size:'400 g',date:'2026-11-05T10:00:00Z'},
+    {store:'iga',price:4.09,size:'250 g',date:'2026-11-05T10:00:00Z'}
+   ]}});
+ };
+ const url='https://grablist.test/api/pricing/epiceries?name=marshmallows&size=400%20g';
+ const res=await api.fetch(new Request(url),{});
+ const data=await res.json();
+ assert.equal(res.status,200);
+ assert.equal(data.province,'QC');
+ assert.equal(data.results.length,2);
+ assert.equal(data.results[0].storeId,'walmart');
+ assert.equal(data.results[0].scope,'quebec_reference');
+ assert.equal(data.results[0].packageSize,'400 g');
+ assert.equal(data.results[0].price,2.79);
+ assert.equal(data.results[1].storeId,null);
+ assert.ok(data.results.every(x=>x.city.includes('NOT')||x.city.includes('not')));
+ const cached=await api.fetch(new Request(url),{});
+ assert.equal((await cached.json()).results.length,2);
+ assert.equal(requests,2);
+});
+test('Épiceries.ca does not use a product whose category name does not match',async()=>{
+ const api=await worker();
+ global.fetch=async(req)=>{
+  assert.equal(new URL(req).searchParams.get('endpoint'),'search');
+  return response({ok:true,data:{results:[
+   {id:'fakebread',name:'Pain 100% blé entier',size:'675 g',price:3.49,store:'walmart'}
+  ]}});
+ };
+ const res=await api.fetch(new Request('https://grablist.test/api/pricing/epiceries?name=marshmallows'),{});
+ const data=await res.json();
+ assert.deepEqual(data.results,[]);
+});
