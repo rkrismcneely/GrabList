@@ -805,8 +805,8 @@ function renderSettings(){
   $('postal-code-input').value=state.postalCode||'';
   $('postal-code-input').setAttribute('aria-invalid','false');
   $('postal-code-status').textContent=state.postalCode
-    ?'Saved '+state.postalCode+'. Local store discovery is not connected yet; prices remain manually entered.'
-    :'Set your shopping area. Future price sources will prefer matching local stores, then broader area prices.';
+    ?'Saved '+state.postalCode+'. Used for nearby reference markets and optional branch directories.'
+    :'Set your shopping area to improve reference-market selection and branch discovery.';
 }
 $('settings-button').addEventListener('click',()=>{renderSettings();openSheet('settings')});
 $('postal-code-input').addEventListener('change',event=>{
@@ -814,7 +814,7 @@ $('postal-code-input').addEventListener('change',event=>{
   if(!raw){
     state.postalCode='';save();input.value='';
     input.setAttribute('aria-invalid','false');
-    $('postal-code-status').textContent='Shopping location cleared. No provider-based price lookup is connected yet.';
+    $('postal-code-status').textContent='Shopping location cleared. Regional reference and branch lookup may be less relevant.';
     return;
   }
   const normalized=GrabListLocation.normalizePostalCode(raw);
@@ -826,7 +826,7 @@ $('postal-code-input').addEventListener('change',event=>{
   state.postalCode=normalized;
   input.value=normalized;
   input.setAttribute('aria-invalid','false');
-  $('postal-code-status').textContent='Saved '+normalized+'. Future sources will prefer nearby store prices; live prices are not connected yet.';
+  $('postal-code-status').textContent='Saved '+normalized+'. Reference prices and optional branch lookups can use your postal area.';
   save();
 });
 $('postal-code-input').addEventListener('input',event=>event.target.setAttribute('aria-invalid','false'));
