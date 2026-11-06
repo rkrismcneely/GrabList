@@ -67,6 +67,9 @@ button:focus-visible, input:focus-visible, select:focus-visible, .item-row:focus
 .empty-state p {margin:0;color:#8a7064;font-size:14px;line-height:1.55;max-width:275px}
 .empty-state .tip {font-size:12px;color:#aa7b69}
 .empty-state button {border:1px solid #d9b29d;color:#aa4c34;background:white;padding:10px 18px;border-radius:20px;font-weight:680;margin-top:7px}
+.auto-price-status-unused {display:none}
+#auto-price-status:not([hidden]) {background:#f8efe6;color:#8c503e;font-size:12px;padding:7px 14px;text-align:center;flex:0 0 auto;border-top:1px solid #ead7c9}
+#auto-price-status button {border:0;background:transparent;color:#a34436;text-decoration:underline;font-weight:750;padding:4px 6px}
 .list-footer {flex:0 0 auto;background:#f6ede5;border-top:1px solid #ead7c9;padding:9px 16px calc(9px + var(--safe-bottom));text-align:center;z-index:2}
 .list-footer button {border:none;background:transparent;color:#9a5d47;font-weight:700;padding:7px 10px;font-size:12px}
 .completed-section {background:#e5dfd8;color:#716a65}
@@ -186,6 +189,7 @@ body.sheet-open {overflow:hidden}
     <main id="list-scroller" class="list-scroller" aria-label="Your grocery list" tabindex="0">
       <div id="list-root"></div>
     </main>
+    <div id="auto-price-status" role="status" aria-live="polite" hidden></div>
     <div id="list-footer" class="list-footer" hidden></div>
     <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
   </div>
@@ -361,7 +365,7 @@ function autoAssignUnpricedItems(){
     counts.set(busiest,counts.get(busiest)+1);
   }
 }
-function update(){autoAssignUnpricedItems();save();render()}
+function update(){autoAssignUnpricedItems();save();render();if(mode==='shopping')globalThis.GrabListAutoPrices?.();}
 function itemQty(item){const n=parseFloat(item.quantity);return Number.isFinite(n)&&n>0?n:1}
 function knownTotal(items){return items.reduce((sum,i)=>sum+(i.price===null?0:i.price*itemQty(i)),0)}
 function knownCount(items){return items.filter(i=>i.price!==null).length}
@@ -457,7 +461,7 @@ function renderShopping(items){
 }
 function emptyHTML(){
   const allDone=state.items.length>0&&state.items.every(i=>i.complete);
-  return `<div class="empty-state"><div class="empty-illustration" aria-hidden="true">${allDone?'✓':'＋'}</div><h2>${allDone?'All done!':'A simpler grocery list'}</h2><p>${allDone?'You’ve marked everything bought. You can restore anything from your purchased items.':'Pull down to add anything. Swipe right when bought, swipe left to remove. Tap an item to edit it.'}</p>${allDone?`<button id="show-completed-empty">Show bought items</button>`:`<button id="try-sample">Try a sample list</button>`}<span class="tip">No live prices connected yet · Saved on this device</span></div>`;
+  return `<div class="empty-state"><div class="empty-illustration" aria-hidden="true">${allDone?'✓':'＋'}</div><h2>${allDone?'All done!':'A simpler grocery list'}</h2><p>${allDone?'You’ve marked everything bought. You can restore anything from your purchased items.':'Pull down to add anything. Swipe right when bought, swipe left to remove. Tap an item to edit it.'}</p>${allDone?`<button id="show-completed-empty">Show bought items</button>`:`<button id="try-sample">Try a sample list</button>`}<span class="tip">Available reference prices are estimates · Saved on this device</span></div>`;
 }
 function render(){
   $('planning-tab').setAttribute('aria-selected',String(mode==='planning'));
@@ -518,7 +522,7 @@ document.addEventListener('pointerdown',e=>{
     closeComposer();
   }
 },true);
-function switchMode(next){if(next===mode)return;mode=next;render();$('list-scroller').scrollTop=0;}
+function switchMode(next){if(next===mode)return;mode=next;render();$('list-scroller').scrollTop=0;if(next==='shopping')globalThis.GrabListAutoPrices?.();else $('auto-price-status').hidden=true;}
 $('planning-tab').addEventListener('click',()=>switchMode('planning'));
 $('shopping-tab').addEventListener('click',()=>switchMode('shopping'));
 
