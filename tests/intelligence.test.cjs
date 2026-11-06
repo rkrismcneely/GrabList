@@ -94,3 +94,38 @@ test('fallback uses a compatible national average rather than a different retail
   now:NOW,enabledStores:['nofrills','freshco']
  }),null);
 });
+
+test('free Québec catalogue quote can fill a generic item without pretending it is an Ontario store quote',()=>{
+ const item={name:'Marshmallows',brand:'',size:'',storeId:'freshco'};
+ const quebec={price:3.19,source:'Épiceries.ca',scope:'quebec_reference',
+  date:'2026-11-05',storeId:null,storeName:'Maxi (Québec reference)',
+  productName:'Mini guimauves · Sans Nom',packageSize:'400 g',confidence:'high',
+  matchType:'verified_search',sizeEvidence:'catalogue_reported'};
+ assert.equal(intelligence.assess(item,quebec,{now:NOW,enabledStores:['freshco']}).ok,true);
+ assert.equal(intelligence.bestForAssignedStore(item,[quebec],{
+  now:NOW,enabledStores:['freshco']
+ }),quebec);
+ assert.equal(intelligence.assess({...item,size:'250 g'},quebec,{
+  now:NOW,enabledStores:['freshco']
+ }).reason,'different_size');
+});
+test('a comparable Canada-wide average outranks a Québec-only benchmark',()=>{
+ const item={...base,size:'2 L'};
+ const average={...national,packageSize:'2 L',matchStatus:'reference_size'};
+ const quebec={price:4.25,source:'Épiceries.ca',scope:'quebec_reference',date:'2026-11-05',
+  storeId:null,productName:'Lait 2 L',packageSize:'2 L',confidence:'high',
+  matchType:'verified_search'};
+ assert.equal(intelligence.select(item,[quebec,average],{
+  now:NOW,enabledStores:['freshco']
+ }).best.source,'Statistics Canada');
+});
+test('historical barcode observation is valid last resort but ranks below current market references',()=>{
+ const item={...base,barcode:'1234567890123'};
+ const old={price:6.01,source:'Open Prices',scope:'observed_branch',geographicRank:0,
+  date:'2025-11-06',storeId:'freshco',productName:'Milk 4 L',packageSize:'4 L',
+  barcode:'1234567890123',matchType:'barcode',confidence:'high'};
+ assert.equal(intelligence.assess(item,old,{now:NOW,enabledStores:['freshco']}).ok,true);
+ assert.equal(intelligence.select(item,[old,regional],{
+  now:NOW,enabledStores:['freshco']
+ }).best.source,'GroceryPulse');
+});
