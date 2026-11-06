@@ -17,6 +17,7 @@ jobs:
       - name: Validate pricing UI and Worker module syntax
         run: |
           node --check delivery.js
+          node --check delivery-settings.js
           node --check pricing-ui.js
           node --input-type=module --check < worker.js
       - name: Check HTML inline JavaScript syntax
