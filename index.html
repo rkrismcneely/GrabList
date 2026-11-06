@@ -251,12 +251,17 @@ body.sheet-open {overflow:hidden}
         <div id="delivery-storefront-current" class="sheet-help"></div>
         <button type="button" id="delivery-copy-search" class="savvi-lookup-button">Copy item name for searching</button>
         <a id="delivery-open-store" class="delivery-open-link" href="https://www.doordash.com/" target="_blank" rel="noopener noreferrer">Open DoorDash</a>
-        <label>Save your branch's store page <span class="label-extra">One-time setup, optional</span>
+        <p class="sheet-help">If the store opens in its app without a shareable URL, skip the optional link setup. Just confirm the branch address below.</p>
+        <label>Save your branch's store page <span class="label-extra">Optional — not needed to record prices</span>
           <input id="delivery-storefront-url" type="url" placeholder="Paste the exact delivery storefront URL" autocomplete="off" />
         </label>
         <div id="delivery-local-suggestions"></div>
         <button type="button" id="delivery-save-storefront" class="savvi-lookup-button">Save this store page</button>
         <p id="delivery-link-message" class="sheet-help" role="status"></p>
+        <label>Branch name or street address <span class="label-extra">Required when you don't have a store URL</span>
+          <input id="delivery-branch-label" maxlength="140" placeholder="e.g. No Frills · 1866 Lansdowne St W" autocomplete="off" />
+        </label>
+        <button type="button" id="delivery-use-no-frills-lansdowne" class="savvi-lookup-button" hidden>Use No Frills — 1866 Lansdowne St W</button>
         <label>Paste copied product details
           <textarea id="delivery-copied-text" rows="3" placeholder="e.g. Sealtest Partly Skimmed Milk (4 L)  CA$6.44"></textarea>
         </label>
@@ -266,7 +271,7 @@ body.sheet-open {overflow:hidden}
           <label>Package size<input id="delivery-capture-size" maxlength="40" placeholder="4 L" /></label>
         </div>
         <label>Product on delivery app<input id="delivery-capture-name" maxlength="120" placeholder="Name as displayed (optional)" /></label>
-        <label>Product link <span class="label-extra">Optional; exact page is better</span><input id="delivery-capture-url" type="url" autocomplete="off" placeholder="https://…" /></label>
+        <label>Product link <span class="label-extra">Optional; not needed if you record the branch name</span><input id="delivery-capture-url" type="url" autocomplete="off" placeholder="https://…" /></label>
         <label class="provider-checkbox"><input id="delivery-confirm" type="checkbox" /> I checked the product, size, branch and current price. Record it as a delivery-platform estimate, not an in-store quote.</label>
         <button type="button" id="delivery-save-price" class="source-price-use">Use this delivery price</button>
         <p id="delivery-capture-status" class="sheet-help" role="status" aria-live="polite"></p>
