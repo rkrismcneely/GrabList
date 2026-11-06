@@ -862,19 +862,24 @@ function renderComparisonReferenceOffers(scanned,total,updated){
   }
   const comparisons=[...bestByStore.values()].sort((a,b)=>
     state.storeOrderIds.indexOf(a.storeId)-state.storeOrderIds.indexOf(b.storeId));
+  // An independent Québec or national benchmark is not a price at a named
+  // Ontario store. Keep it visible, but out of every store's subtotal.
+  const neutral=choices.filter(c=>!c.storeId).slice(0,2);
+  const displayed=[...comparisons,...neutral];
+  record.displayChoices=displayed;
   for(const c of comparisons){
     if(!storeTotals.has(c.storeId))storeTotals.set(c.storeId,{count:0,total:0});
     const row=storeTotals.get(c.storeId);
     const qty=Number.parseFloat(item.quantity),units=Number.isFinite(qty)&&qty>0?qty:1;
     row.count++;row.total+=c.price*units;
   }
-  if(!comparisons.length){
-   rows.push('<div class="compare-card"><strong>'+safe(item.name)+'</strong><p>No comparable store price returned by the connected lookup sources.</p></div>');
+  if(!displayed.length){
+   rows.push('<div class="compare-card"><strong>'+safe(item.name)+'</strong><p>No comparable price returned by the connected lookup sources.</p></div>');
    continue;
   }
   rows.push('<div class="compare-card"><strong>'+safe(item.name)+
    (item.size?' · '+safe(item.size):'')+'</strong>'+
-   comparisons.map((c,i)=>{
+   displayed.map((c,i)=>{
     const estimate=c.scope==='quebec_reference'?'Québec price benchmark; NOT an Ontario store quote':
       c.scope==='observed_branch'?'Dated branch observation':
       c.scope==='nearest_reference_city'?'Nearest tracked reference city':
@@ -885,7 +890,6 @@ function renderComparisonReferenceOffers(scanned,total,updated){
       '<button type="button" class="source-price-use" data-compare-choose="'+safe(record.id)+
       '" data-offer-index="'+i+'">Choose</button></p>';
    }).join('')+'</div>');
-  record.displayChoices=comparisons;
  }
  const byStore=state.storeOrderIds.filter(id=>storeTotals.has(id)).map(id=>{
   const entry=storeTotals.get(id);
@@ -979,12 +983,15 @@ $id('compare-auto-results').addEventListener('click',event=>{
  }else if(item.priceEvidence?.scope==='delivery_shopper_confirmed'){
   if(!confirm('Replace your personally checked delivery price with this other estimate?'))return;
  }
- if(choice.storeId!==item.storeId&&
+ if(choice.storeId&&choice.storeId!==item.storeId&&
    !confirm('Move '+item.name+' to '+(storeById(choice.storeId)?.name||choice.storeName)+
     ' using a reference-market price, not a confirmed shelf price?'))return;
  item.price=null;item.priceSource=null;item.priceEvidence=null;
- item.storeId=choice.storeId;item.storeAutoAssigned=false;item.storeManuallyCleared=false;
+ if(choice.storeId){
+  item.storeId=choice.storeId;item.storeAutoAssigned=false;item.storeManuallyCleared=false;
+ }
  if(recordReference(item,choice)){
+  record.key=autoKey(item);
   renderComparisonReferenceOffers(comparisonCandidates.size,comparisonCandidates.size,0);
  }
 });
