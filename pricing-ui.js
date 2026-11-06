@@ -90,17 +90,21 @@ function candidateCard(candidate,index,item){
   const explanation=candidate.scope==='observed_branch'?'Observed at a particular branch':
     candidate.scope==='national_average'?'Published national average':
     candidate.scope==='nearest_reference_city'?'Nearest tracked reference city':
+    candidate.scope==='selected_branch'?'Price at the retailer branch you selected':
     candidate.scope==='retailer_search'?'Retailer search result; branch accuracy not guaranteed':
     'City/regional reference; not a local shelf price';
   const confidence=candidate.confidence?' · Match confidence: '+safe(candidate.confidence):'';
   const unit=Number.isFinite(candidate.comparableUnitPrice)&&candidate.comparableBasis?
      ' · '+money(candidate.comparableUnitPrice)+'/'+safe(candidate.comparableBasis):'';
+  const extraNotice=(candidate.currentPriceIsEstimate?' · Weight-based price is approximate':'')+
+    (candidate.stock==='out_of_stock'?' · Reported out of stock':'')+
+    (Number.isFinite(candidate.memberPrice)?' · Member price '+money(candidate.memberPrice)+' (not applied)':'');
   const reasons=Array.isArray(candidate.mismatchReasons)&&candidate.mismatchReasons.length?
      '<div class="source-price-small">Check: '+safe(candidate.mismatchReasons.join(', '))+'</div>':'';
   return '<article class="source-price-card"><div class="source-price-head"><strong>'+safe(candidate.storeName)+'</strong><b>≈'+money(candidate.price)+'</b></div>'+
     '<div class="source-price-small"><strong>'+safe(candidate.productName||'Reference product')+'</strong>'+
       (size?' · '+safe(size)+(candidate.sizeEvidence==='requested_exact_catalog_line'?' (requested size; retailer pack unverified)':''):' · size not reported')+(candidate.city?' · '+safe(candidate.city):'')+'</div>'+
-    '<div class="source-price-small">'+safe(explanation)+confidence+(mismatch?' · Different pack size':'')+unit+'</div>'+reasons+
+    '<div class="source-price-small">'+safe(explanation)+confidence+(mismatch?' · Different pack size':'')+unit+safe(extraNotice)+'</div>'+reasons+
     '<div class="source-price-foot">'+safe(candidate.date||'Date not reported')+' · '+safe(candidate.source)+
      (candidate.url?' · <a target="_blank" rel="noopener noreferrer" href="'+safe(candidate.url)+'">Source</a>':'')+
      '</div><button type="button" data-use-reference="'+index+'" class="source-price-use">Choose this '+(candidate.storeId?'product / store':'reference')+'</button></article>';
@@ -265,7 +269,7 @@ let reefBranches=loadBranchPrefs();
 const reefFound={nofrills:[],independent:[]};
 function syncProviderControls(){
  $id('vynn-token-status').textContent=vynnToken?
-   'Connected for this browser session. Prices and query usage depend on your VynnAI plan.':
+   'Connected for this browser session. Automatic searches used today: '+dailyVynnUsed()+'/8.':
    'Not connected. VynnAI is optional; no requests will be made.';
  $id('reef-token-status').textContent=reefToken?
    'Connected for this browser session. Search calls spend your ReefAPI credits.':
@@ -394,7 +398,9 @@ $id('reef-find-branches').addEventListener('click',async()=>{
   for(let i=0;i<stores.length;i++){
    if(settled[i].status!=='fulfilled'){failures.push(stores[i]+': '+settled[i].reason.message);continue;}
    const branches=Array.isArray(settled[i].value.branches)?settled[i].value.branches:[];
-   reefFound[stores[i]]=branches.map(b=>({...b,label:branchLabel(b)}));
+   reefFound[stores[i]]=branches.map(b=>({...b,label:branchLabel(b)}))
+     .sort((a,b)=>(Number.isFinite(a.distanceKm)?a.distanceKm:Infinity)-
+       (Number.isFinite(b.distanceKm)?b.distanceKm:Infinity));
    found.push(stores[i]+': '+branches.length+' branches');
   }
   syncProviderControls();
@@ -628,7 +634,7 @@ status.addEventListener('click',event=>{
        '. Use this product instead and change the item size to '+size+'?'))return;
     item.size=size;$id('edit-size').value=size;
   }
-  if(choice.confidence==='low'||choice.confidence==='unverified name match'){
+  if(['low','unverified','unrated','unverified name match'].includes(choice.confidence)){
     if(!confirm('This match is not confirmed. Have you checked the exact product and size, and do you want to use this estimate?'))return;
   }
   if(choice.sizeEvidence==='requested_exact_catalog_line'&&
