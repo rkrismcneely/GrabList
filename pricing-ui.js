@@ -722,12 +722,7 @@ function autoPick(item,candidates){
   enabledStores:state.enabledStoreIds,storeOrder:state.storeOrderIds
  }).best;
 }
-async function autoPriceOne(item){
- const key=autoKey(item);
- if(Date.now()-(attempted.get(item.id)?.at||0)<AUTO_RETRY_MS&&attempted.get(item.id)?.key===key)return;
- attempted.set(item.id,{key,at:Date.now()});
- const lookup={...item};
- // First get the national average; if a regional match exists, it takes priority.
+async function lookupComparisonCandidates(lookup){
  const responses=await Promise.allSettled([
    getPulse(lookup),
    requestJson('/api/pricing/national-reference?'+new URLSearchParams({name:lookup.name,size:lookup.size||''})),
@@ -741,13 +736,21 @@ async function autoPriceOne(item){
  if(responses[2].status==='fulfilled')
    choices.push(...(Array.isArray(responses[2].value?.results)?responses[2].value.results:[])
      .map(result=>fromOpenPrice(lookup,result)).filter(Boolean));
- // Never consume a paid/limited allowance if an eligible non-national
- // free reference already exists. User explicitly opts into at most eight
- // automatic VynnAI requests per day; credentials remain session-only.
  const noPaidBest=autoPick(lookup,choices);
- if(vynnToken&&vynnAutoEnabled&&(!noPaidBest||noPaidBest.scope==='national_average')){
+ // Do not spend the optional VynnAI allowance on generic name searches:
+ // GrabList requires an exact saved barcode to use its results automatically.
+ if(/^\d{8,14}$/.test(lookup.barcode||'')&&vynnToken&&vynnAutoEnabled&&
+     (!noPaidBest||noPaidBest.scope==='national_average')){
    try{choices.push(...await queryVynn(lookup,true));}catch{}
  }
+ return choices;
+}
+async function autoPriceOne(item){
+ const key=autoKey(item);
+ if(Date.now()-(attempted.get(item.id)?.at||0)<AUTO_RETRY_MS&&attempted.get(item.id)?.key===key)return;
+ attempted.set(item.id,{key,at:Date.now()});
+ const lookup={...item};
+ const choices=await lookupComparisonCandidates(lookup);
  const current=state.items.find(i=>i.id===item.id);
  if(!current||current.complete||current.priceSource==='manual'||current.priceSource==='demo')return;
  if(autoKey(current)!==key)return; // Item changed during lookup.
