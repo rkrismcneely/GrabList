@@ -95,13 +95,17 @@ Flipp offers relevant geographic distribution via retailer partnerships, flyers,
 
 **Open Prices / Open Food Facts:** on-demand search for an item using its optional barcode or name. GrabList filters to recent (last 31 days) CAD observations physically recorded in Canada, includes precise store address, date, product name/size, quantity unit and source link, and ranks based on the saved postal code. No API key required for public reads. The data is licensed under the ODbL; attribute the contributors and preserve provenance. An individual store observation is **not** a province-wide or national price and is not silently entered into an optimizer as if it were a quote from the user's preferred store. The API may return no relevant Canadian observations.
 
-**GroceryPulse public shopper plan:** a user-initiated POST with a maximum 60 lines and the first **three characters** of the shopper's postal code. Its 16 supported cities and 50 standard reference items are a hard coverage boundary; an unsupported FSA is not replaced with a nearby city. Returned prices represent dated **city-level chain medians**, not a confirmed individual branch price or inventory. Show unmatched items, date, scope and excluded items. The shopper API is free/read-only, but forbids bulk extraction, redistribution as a price database, systematic scraping or quota evasion. Use only for individual on-demand shopping queries, with source credit. No API key required.
+**GroceryPulse public shopper plan:** a user-initiated POST with a maximum 60 lines. The first **three characters** of the shopper's postal code are tried first. Its 16 supported cities and 50 standard reference items remain hard coverage limits. When a postal area is unsupported, GrabList makes an **explicit** second request for a named same-province city when one is configured; a Toronto Canadian benchmark is the last fallback. This does not claim the comparison is local or from the nearest branch. Returned prices represent dated **city-level chain medians**, not a confirmed individual branch price or inventory. Show unmatched items, date, scope and excluded items. The shopper API is free/read-only but subject to fair-use restrictions; never bulk extract, republish a database, scrape or evade quotas. No API key required.
+
+**Statistics Canada Table 18-10-0245-01:** a dated static snapshot of selected official national average food prices (September 2026), stored in the Worker as reference estimates. It is published government statistics, not a live store offer. Both the single-item and bulk routes return package-size match status; a conflicting size is shown for comparison, but not automatically attached as a price. National averages populate missing prices when opening Shop, labelled with **≈** and source/date in Edit. They never become recent manually verified retailer offers.
 
 Cloudflare Worker gateway paths:
 
 - `GET /api/pricing/status`
-- `GET /api/pricing/open-prices?barcode=...` or `?name=...`
-- `POST /api/pricing/grocerypulse-plan`
+- `GET /api/pricing/open-prices?barcode=...` or `?name=...` (Canadian observations, up to two years old; historical)
+- `POST /api/pricing/grocerypulse-plan` (covered city or labelled province/Canada reference city)
+- `GET /api/pricing/national-reference?name=...&size=...`
+- `POST /api/pricing/national-reference-list` (up to 75 items; local Worker lookups)
 
 These are fixed-destination, validated gateways rather than arbitrary open proxies. User lists and FSA requests are not retained by GrabList's Worker. The service worker explicitly excludes API paths from its offline cache. No request is sent to a price provider until a person taps a search button. In-app notes explain unverified/reference prices and source coverage.
 
