@@ -131,12 +131,58 @@ async function groceryPulse(request){
     note:selected.isFallback?'Reference city prices are not local prices. Provider only tracks 50 products and selected Canadian cities.':'Covered city chain medians, not individual branch quotes.'});
 }
 
+// Published September 2026 Canada-wide averages, not current local checkout quotes.
+// Source: Statistics Canada Table 18-10-0245-01, official Food Price Data Hub.
+// Snapshot is intentionally dated, rather than fabricated or presented as live.
+const STATS_CANADA_SEPTEMBER_2026=[
+  {key:'milk',test:/\bmilk\b/i,not:/chocolate|almond|oat|coconut|powder|infant/i,name:'Milk, 2 litres',pack:'2 L',price:5.50},
+  {key:'bread',test:/\b(white bread|bread)\b/i,not:/whole wheat|wholemeal|rye|sourdough|gluten.free/i,name:'White bread, 675 grams',pack:'675 g',price:3.58},
+  {key:'rice',test:/\b(white rice|rice)\b/i,not:/brown|wild|instant|basmati/i,name:'White rice, 2 kilograms',pack:'2 kg',price:9.35},
+  {key:'butter',test:/\bbutter\b/i,not:/peanut|almond|apple|margarine/i,name:'Butter, 454 grams',pack:'454 g',price:5.58},
+  {key:'groundbeef',test:/\b(ground beef|minced beef)\b/i,name:'Ground beef, per kilogram',pack:'1 kg',price:16.92},
+  {key:'chicken',test:/\bchicken (breast|breasts)\b/i,name:'Chicken breasts, per kilogram',pack:'1 kg',price:14.48},
+  {key:'eggs',test:/\b(egg|eggs)\b/i,not:/chocolate|easter|eggplant|noodle/i,name:'Eggs, 1 dozen',pack:'12 ct',price:4.83},
+  {key:'apples',test:/\b(apple|apples)\b/i,not:/juice|sauce|cider|pie/i,name:'Apples, per kilogram',pack:'1 kg',price:4.79},
+  {key:'bananas',test:/\b(banana|bananas)\b/i,not:/bread|chips|smoothie/i,name:'Bananas, per kilogram',pack:'1 kg',price:1.88},
+  {key:'potatoes',test:/\b(potato|potatoes)\b/i,not:/chips|fries|mashed|hash brown/i,name:'Potatoes, per kilogram',pack:'1 kg',price:5.12},
+  {key:'tomatoes',test:/\b(tomato|tomatoes)\b/i,not:/canned|diced|paste|sauce|soup/i,name:'Tomatoes, per kilogram',pack:'1 kg',price:4.71},
+  {key:'oil',test:/\b(vegetable oil|cooking oil)\b/i,name:'Vegetable oil, 3 litres',pack:'3 L',price:9.24}
+];
+function normalMeasure(value){
+  const m=String(value||'').trim().toLowerCase().match(/^(\d+(?:\.\d+)?)\s*(kg|g|ml|l|litres?|grams?|ct|count|eggs?)$/);
+  if(!m)return '';
+  const n=Number(m[1]),u=m[2];
+  if(u==='kg')return n*1000+'g';
+  if(u==='l'||u.startsWith('litre'))return n*1000+'ml';
+  if(u.startsWith('egg')||u==='ct'||u==='count')return n+'ct';
+  return n+(u.startsWith('gram')?'g':u);
+}
+function governmentReference(request){
+  if(request.method!=='GET')return responseError('GET required',405);
+  const url=new URL(request.url),name=String(url.searchParams.get('name')||'').trim().slice(0,110);
+  const size=String(url.searchParams.get('size')||'').trim().slice(0,40);
+  if(name.length<3)return responseError('A product name is required.');
+  const record=STATS_CANADA_SEPTEMBER_2026.find(r=>r.test.test(name)&&!(r.not&&r.not.test(name)));
+  if(!record)return json({provider:'Statistics Canada',results:[],scope:'national_average'});
+  const sameSize=!size||normalMeasure(size)===normalMeasure(record.pack);
+  return json({provider:'Statistics Canada',scope:'national_average',results:[{
+    price:record.price,currency:'CAD',productName:record.name,pack:record.pack,
+    matchStatus:sameSize?'reference_size':'different_size',
+    requestedSize:size||null,
+    observedAt:'2026-09',sourceMonth:'September 2026',
+    city:'Canada',storeName:'Canadian average (all retailers)',
+    sourceUrl:'https://www.statcan.gc.ca/en/topics-start/food-price',
+    sourceTable:'18-10-0245-01',
+    note:'National monthly average, not an individual retailer or local store price. The reference pack may differ from the item requested.'
+  }]});
+}
 export default {
   async fetch(request,env){
     const {pathname}=new URL(request.url);
-    if(pathname==='/api/pricing/status')return json({ready:true,sources:['open-prices-barcode','grocerypulse-covered-cities'],liveStoreFeeds:false});
+    if(pathname==='/api/pricing/status')return json({ready:true,sources:['open-prices-barcode','grocerypulse-reference-cities','statistics-canada-national-averages'],liveStoreFeeds:false});
     if(pathname==='/api/pricing/open-prices')return openPrices(request);
     if(pathname==='/api/pricing/grocerypulse-plan')return groceryPulse(request);
+    if(pathname==='/api/pricing/national-reference')return governmentReference(request);
     if(pathname.startsWith('/api/'))return responseError('Unknown API route',404,'not_found');
     return env.ASSETS.fetch(request);
   }
