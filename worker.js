@@ -64,6 +64,63 @@ async function openPrices(request){
   }));
   return json({provider:'Open Prices / Open Food Facts',barcode:byBarcode?barcode:null,searchName:byBarcode?null:name,results:matches,sourceUrl:'https://prices.openfoodfacts.org/',note:'Historical Canadian store observations (up to two years old), not checkout quotes. Older prices can be stale. Data: Open Food Facts contributors, ODbL.',partialPage:Number(data?.pages)>1});
 }
+
+// A public catalogue is useful for resolving product variants and barcodes,
+// but catalogue records DO NOT contain live prices.
+const CATALOG_CACHE=new Map();
+let catalogLastSearch=0;
+async function catalogSearch(request){
+  if(request.method!=='GET')return responseError('GET required',405);
+  const url=new URL(request.url),term=String(url.searchParams.get('name')||'').trim();
+  if(term.length<3||term.length>80||!(/^[\p{L}\p{N} ,.'()&/-]+$/u.test(term)))
+    return responseError('Enter a product name between 3 and 80 characters.');
+  const key=term.toLowerCase().replace(/\s+/g,' ');
+  const cached=CATALOG_CACHE.get(key);
+  if(cached&&cached.expires>Date.now())return json(cached.data);
+  // Open Food Facts: 10 search queries/min/IP. This in-isolate limiter is an
+  // additional courtesy, not an infrastructure-wide guarantee.
+  if(Date.now()-catalogLastSearch<7500)
+    return responseError('Catalogue search is cooling down. Try again shortly.',429,'catalog_cooldown');
+  catalogLastSearch=Date.now();
+  const upstream=new URL('https://world.openfoodfacts.org/cgi/search.pl');
+  upstream.searchParams.set('search_terms',term);
+  upstream.searchParams.set('search_simple','1');
+  upstream.searchParams.set('action','process');
+  upstream.searchParams.set('json','1');
+  upstream.searchParams.set('page_size','24');
+  upstream.searchParams.set('fields','code,product_name,product_name_en,brands,quantity,countries_tags');
+  const data=await upstreamJson(upstream.toString());
+  if(data instanceof Response)return data;
+  const products=Array.isArray(data?.products)?data.products:[];
+  const tokens=key.toLowerCase().split(/\s+/).filter(x=>x.length>2);
+  const candidates=products.filter(p=>
+    /^\d{8,14}$/.test(String(p?.code||''))&&
+    (p.product_name||p.product_name_en)&&
+    tokens.some(t=>String(p.product_name||p.product_name_en).toLowerCase().includes(t))
+  ).map(p=>{
+    const countries=Array.isArray(p.countries_tags)?p.countries_tags:[];
+    return {
+      barcode:String(p.code),productName:String(p.product_name_en||p.product_name).slice(0,140),
+      brand:String(p.brands||'').split(',')[0].trim().slice(0,75),
+      packageSize:String(p.quantity||'').slice(0,45),
+      countryCoverage:countries.some(v=>v==='en:canada')?'canada':
+        countries.length?'other_countries':'unknown',
+      source:'Open Food Facts catalogue',
+      sourceUrl:'https://world.openfoodfacts.org/product/'+String(p.code)
+    };
+  });
+  candidates.sort((a,b)=>
+    (a.countryCoverage==='canada'?0:1)-(b.countryCoverage==='canada'?0:1)||
+    tokens.filter(t=>a.productName.toLowerCase().includes(t)).length-
+      tokens.filter(t=>b.productName.toLowerCase().includes(t)).length
+  );
+  const result={provider:'Open Food Facts',priceSource:false,results:candidates.slice(0,16),
+    note:'Product catalogue only. Barcodes, labels and package sizes are crowdsourced; they are not store availability or price evidence. Data © Open Food Facts contributors, ODbL.'};
+  CATALOG_CACHE.set(key,{data:result,expires:Date.now()+10*60000});
+  if(CATALOG_CACHE.size>80)CATALOG_CACHE.delete(CATALOG_CACHE.keys().next().value);
+  return json(result);
+}
+
 // These are reference markets with public coverage, not inferred coordinates or a
 // claim that any one store is physically closest. The shopper can see the real city.
 const CANADIAN_MARKETS={ON:['Toronto','Ottawa'],QC:['Montreal','Quebec City'],BC:['Vancouver','Victoria'],AB:['Calgary','Edmonton'],SK:['Saskatoon','Regina'],MB:['Winnipeg'],NS:['Halifax'],NB:['Moncton','Fredericton'],PE:['Charlottetown'],NL:["St. John's"]};
@@ -322,6 +379,7 @@ export default {
     const {pathname}=new URL(request.url);
     if(pathname==='/api/pricing/status')return json({ready:true,sources:['open-prices-barcode','grocerypulse-reference-cities','statistics-canada-national-averages'],liveStoreFeeds:false});
     if(pathname==='/api/pricing/open-prices')return openPrices(request);
+    if(pathname==='/api/pricing/catalog-search')return catalogSearch(request);
     if(pathname==='/api/pricing/grocerypulse-plan')return groceryPulse(request);
     if(pathname==='/api/pricing/savvi')return savviLookup(request);
     if(pathname==='/api/pricing/national-reference')return governmentReference(request);
