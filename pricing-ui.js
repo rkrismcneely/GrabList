@@ -10,7 +10,8 @@ const nameForCity=d=>String(d?.data?.city?.name||d?.referenceMarket?.name||'Cana
 let lastRequestTime=0,referenceChoices=[];
 const cooldown=()=>{const now=Date.now();if(now-lastRequestTime<2500)return false;lastRequestTime=now;return true;};
 async function requestJson(url,opts={}){
-  const response=await fetch(url,{...opts,headers:{accept:'application/json',...(opts.headers||{})},signal:AbortSignal.timeout(20000)});
+  const {timeoutMs=20000,...fetchOptions}=opts;
+  const response=await fetch(url,{...fetchOptions,headers:{accept:'application/json',...(opts.headers||{})},signal:AbortSignal.timeout(timeoutMs)});
   const data=await response.json().catch(()=>null);
   if(!response.ok)throw Error(data?.error?.message||'Price source unavailable (HTTP '+response.status+').');
   return data;
@@ -81,14 +82,27 @@ function chooseCandidate(item,candidates){
     (b.date||'').localeCompare(a.date||'')||a.price-b.price
   )[0]||null;
 }
-function candidateCard(candidate,index){
-  const distance=candidate.scope==='observed_branch'?'Store observation, not a guaranteed price':candidate.scope==='national_average'?'Published Canadian average, not a local shelf price':'Reference market estimate, not a local shelf price';
+function candidateCard(candidate,index,item){
+  const size=String(candidate.packageSize||'');
+  const wanted=String(item?.size||'');
+  const mismatch=Boolean(size&&wanted&&GrabListComparison.normalizedSize(size)!==GrabListComparison.normalizedSize(wanted));
+  const explanation=candidate.scope==='observed_branch'?'Observed at a particular branch':
+    candidate.scope==='national_average'?'Published national average':
+    candidate.scope==='nearest_reference_city'?'Nearest tracked reference city':
+    candidate.scope==='retailer_search'?'Retailer search result; branch accuracy not guaranteed':
+    'City/regional reference; not a local shelf price';
+  const confidence=candidate.confidence&&candidate.confidence!=='high'?' · Match confidence: '+safe(candidate.confidence):'';
+  const unit=Number.isFinite(candidate.comparableUnitPrice)&&candidate.comparableBasis?
+     ' · '+money(candidate.comparableUnitPrice)+'/'+safe(candidate.comparableBasis):'';
+  const reasons=Array.isArray(candidate.mismatchReasons)&&candidate.mismatchReasons.length?
+     '<div class="source-price-small">Check: '+safe(candidate.mismatchReasons.join(', '))+'</div>':'';
   return '<article class="source-price-card"><div class="source-price-head"><strong>'+safe(candidate.storeName)+'</strong><b>≈'+money(candidate.price)+'</b></div>'+
-   '<div class="source-price-small">'+safe(candidate.productName||'Reference product')+' · '+safe(candidate.city)+'</div>'+
-   '<div class="source-price-small">'+safe(distance)+'</div>'+
-   '<div class="source-price-foot">'+safe(candidate.date||'Observation date unavailable')+' · '+safe(candidate.source)+
-   (candidate.url? ' · <a target="_blank" rel="noopener noreferrer" href="'+safe(candidate.url)+'">View source</a>':'')+
-   ' <button type="button" data-use-reference="'+index+'" class="source-price-use">Use estimate</button></div></article>';
+    '<div class="source-price-small"><strong>'+safe(candidate.productName||'Reference product')+'</strong>'+
+      (size?' · '+safe(size):' · size not reported')+(candidate.city?' · '+safe(candidate.city):'')+'</div>'+
+    '<div class="source-price-small">'+safe(explanation)+confidence+(mismatch?' · Different pack size':'')+unit+'</div>'+reasons+
+    '<div class="source-price-foot">'+safe(candidate.date||'Date not reported')+' · '+safe(candidate.source)+
+     (candidate.url?' · <a target="_blank" rel="noopener noreferrer" href="'+safe(candidate.url)+'">Source</a>':'')+
+     '</div><button type="button" data-use-reference="'+index+'" class="source-price-use">Choose this '+(candidate.storeId?'product / store':'reference')+'</button></article>';
 }
 function openCard(result,postal,queryName){
   const price=Number(result.price);
@@ -105,14 +119,16 @@ function openCard(result,postal,queryName){
    '<div class="source-price-foot">'+safe(date)+(result.discounted?' · Sale observed':'')+' · '+sourceLink+'</div></article>';
 }
 function fromOpenPrice(item,result){
-  if(!item.barcode||item.barcode!==result.barcode||result.matchType!=='product'||result.pricePer!=='UNIT')return null;
+  if(result.matchType!=='product'||result.pricePer!=='UNIT')return null;
+  if(item.barcode&&item.barcode!==result.barcode)return null;
   const price=Number(result.price);
   const date=offerDate(result.date);
-  if(!Number.isFinite(price)||price<=0||!date||Date.now()-Date.parse(date+'T12:00:00Z')>31*86400000)return null;
+  if(!Number.isFinite(price)||price<=0||!date||Date.now()-Date.parse(date+'T12:00:00Z')>731*86400000)return null;
   const storeId=storeIdForName(result.storeName);
   return {price,source:'Open Prices',date,storeId,storeName:result.storeName||'Observed Canadian store',
     city:result.city||result.storeAddress||'Canada',scope:'observed_branch',geographicRank:rankLocation(result,state.postalCode),url:result.sourceUrl,
-    productName:result.productName||item.name,pricePer:'UNIT'};
+    productName:result.productName||item.name,pricePer:'UNIT',packageSize:result.productQuantity||'',
+    confidence:item.barcode?'high':'unverified name match',matchType:item.barcode?'barcode':'name'};
 }
 function fromGroceryPulse(payload,item){
   const plan=payload?.data||{},line=Array.isArray(plan.lines)?plan.lines[0]:null;
@@ -129,7 +145,8 @@ function fromGroceryPulse(payload,item){
     return {price:Number(store.totalCad),source:'GroceryPulse',date:offerDate(d)||offerDate(plan.evaluatedOn),
       storeId:storeIdForName(store.key||storeName),storeName,city,scope:payload.scope||'reference_city',
       url:plan.comparisonUrl||payload.sourceUrl||'https://grocerypulse.ca/agents',
-      productName:item.name+(item.size?' · '+item.size:''),pricePer:'UNIT'};
+      productName:item.name+(item.size?' · '+item.size:''),pricePer:'UNIT',
+      packageSize:item.size||'',confidence:'high'};
   });
 }
 function fromNational(payload,item){
@@ -139,6 +156,7 @@ function fromNational(payload,item){
     storeId:null,storeName:'Statistics Canada · national average',city:'Canada',
     scope:'national_average',url:r.sourceUrl||'https://www.statcan.gc.ca/en/topics-start/food-price',
     productName:r.productName+' ('+r.pack+')',pricePer:'UNIT',
+    packageSize:r.pack,confidence:'reference average',
     matchStatus:r.matchStatus
   })).filter(r=>Number.isFinite(r.price)&&r.price>0);
 }
@@ -149,6 +167,100 @@ async function getPulse(item){
     body:JSON.stringify({postalCode:state.postalCode||'',list})
   });
 }
+
+function arrangeChoices(candidates,item){
+  const rank=x=>{
+    if(x.scope==='observed_branch')return x.geographicRank===0?0:x.geographicRank===1?1:x.geographicRank===2?3:6;
+    if(x.scope==='covered_postal_area')return 2;
+    if(x.scope==='retailer_search')return 3;
+    if(x.scope==='nearest_reference_city')return 4;
+    if(x.scope==='province_reference')return 5;
+    if(x.scope==='canadian_reference')return 7;
+    if(x.scope==='national_average')return 8;
+    return 9;
+  };
+  const pref=id=>{const index=state.storeOrderIds?.indexOf(id)??-1;return index<0?99:index;};
+  const confidence=x=>x.confidence==='high'?0:x.confidence==='medium'?1:x.confidence==='low'?2:3;
+  const unique=new Map();
+  for(const c of candidates){
+    const key=[c.source,c.storeId,c.productName,c.packageSize,c.price,c.city].join('|');
+    if(!unique.has(key))unique.set(key,c);
+  }
+  return [...unique.values()].sort((a,b)=>
+    rank(a)-rank(b)||confidence(a)-confidence(b)||pref(a.storeId)-pref(b.storeId)||
+    (b.date||'').localeCompare(a.date||'')||a.price-b.price);
+}
+function renderChoices(candidates,item){
+  referenceChoices=arrangeChoices(candidates,item);
+  if(!referenceChoices.length)return '<p class="sheet-help">No confirmed equivalent product with an applicable price was found. Unmatched products are shown as references only.</p>';
+  return '<p class="sheet-help"><strong>Select the product you want.</strong> Check the brand, package size, source date and store below. No match is chosen for you.</p>'+
+    referenceChoices.map((c,i)=>candidateCard(c,i,item)).join('');
+}
+function fromSavviResult(data){
+  return (Array.isArray(data?.results)?data.results:[]).map(r=>({
+    price:Number(r.price),source:'Savvi / Apify',date:r.observedAt||'',
+    storeId:r.storeId||null,storeName:r.storeName||r.storeId||'Retailer',
+    city:r.branch||data.location||'Canada',scope:'retailer_search',url:r.sourceUrl||'',
+    productName:r.productName||'',packageSize:r.packageSize||'',pricePer:'UNIT',
+    confidence:r.confidence||'unrated',comparableUnitPrice:r.comparableUnitPrice,
+    comparableBasis:r.comparableBasis,mismatchReasons:r.mismatchReasons||[],
+    sale:r.sale,availability:r.availability
+  })).filter(r=>Number.isFinite(r.price)&&r.price>0);
+}
+let apifyToken='';
+try{apifyToken=sessionStorage.getItem('grablist-apify-token')||'';}catch{}
+function showApifyStatus(){
+  $id('apify-token-status').textContent=apifyToken?
+    'Connected for this browser tab. Savvi lookups use your own Apify credits.':
+    'Not connected. Savvi searches are optional and require an Apify account.';
+}
+$id('settings-button').addEventListener('click',showApifyStatus);
+$id('save-apify-token').addEventListener('click',()=>{
+  const key=$id('apify-token-input').value.trim();
+  if(key.length<20||key.length>500||!/^[A-Za-z0-9_~.-]+$/.test(key)){
+    $id('apify-token-status').textContent='Enter a valid Apify API token.';
+    return;
+  }
+  apifyToken=key;
+  try{sessionStorage.setItem('grablist-apify-token',apifyToken);}catch{}
+  $id('apify-token-input').value='';
+  showApifyStatus();
+});
+$id('clear-apify-token').addEventListener('click',()=>{
+  apifyToken='';
+  try{sessionStorage.removeItem('grablist-apify-token');}catch{}
+  $id('apify-token-input').value='';
+  showApifyStatus();
+});
+$id('look-up-savvi-price').addEventListener('click',async()=>{
+  if(!cooldown())return;
+  const id=$id('edit-id').value,item=state.items.find(i=>i.id===id);
+  if(!item)return;
+  if(!apifyToken){
+    status.textContent='Connect your own Apify token under Settings → Optional Savvi price source.';
+    return;
+  }
+  const retailers=state.enabledStoreIds.filter(id=>id==='nofrills'||id==='independent');
+  if(!retailers.length){status.textContent='Enable No Frills or Independent under My stores to use Savvi.';return;}
+  const name=$id('edit-name').value.trim(),size=$id('edit-size').value.trim(),brand=$id('edit-brand').value.trim();
+  if(name.length<2){status.textContent='Enter an item name first.';return;}
+  const query=[name,size,brand].filter(Boolean).join(' ').slice(0,100);
+  const button=$id('look-up-savvi-price');
+  button.disabled=true;button.textContent='Searching Savvi…';
+  referenceChoices=[];
+  status.textContent='Running one paid-per-use Savvi search through your own Apify account…';
+  try{
+    const data=await requestJson('/api/pricing/savvi',{
+      method:'POST',headers:{'content-type':'application/json'},timeoutMs:75000,
+      body:JSON.stringify({apiToken:apifyToken,query,postalCode:state.postalCode||'',retailers})
+    });
+    const candidates=fromSavviResult(data);
+    status.innerHTML=candidates.length?
+      '<p class="sheet-help">Savvi matches may have different brands or pack sizes. Prices are from retailer searches, not guaranteed at checkout. This search may consume Apify credits.</p>'+renderChoices(candidates,item):
+      '<p class="sheet-help">Savvi returned no priced products for these stores. Check your Apify run history for coverage and charges.</p>';
+  }catch(error){status.textContent='Savvi lookup failed: '+error.message+' Check your Apify usage before retrying.';}
+  finally{button.disabled=false;button.textContent='Search Savvi (your Apify credits)';}
+});
 $id('look-up-item-price').addEventListener('click',async()=>{
   if(!cooldown())return;
   const id=$id('edit-id').value,item=state.items.find(i=>i.id===id);
@@ -167,54 +279,35 @@ $id('look-up-item-price').addEventListener('click',async()=>{
     requestJson('/api/pricing/national-reference?'+new URLSearchParams({name,size:lookupItem.size||''}))
   ];
   const settled=await Promise.allSettled(requests);
-  let html='',candidates=[],sourceErrors=[];
+  let notes='',candidates=[],errors=[];
   if(settled[0].status==='fulfilled'){
-    const data=settled[0].value;
-    const results=(Array.isArray(data.results)?data.results:[])
+    const results=(Array.isArray(settled[0].value.results)?settled[0].value.results:[])
       .sort((a,b)=>rankLocation(a,state.postalCode)-rankLocation(b,state.postalCode)||(b.date||'').localeCompare(a.date||''));
-    if(results.length){
-      html+='<p class="sheet-help">Open Prices historical observations. A product or package size may differ from your item. © Open Food Facts contributors (ODbL).</p>'+
-        results.slice(0,12).map(r=>openCard(r,state.postalCode,name)).join('');
-      candidates.push(...results.map(r=>fromOpenPrice(lookupItem,r)).filter(Boolean));
+    const possibles=results.map(r=>fromOpenPrice(lookupItem,r)).filter(Boolean);
+    candidates.push(...possibles);
+    if(results.length>possibles.length){
+      notes+='<p class="sheet-help">Other historical observations (not directly comparable to your requested package):</p>'+
+        results.slice(0,8).filter(r=>!possibles.some(p=>p.url===r.sourceUrl)).map(r=>openCard(r,state.postalCode,name)).join('');
     }
-  }else sourceErrors.push('Open Prices: '+settled[0].reason.message);
+  }else errors.push('Open Prices: '+settled[0].reason.message);
   if(settled[1].status==='fulfilled'){
-    const result=settled[1].value,city=nameForCity(result);
-    const choices=fromGroceryPulse(result,lookupItem);
-    if(choices.length){
-      html='<p class="sheet-help"><strong>'+safe(city)+' '+(result.isFallback?'reference-market':'covered-city')+' prices</strong>. These are sampled chain medians, not local checkout quotes. Only exact catalogue matches are eligible to estimate an item.</p>'+
-        choices.map((c,i)=>candidateCard(c,i)).join('')+html;
-      candidates=[...choices,...candidates];
-    }else{
-      const plan=result.data||{},lines=plan.lines||[];
-      if(lines.some(l=>l.status==='closest'))html+='<p class="sheet-help">'+safe(city)+' has a similar product, but not the exact requested variant or pack size. It was not priced as your item.</p>';
-      else html+='<p class="sheet-help">No fully matched, priced '+safe(name)+' item in '+safe(city)+' reference-market data.</p>';
-    }
-  }else sourceErrors.push('GroceryPulse: '+settled[1].reason.message);
+    const result=settled[1].value,city=nameForCity(result),choices=fromGroceryPulse(result,lookupItem);
+    candidates.push(...choices);
+    if(result.isFallback)notes+='<p class="sheet-help">GroceryPulse reference: '+safe(city)+
+       (Number.isFinite(result.referenceMarket?.distanceKm)?' (approximately '+result.referenceMarket.distanceKm+' km straight-line from your postal area)':'')+
+       '. These are not prices guaranteed at your store.</p>';
+    if(!choices.length&&Array.isArray(result.data?.lines)&&result.data.lines.some(l=>l.status==='closest'))
+      notes+='<p class="sheet-help">GroceryPulse has a similar product but cannot confirm the exact variant. It was not priced as your item.</p>';
+  }else errors.push('GroceryPulse: '+settled[1].reason.message);
   if(settled[2].status==='fulfilled'){
-    const national=fromNational(settled[2].value,lookupItem);
-    if(national.length){
-      const matched=national.filter(x=>x.matchStatus==='reference_size');
-      html+='<p class="sheet-help"><strong>Statistics Canada fallback:</strong> monthly nationwide retail averages from September 2026. These describe a standard package, not the shelf price at any particular store.</p>'+
-        national.map(n=>n.matchStatus==='different_size'
-          ?'<article class="source-price-card"><div class="source-price-head"><strong>'+safe(n.productName)+'</strong><b>'+money(n.price)+'</b></div><div class="source-price-small">Different package size from your item; shown for context only.</div><div class="source-price-foot">September 2026 · Statistics Canada · <a href="'+safe(n.url)+'" target="_blank" rel="noopener noreferrer">View source</a></div></article>'
-          :candidateCard(n,candidates.length+matched.indexOf(n))).join('');
-      candidates.push(...matched);
-    }
-  }else sourceErrors.push('Statistics Canada: '+settled[2].reason.message);
-  referenceChoices=candidates;
-  if(candidates.length){
-    const target=state.items.find(i=>i.id===id);
-    const best=chooseCandidate(target,candidates);
-    if(target&&(target.price===null||target.priceSource==='reference')){
-      if(recordReference(target,best)){
-        html='<p class="sheet-help"><strong>Estimated '+money(best.price)+'</strong> using '+safe(best.storeName)+' in '+safe(best.city)+'. Your item remains assigned to '+safe(storeById(target.storeId)?.name||'its current store')+'. You can choose a different reference or enter your actual price in Edit.</p>'+html;
-      }
-    }else html='<p class="sheet-help">Your existing manual/example price was kept. Use a reference below only if you want to replace it.</p>'+html;
-  }
-  if(!html)html='<p class="sheet-help">No comparable Canadian observation or reference price was found for this item. Try an exact barcode or a more specific product size. No price was made up.</p>';
-  if(sourceErrors.length)html+='<p class="sheet-help">Source limitations: '+safe(sourceErrors.join(' · '))+'</p>';
-  status.innerHTML=html;
+    const refs=fromNational(settled[2].value,lookupItem);
+    candidates.push(...refs.filter(x=>x.matchStatus==='reference_size'));
+    for(const r of refs.filter(x=>x.matchStatus==='different_size'))
+      notes+='<p class="sheet-help">Statistics Canada average: '+safe(r.productName)+' ≈'+money(r.price)+
+        ' (September 2026). Different package size; not assigned automatically.</p>';
+  }else errors.push('Statistics Canada: '+settled[2].reason.message);
+  const chosen=renderChoices(candidates,item);
+  status.innerHTML=chosen+notes+(errors.length?'<p class="sheet-help">Sources unavailable: '+safe(errors.join(' · '))+'</p>':'');
   button.disabled=false;button.textContent='Search public prices';
 });
 status.addEventListener('click',event=>{
@@ -223,12 +316,29 @@ status.addEventListener('click',event=>{
   const choice=referenceChoices[Number(button.dataset.useReference)];
   const item=state.items.find(i=>i.id===$id('edit-id').value);
   if(!choice||!item)return;
-  // Explicit selection may override a manual or demonstration price; no price is fabricated.
+  const size=String(choice.packageSize||'').trim(),previousSize=$id('edit-size').value.trim();
+  if(previousSize&&size&&GrabListComparison.normalizedSize(previousSize)!==GrabListComparison.normalizedSize(size)){
+    if(!confirm('This product is '+size+' but your list requests '+previousSize+
+       '. Use this product instead and change the item size to '+size+'?'))return;
+    item.size=size;$id('edit-size').value=size;
+  }
+  if(choice.confidence==='low'||choice.confidence==='unverified name match'){
+    if(!confirm('This match is not confirmed. Have you checked the exact product and size, and do you want to use this estimate?'))return;
+  }
+  // Explicit selection may override a manual/demo price, with confirmation.
   if(item.priceSource==='manual'||item.priceSource==='demo'){
-    if(!confirm('Replace your existing price with an unverified reference estimate?'))return;
+    if(!confirm('Replace your existing price with this unverified reference estimate?'))return;
     item.price=null;item.priceSource=null;
   }
-  if(recordReference(item,choice))status.insertAdjacentHTML('afterbegin','<p class="sheet-help">Estimate selected: '+money(choice.price)+' from '+safe(choice.storeName)+'.</p>');
+  if(choice.storeId&&state.enabledStoreIds.includes(choice.storeId)){
+    item.storeId=choice.storeId;item.storeAutoAssigned=false;item.storeManuallyCleared=false;
+    $id('edit-store').value=choice.storeId;editingStoreId=choice.storeId;
+  }
+  if(recordReference(item,choice)){
+    status.insertAdjacentHTML('afterbegin','<p class="sheet-help"><strong>Chosen:</strong> '+
+      safe(choice.productName)+' at '+safe(choice.storeName)+' · ≈'+money(choice.price)+
+      '. You can still change the store or price in Edit.</p>');
+  }
 });
 function groceryLine(item){
   const label=[item.name.trim(),item.size?.trim(),item.brand?.trim()].filter(Boolean).join(' ');
