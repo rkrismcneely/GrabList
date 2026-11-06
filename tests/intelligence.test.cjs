@@ -43,3 +43,25 @@ test('do not use low-confidence retailer search automatically',()=>{
 test('disallow disabled stores',()=>{
  assert.equal(intelligence.assess(base,regional,{now:NOW,enabledStores:['walmart']}).reason,'disabled_store');
 });
+
+test('exact selected barcode establishes identity even if price feed omits the brand',()=>{
+  const item={name:'Marshmallows',size:'400 g',brand:'Jet-Puffed',barcode:'1234567890123',storeId:'walmart'};
+  const row={price:3.49,source:'Open Prices',scope:'observed_branch',geographicRank:0,
+    date:'2026-11-06',storeId:'walmart',barcode:'1234567890123',matchType:'barcode',
+    productName:'Marshmallows',packageSize:'400 g',confidence:'high'};
+  assert.equal(intelligence.assess(item,row,{now:NOW,enabledStores:['walmart']}).ok,true);
+  assert.equal(intelligence.assess(item,{...row,barcode:'1234567890999'},{now:NOW,enabledStores:['walmart']}).reason,'brand_unverified');
+});
+test('distant branch observations do not beat locally relevant city price merely for being branch-specific',()=>{
+  const reference={...regional,price:6.44,scope:'nearest_reference_city'};
+  const distant={...regional,price:5.10,source:'Open Prices',matchType:'barcode',
+    barcode:'1234567890123',scope:'observed_branch',geographicRank:3,packageSize:'4 L'};
+  const item={...base,barcode:'1234567890123'};
+  assert.equal(intelligence.select(item,[distant,reference],{now:NOW,enabledStores:['freshco']}).best.price,6.44);
+});
+test('exact barcode still rejects a different package size',()=>{
+  const item={...base,barcode:'1234567890123'};
+  const other={...regional,source:'Open Prices',matchType:'barcode',barcode:item.barcode,
+    scope:'observed_branch',geographicRank:0,packageSize:'2 L'};
+  assert.equal(intelligence.assess(item,other,{now:NOW,enabledStores:['freshco']}).reason,'different_size');
+});
