@@ -153,3 +153,15 @@ test('Savvi requires shopper token and only uses approved retailers; never retur
  assert.equal(d.results[0].confidence,'medium');
  assert.ok(!JSON.stringify(d).includes(token));
 });
+
+test('national milk reference never silently treats unspecified or 4 L milk as 2 L',async()=>{
+ const api=await worker();
+ const query=async(size)=>{const q=new URLSearchParams({name:'Milk'});if(size)q.set('size',size);
+  const r=await api.fetch(new Request('https://grablist.example/api/pricing/national-reference?'+q),{});
+  return (await r.json()).results[0];};
+ const unspecified=await query('');
+ assert.equal(unspecified.pack,'2 L');
+ assert.equal(unspecified.matchStatus,'size_unspecified');
+ assert.equal((await query('4 L')).matchStatus,'different_size');
+ assert.equal((await query('2 L')).matchStatus,'reference_size');
+});
