@@ -69,12 +69,17 @@ test('does not call GroceryPulse with invalid postal code',async()=>{
  assert.equal(r.status,400);
 });
 
-test('uncovered postal codes fall back to a plainly labelled province reference market',async()=>{
- let n=0;
+test('uncovered postal codes select geographically closest tracked city, not arbitrary province rule',async()=>{
+ const calls=[];
  global.fetch=async(req,opts)=>{
-   n++;
+   const u=new URL(req);calls.push(u.hostname);
+   if(u.hostname==='api.zippopotam.us'){
+     assert.equal(u.pathname,'/CA/K9J');
+     return response({'post code':'K9J',places:[{latitude:'44.3',longitude:'-78.32'}]});
+   }
+   assert.equal(u.hostname,'grocerypulse.ca');
    const body=JSON.parse(opts.body);
-   if(n===1){
+   if(body.postalCode){
      assert.equal(body.postalCode,'K9J');
      return response({error:{code:'postal_code_not_covered',message:'Not covered'}},400);
    }
@@ -86,9 +91,11 @@ test('uncovered postal codes fall back to a plainly labelled province reference 
  const r=await api.fetch(new Request('https://grablist.example/api/pricing/grocerypulse-plan',{
    method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({postalCode:'K9J 7B5',list:'Large eggs 12-pack'})}),{});
  const data=await r.json();
- assert.equal(n,2);
+ assert.deepEqual(calls,['grocerypulse.ca','api.zippopotam.us','grocerypulse.ca']);
  assert.equal(data.isFallback,true);
- assert.equal(data.scope,'province_reference');
+ assert.equal(data.scope,'nearest_reference_city');
+ assert.equal(data.referenceMarket.name,'Toronto');
+ assert.ok(data.referenceMarket.distanceKm>50&&data.referenceMarket.distanceKm<180);
  assert.equal(data.data.stores[0].totalCad,4.83);
 });
 test('Statistics Canada fallback only matches known staple and retains actual 2026-09 pack size',async()=>{
@@ -112,4 +119,37 @@ test('does not treat provider network errors as grounds to invent a regional fal
    method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({postalCode:'K9J 7B5',list:'Milk'})}),{});
  assert.equal(r.status,503);
  assert.equal(count,1);
+});
+
+test('Savvi requires shopper token and only uses approved retailers; never returns the key',async()=>{
+ const api=await worker();
+ const noToken=await api.fetch(new Request('https://grablist.example/api/pricing/savvi',{
+   method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({query:'eggs',retailers:['nofrills']})}),{});
+ assert.equal(noToken.status,400);
+ const token='apify_api_example_testing_key_123456789';
+ let count=0;
+ global.fetch=async(req,opts)=>{
+   count++;
+   assert.equal(new URL(req).hostname,'api.apify.com');
+   assert.equal(opts.headers.Authorization,'Bearer '+token);
+   assert.equal(new URL(req).searchParams.get('token'),null);
+   const body=JSON.parse(opts.body);
+   assert.deepEqual(body.retailers,['nofrills','independent']);
+   assert.deepEqual(body.queries,['large eggs 12']);
+   assert.equal(body.postal_code,'K9J 7B5');
+   return response([{_type:'comparison',retailer:'nofrills',price:4.39,currency:'CAD',
+      matched_product:'No Name Large Eggs',package_size:'12 ct',
+      banner:'No Frills',store:'Peterborough',match_confidence:'medium',
+      scraped_at:'2026-11-06T12:00:00Z',source_url:'https://www.nofrills.ca/product/eggs'}]);
+ };
+ const r=await api.fetch(new Request('https://grablist.example/api/pricing/savvi',{
+   method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({
+     apiToken:token,query:'large eggs 12',retailers:['nofrills','independent','walmart'],postalCode:'K9J 7B5'
+   })}),{});
+ const d=await r.json();
+ assert.equal(count,1);
+ assert.equal(d.results[0].price,4.39);
+ assert.equal(d.results[0].packageSize,'12 ct');
+ assert.equal(d.results[0].confidence,'medium');
+ assert.ok(!JSON.stringify(d).includes(token));
 });
