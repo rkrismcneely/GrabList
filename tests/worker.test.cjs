@@ -60,7 +60,7 @@ test('GroceryPulse receives only FSA and the shopping list without a possibly un
  assert.equal(sent.postalCode,'K1P');
  assert.equal(sent.stores,undefined);
  assert.equal(sent.list,'Milk');
- assert.equal((await r.json()).scope,'city_chain_median');
+ assert.equal((await r.json()).scope,'covered_postal_area');
 });
 test('does not call GroceryPulse with invalid postal code',async()=>{
  global.fetch=()=>{throw Error('Unwanted upstream fetch')};
@@ -136,7 +136,7 @@ test('Savvi requires shopper token and only uses approved retailers; never retur
    const body=JSON.parse(opts.body);
    assert.deepEqual(body.retailers,['nofrills','independent']);
    assert.deepEqual(body.queries,['large eggs 12']);
-   assert.equal(body.postal_code,'K9J 7B5');
+   assert.equal(body.postal_code,'K9J7B5');
    return response([{_type:'comparison',retailer:'nofrills',price:4.39,currency:'CAD',
       matched_product:'No Name Large Eggs',package_size:'12 ct',
       banner:'No Frills',store:'Peterborough',match_confidence:'medium',
