@@ -52,6 +52,7 @@ function recordReference(item,candidate){
     scope:candidate.scope||'reference',storeName:candidate.storeName||'',
     storeId:candidate.storeId||null,productName:candidate.productName||'',
     pricePer:candidate.pricePer||'UNIT',packageSize:candidate.packageSize||'',
+    branchId:candidate.branchId||'',
     sizeEvidence:candidate.sizeEvidence||'reported',recordedAt:Date.now()
   };
   update();
@@ -103,6 +104,7 @@ function candidateCard(candidate,index,item){
      '<div class="source-price-small">Check: '+safe(candidate.mismatchReasons.join(', '))+'</div>':'';
   return '<article class="source-price-card"><div class="source-price-head"><strong>'+safe(candidate.storeName)+'</strong><b>≈'+money(candidate.price)+'</b></div>'+
     '<div class="source-price-small"><strong>'+safe(candidate.productName||'Reference product')+'</strong>'+
+      (candidate.brand?' · '+safe(candidate.brand):'')+
       (size?' · '+safe(size)+(candidate.sizeEvidence==='requested_exact_catalog_line'?' (requested size; retailer pack unverified)':''):' · size not reported')+(candidate.city?' · '+safe(candidate.city):'')+'</div>'+
     '<div class="source-price-small">'+safe(explanation)+confidence+(mismatch?' · Different pack size':'')+unit+safe(extraNotice)+'</div>'+reasons+
     '<div class="source-price-foot">'+safe(candidate.date||'Date not reported')+' · '+safe(candidate.source)+
@@ -211,7 +213,7 @@ function fromSavviResult(data){
     price:Number(r.price),source:'Savvi / Apify',date:r.observedAt||'',
     storeId:r.storeId||null,storeName:r.storeName||r.storeId||'Retailer',
     city:r.branch||data.location||'Canada',scope:'retailer_search',url:r.sourceUrl||'',
-    productName:r.productName||'',packageSize:r.packageSize||'',pricePer:'UNIT',
+    productName:r.productName||'',brand:r.brand||'',packageSize:r.packageSize||'',pricePer:'UNIT',
     confidence:r.confidence||'unrated',comparableUnitPrice:r.comparableUnitPrice,
     comparableBasis:r.comparableBasis,mismatchReasons:r.mismatchReasons||[],
     sale:r.sale,availability:r.availability
@@ -337,7 +339,7 @@ function fromVynn(data,item){
   const exactBarcode=Boolean(item.barcode&&barcode&&item.barcode===barcode&&r.matchType==='barcode');
   return {
     price:Number(r.price),source:'VynnAI',date:r.observedAt||'',
-    storeId:r.storeId||null,storeName:r.storeName||'Canadian reference retailer',
+    storeId:r.storeId||null,storeName:r.storeName||'Canadian reference retailer',brand:r.brand||'',
     city:r.city||r.province||data.province||'Canada',scope:'province_reference',
     url:r.sourceUrl||'https://vynn.ai/',productName:r.productName||item.name,
     packageSize:r.packageSize||'',barcode,matchType:exactBarcode?'barcode':'name',
@@ -420,6 +422,17 @@ for(const id of ['nofrills','independent']){
   if(chosen)reefBranches[id]={id:chosen.id,label:chosen.label};
   else if(!reefBranches[id]||reefBranches[id].id!==event.target.value)delete reefBranches[id];
   try{localStorage.setItem(BRANCH_PREF_KEY,JSON.stringify(reefBranches));}catch{}
+  // A reference recorded at the old branch is no longer valid for the newly
+  // selected branch; retain the item but clear only that reference price.
+  let cleared=0;
+  for(const item of state.items){
+   if(item.priceSource==='reference'&&item.priceEvidence?.source==='ReefAPI Loblaw'&&
+      item.priceEvidence?.storeId===id&&
+      item.priceEvidence?.branchId!==reefBranches[id]?.id){
+     item.price=null;item.priceSource=null;item.priceEvidence=null;cleared++;
+   }
+  }
+  if(cleared)update();
   syncProviderControls();
  });
 }
