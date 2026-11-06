@@ -44,6 +44,15 @@ function recordReference(item,candidate){
   if(!item||!candidate||!Number.isFinite(candidate.price)||candidate.price<=0)return false;
   // A manually entered price is a deliberate choice. Never overwrite it.
   if(item.price!==null&&['manual','demo'].includes(item.priceSource))return false;
+  // A generic item with no requested size can use one real catalogue SKU as
+  // an explicitly labelled provisional package choice. No invented size.
+  if(!item.size&&candidate.source==='Épiceries.ca'&&candidate.packageSize){
+    item.size=candidate.packageSize;
+    state.profiles[normalizedKey(item.name)]={
+      department:item.department,size:candidate.packageSize
+    };
+    candidate={...candidate,sizeEvidence:'auto_selected_catalogue_pack'};
+  }
   item.price=candidate.price;
   item.priceSource='reference';
   item.priceEvidence={
@@ -886,9 +895,15 @@ function renderComparisonReferenceOffers(scanned,total,updated){
  }).join('');
  const summaryByStore=byStore?'<h3 style="font-size:14px;margin:14px 0 6px">Reference coverage by retailer</h3>'+
    '<p class="sheet-help">These are <strong>partial subtotals</strong>, not directly comparable whole-basket prices unless the same items are covered at each store.</p>'+byStore:'';
- root.innerHTML='<p class="sheet-help"><strong>Automatic source check:</strong> '+scanned+' of '+total+
-  ' active items checked; '+updated+' list prices updated. These are eligible reference prices, not verified local checkout quotes. '+
-  'Existing manual and personally checked delivery prices were preserved.</p>'+
+ const priced=state.items.filter(i=>!i.complete&&i.price!==null).length;
+ const missing=state.items.filter(i=>!i.complete&&i.price===null);
+ root.innerHTML='<p class="sheet-help"><strong>Price all complete:</strong> '+scanned+' of '+total+
+  ' active items checked; '+priced+' priced, '+missing.length+' still unavailable, '+updated+
+  ' automatically added or updated. Every populated amount is a real dated reference or a price you previously entered, not a fabricated checkout quote. '+
+  'Manually entered and personally checked delivery prices were preserved.</p>'+
+  (missing.length?'<details class="price-compare-details"><summary>Still missing ('+missing.length+')</summary>'+
+    '<p class="sheet-help">'+missing.map(i=>safe(i.name)+(i.size?' ('+safe(i.size)+')':'')).join(' · ')+
+    '. No sufficiently comparable source price was found automatically.</p></details>':'')+
   summaryByStore+
   (rows.length?rows.join(''):'<p class="sheet-help">No priced items were checked yet.</p>')+
   '<h3 style="font-size:14px;margin:14px 0 7px">Delivery-app review shortcuts</h3>'+
@@ -908,7 +923,7 @@ async function runFullPriceComparison(){
   root.textContent='Finishing the current Shop price lookup, then checking every item for comparison…';
   return;
  }
- const run=items.slice(0,50);
+ const run=items.slice();
  comparisonBusy=true;comparisonCandidates.clear();
  const refresh=$id('compare-refresh-prices');
  if(refresh)refresh.disabled=true;
@@ -917,7 +932,6 @@ async function runFullPriceComparison(){
   root.innerHTML='<p class="sheet-help">Checking current reference sources for '+run.length+
     ' items. No delivery platforms are being scraped; limited-key sources are used only if you opted in.</p>';
   for(let index=0;index<run.length;index+=2){
-   if($id('compare-sheet').hidden)break;
    const results=await Promise.allSettled(run.slice(index,index+2).map(async original=>{
     const key=autoKey(original),lookup={...original};
     const candidates=await lookupComparisonCandidates(lookup);
@@ -933,7 +947,11 @@ async function runFullPriceComparison(){
       enabledStores:state.enabledStoreIds,storeOrder:state.storeOrderIds
     });
     if(comparisonRefreshAllowed(current,selected)){
-      if(recordReference(current,selected))updated++;
+      if(recordReference(current,selected)){
+        updated++;
+        const record=comparisonCandidates.get(current.id);
+        if(record)record.key=autoKey(current);
+      }
     }
    }));
    scanned+=Math.min(2,run.length-index);
@@ -941,10 +959,7 @@ async function runFullPriceComparison(){
      ' items. '+updated+' price'+(updated===1?'':'s')+' refreshed.';
   }
   renderComparisonReferenceOffers(scanned,items.length,updated);
-  if(items.length>run.length){
-   root.insertAdjacentHTML('afterbegin','<p class="sheet-help">'+
-    (items.length-run.length)+' additional items were not checked. The comparison limit is 50 per run to protect free API quotas.</p>');
-  }
+
  }finally{
   comparisonBusy=false;
   if(refresh)refresh.disabled=false;
