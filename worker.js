@@ -581,7 +581,7 @@ async function reefLookup(request,mode){
 export default {
   async fetch(request,env){
     const {pathname}=new URL(request.url);
-    if(pathname==='/api/pricing/status')return json({ready:true,sources:['open-prices-barcode','grocerypulse-reference-cities','statistics-canada-national-averages'],optionalSources:['vynn-ai-user-key','reefapi-selected-branch-user-key','savvi-apify-user-key'],liveStoreFeeds:'user_connected_only'});
+    if(pathname==='/api/pricing/status')return json({ready:true,sources:['open-prices-barcode','grocerypulse-reference-cities','statistics-canada-national-averages'],optionalSources:['vynn-ai-user-key','reefapi-selected-branch-user-key','savvi-apify-user-key'],liveStoreFeeds:false,userConnectedStoreFeeds:true});
     if(pathname==='/api/pricing/open-prices')return openPrices(request);
     if(pathname==='/api/pricing/catalog-search')return catalogSearch(request);
     if(pathname==='/api/pricing/grocerypulse-plan')return groceryPulse(request);
