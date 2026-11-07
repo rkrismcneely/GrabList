@@ -1275,6 +1275,64 @@ async function refreshCataloguePrices(){
         await loadCatalogueComparison();
       }
     }
+    // Giant Tiger publishes actual Shopify product-page URLs and variants.
+    // Import only exact catalogue matches from our preprocessed 80-link shards.
+    const tigerRelease='gianttiger-2026-11-v1';
+    let tigerDone=false,tigerPart=0;
+    try{
+      tigerDone=localStorage.getItem(tigerRelease+'-complete')==='1';
+      tigerPart=Number(localStorage.getItem(tigerRelease+'-next')||0);
+    }catch{}
+    if(!tigerDone){
+      $('compare-progress').hidden=false;
+      let loaded=0;
+      try{
+        for(let page=0;page<100;page++){
+          output.textContent='Importing Giant Tiger product links · batch '+(tigerPart+1)+'…';
+          const response=await fetch('/api/catalogue/import-gianttiger',{
+            method:'POST',headers:{'Content-Type':'application/json','x-grablist-key':key},
+            body:JSON.stringify({part:tigerPart})
+          });
+          const data=await response.json();
+          if(!response.ok){
+            if(response.status===401){
+              try{sessionStorage.removeItem(CATALOGUE_KEY_STORAGE);}catch{}
+              throw Error('Invalid catalogue refresh key');
+            }
+            throw Error(data.error||'Giant Tiger product URL import failed');
+          }
+          if(!Number.isInteger(data.processed)||!Number.isInteger(data.totalParts)||
+              !Number.isInteger(data.totalRecords))throw Error('Invalid Giant Tiger import response');
+          imported+=data.processed;
+          loaded+=data.processed;
+          $('compare-progress').max=data.totalParts;
+          $('compare-progress').value=tigerPart+1;
+          try{localStorage.setItem(tigerRelease+'-next',String(tigerPart+1));}catch{}
+          output.textContent='Imported '+Math.min((tigerPart+1)*80,data.totalRecords)+' of '+
+            data.totalRecords+' Giant Tiger links · batch '+(tigerPart+1)+' of '+data.totalParts;
+          if(data.finished){
+            try{
+              localStorage.setItem(tigerRelease+'-complete','1');
+              localStorage.removeItem(tigerRelease+'-next');
+            }catch{}
+            break;
+          }
+          if(!Number.isInteger(data.nextPart)||data.nextPart<=tigerPart)throw Error('Invalid Giant Tiger import continuation');
+          tigerPart=data.nextPart;
+          if(page===99)throw Error('Giant Tiger product URL import exceeded its safety limit');
+        }
+      }catch(error){
+        if(String(error.message||'').includes('Invalid catalogue refresh key'))throw error;
+        importError+=(importError?' · ':'')+'Giant Tiger URL import incomplete; next click resumes: '+
+          String(error.message||'Unknown error');
+      }finally{
+        $('compare-progress').hidden=true;
+      }
+      if(loaded){
+        output.textContent='Imported '+loaded+' Giant Tiger product links. Checking shopping list…';
+        await loadCatalogueComparison();
+      }
+    }
     // Reuse existing retailer product URLs no more than weekly. Imports are
     // idempotent, and a transient source failure must not block price refresh.
     let importedAt=0;
