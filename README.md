@@ -2,6 +2,9 @@
 
 *Grab what you need. Spend less.*
 
+> **Catalogue-only pricing rollout (in development):** Old public, manually recorded and optional API price lookups are disabled in the UI and Worker routes. The new D1-based catalogue is the sole active price source; it needs a real Cloudflare D1 binding, migration and owner refresh secret before it can retrieve prices. See [CATALOGUE_SETUP.md](CATALOGUE_SETUP.md). The Phase 2 descriptions below document retained legacy functionality, not features currently active on this branch.
+
+
 A mobile-first, swipe-driven grocery shopping Progressive Web App. Hosted on Cloudflare Workers, deployed automatically from this independent GitHub repository.
 
 ## What works
