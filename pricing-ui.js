@@ -50,9 +50,8 @@ function recordReference(item,candidate){
       (candidate.source==='Épiceries.ca'||
        (candidate.source==='Statistics Canada'&&candidate.matchStatus==='size_unspecified'))){
     item.size=candidate.packageSize;
-    state.profiles[normalizedKey(item.name)]={
-      department:item.department,size:candidate.packageSize
-    };
+    // Do not learn a user size preference from an automatically chosen pack.
+    // The user can confirm or change this suggestion through Edit.
     candidate={...candidate,sizeEvidence:candidate.source==='Statistics Canada'?
       'auto_selected_national_pack':'auto_selected_catalogue_pack'};
   }
