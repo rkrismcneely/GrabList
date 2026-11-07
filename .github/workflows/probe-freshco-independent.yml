@@ -1,0 +1,21 @@
+name: Probe FreshCo and Independent public product sources
+on:
+  push:
+    branches: [feature/freshco-independent-url-import]
+    paths:
+      - scripts/probe_freshco_independent.py
+      - .github/workflows/probe-freshco-independent.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Identify available official product URLs and indexed references
+        run: python3 scripts/probe_freshco_independent.py
