@@ -16,7 +16,7 @@ import urllib.request
 import urllib.error
 import urllib.robotparser
 from pathlib import Path
-from discover_hammer_urls import candidates, matched_score, tokens, SIZE
+from discover_hammer_urls import candidates, matched_score, tokens, SIZE, COMMON_MODIFIERS
 
 BASE = "https://www.gianttiger.com"
 AGENT = "GrabListPersonalCatalogue/1.0 (+https://github.com/rkrismcneely/GrabList)"
@@ -92,6 +92,11 @@ def matching_entries(root, max_pages):
                         relevant[candidate["id"]] = candidate
                 best = None
                 for candidate in relevant.values():
+                    # Variants can be colours like 'Oat Milk' on a rug; only
+                    # match a grocery name anchored in the base product title.
+                    required = candidate['nameTokens'] - COMMON_MODIFIERS
+                    if not required.issubset(tokens(title)):
+                        continue
                     score = matched_score(candidate, full_name, vendor, size)
                     if score is not None and (best is None or score > best[0]):
                         best = (score, candidate)
