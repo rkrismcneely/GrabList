@@ -119,6 +119,7 @@ direct product-page URLs for the **No Frills and Walmart Canada** banners that
 match GrabList's canonical grocery products, respecting brand, product type,
 and available size constraints.
 
+- The completed November 7 run retained **5,072 matched product-page URLs**: **2,463 No Frills** and **2,609 Walmart**, covering **297 of 368** canonical product descriptions (with conservative matching and per-product limits). These have not been verified against the current Peterborough inventory.
 - `scripts/discover_hammer_urls.py` downloads public product metadata to an
   ephemeral GitHub Actions runner, matches existing catalogue identities,
   ignores search URLs, and generates a compact URL-only manifest.
