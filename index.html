@@ -550,7 +550,7 @@ function autoAssignUnpricedItems(){
     counts.set(busiest,counts.get(busiest)+1);
   }
 }
-function update(){autoAssignUnpricedItems();save();render();if(mode==='shopping')/* Legacy automatic price lookup paused */}
+function update(){autoAssignUnpricedItems();save();render();if(mode==='shopping')void 0; /* Legacy automatic price lookup paused */}
 function itemQty(item){const n=parseFloat(item.quantity);return Number.isFinite(n)&&n>0?n:1}
 function knownTotal(items){return items.reduce((sum,i)=>sum+(i.price===null?0:i.price*itemQty(i)),0)}
 function knownCount(items){return items.filter(i=>i.price!==null).length}
@@ -589,7 +589,7 @@ function newItem(raw){
   const item={id:uid(),name:parsed.name,barcode:'',catalogueSize:'',quantity:'1',size:parsed.size||inferredSize(parsed.name,profile),brand:parsed.brand||'',department:profile.department||detectDepartment(parsed.name),storeId:null,storeAutoAssigned:false,storeManuallyCleared:false,offers:[],price:null,priceSource:null,priceEvidence:null,complete:false,order:state.nextOrder++,createdAt:Date.now()};
   state.items.unshift(item);
   update();
-  if(mode==='shopping')/* Legacy automatic price lookup paused */
+  if(mode==='shopping')void 0; /* Legacy automatic price lookup paused */
   return item;
 }
 
@@ -707,7 +707,7 @@ document.addEventListener('pointerdown',e=>{
     closeComposer();
   }
 },true);
-function switchMode(next){if(next===mode)return;mode=next;render();$('list-scroller').scrollTop=0;if(next==='shopping')/* Legacy automatic price lookup paused */else $('auto-price-status').hidden=true;}
+function switchMode(next){if(next===mode)return;mode=next;render();$('list-scroller').scrollTop=0;if(next==='shopping')void 0; /* Legacy automatic price lookup paused */else $('auto-price-status').hidden=true;}
 $('planning-tab').addEventListener('click',()=>switchMode('planning'));
 $('shopping-tab').addEventListener('click',()=>switchMode('shopping'));
 
