@@ -129,3 +129,14 @@ test('historical barcode observation is valid last resort but ranks below curren
   now:NOW,enabledStores:['freshco']
  }).best.source,'GroceryPulse');
 });
+
+test('an unspecified common staple can use a published Canadian average as a labelled pack suggestion',()=>{
+ const item={name:'Eggs',size:'',brand:'',storeId:'freshco'};
+ const dozen={price:4.83,source:'Statistics Canada',scope:'national_average',
+  date:'2026-09-01',productName:'Eggs, 1 dozen',packageSize:'12 ct',matchStatus:'size_unspecified'};
+ assert.equal(intelligence.assess(item,dozen,{now:NOW}).ok,true);
+ assert.equal(intelligence.bestForAssignedStore(item,[dozen],{now:NOW,enabledStores:['freshco']}),dozen);
+ assert.equal(intelligence.assess({...item,size:'6 ct'},dozen,{now:NOW}).reason,'different_size');
+ assert.equal(intelligence.assess({...item,brand:'Brand Not Reported'},dozen,{now:NOW}).reason,'brand_unverified');
+ assert.equal(intelligence.assess(item,{...dozen,matchStatus:'different_size'},{now:NOW}).reason,'size_unspecified');
+});
