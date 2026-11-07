@@ -65,7 +65,7 @@ function permittedProductUrl(raw){
     return url.href;
   }catch{return null;}
 }
-async function readHtml(response,limit=350000){
+async function readHtml(response,limit=1500000){
   const length=Number(response.headers.get('content-length')||0);
   if(length>limit)throw Error('Page exceeds safe HTML size limit');
   if(!response.body)return '';
@@ -154,6 +154,13 @@ async function refresh(db,env,request){
       results.push({key,status:'throttled',note:'Recently checked'});continue;
     }
     const attemptedAt=nowIso();
+    // This generic HTML parser cannot prove which branch's price was returned.
+    // Never downgrade a previously verified branch-specific quote to online scope.
+    if(row.price_scope==='selected_branch'){
+      await db.prepare('UPDATE catalogue_listings SET last_attempted_at=?,last_error=? WHERE listing_key=?')
+        .bind(attemptedAt,'Store-specific adapter required to refresh this branch',key).run();
+      results.push({key,status:'skipped',reason:'Store-specific adapter required'});continue;
+    }
     const result=await getProductPagePrice(row.product_url);
     if(result.priceCents===null){
       await db.prepare('UPDATE catalogue_listings SET last_attempted_at=?,last_error=? WHERE listing_key=?')
