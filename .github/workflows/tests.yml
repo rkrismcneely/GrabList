@@ -15,7 +15,21 @@ jobs:
       # Older provider/worker suites remain in tests/ but assert deliberately disabled routes.
       # They can be re-enabled if that system is ever restored.
       - name: Validate active catalogue and core list utilities
-        run: node --test tests/catalogue.test.cjs tests/catalogue-integration.test.cjs tests/delivery.test.cjs tests/intelligence.test.cjs tests/location.test.cjs
+        run: node --test tests/catalogue.test.cjs tests/catalogue-integration.test.cjs tests/catalogue-isolation.test.cjs tests/delivery.test.cjs tests/intelligence.test.cjs tests/location.test.cjs
+      - name: Validate catalogue SQL migration and unpriced starter catalogue
+        run: |
+          python3 - <<'PY'
+          import sqlite3
+          from pathlib import Path
+          db = sqlite3.connect(':memory:')
+          db.executescript(Path('migrations/0001_catalogue.sql').read_text())
+          products = db.execute('select count(*) from catalogue_products').fetchone()[0]
+          listings = db.execute('select count(*) from catalogue_listings').fetchone()[0]
+          assert products >= 30, products
+          assert listings == 2, listings
+          assert db.execute('select count(*) from catalogue_listings where last_price_cents is not null').fetchone()[0] == 0
+          print('Migrated', products, 'starter products and', listings, 'unpriced links')
+          PY
       - name: Validate pricing UI and Worker module syntax
         run: |
           node --check delivery.js
