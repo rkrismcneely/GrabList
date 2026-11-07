@@ -408,3 +408,37 @@ test('generic 4 L milk excludes cheaper chocolate milk when using Québec catalo
  assert.equal(data.results[0].storeId,null);
  assert.ok(data.results[0].productName.includes('partiellement'));
 });
+
+test('common unsized staples return real published pack options rather than a fabricated retailer quote',async()=>{
+ const api=await worker();
+ global.fetch=()=>{throw Error('Statistics Canada reference must not call the network')};
+ for(const [name,size] of [['Eggs','12 ct'],['Bread','675 g'],['Butter','454 g']]){
+  const res=await api.fetch(new Request('https://grablist.test/api/pricing/national-reference?name='+encodeURIComponent(name)),{});
+  const data=await res.json();
+  assert.equal(res.status,200);
+  assert.equal(data.results[0].matchStatus,'size_unspecified');
+  assert.equal(data.results[0].pack,size);
+  assert.equal(data.scope,'national_average');
+ }
+});
+test('Québec catalogue searches ground beef instead of unrelated beef cuts',async()=>{
+ const api=await worker();
+ global.fetch=async req=>{
+  const url=new URL(req);
+  if(url.searchParams.get('endpoint')==='search'){
+   assert.equal(url.searchParams.get('q'),'boeuf haché');
+   assert.equal(url.searchParams.get('limit'),'60');
+   return response({ok:true,data:{results:[
+    {id:'ground',name:'Boeuf haché maigre',brand:'Maison',size:'1 kg',
+     price:14.99,store:'walmart',updated:'2026-11-06T12:00:00Z'}
+   ]}});
+  }
+  return response({ok:true,data:{id:'ground',name:'Boeuf haché maigre',brand:'Maison',
+   size:'1 kg',prices:[{store:'walmart',price:14.99,size:'1 kg',date:'2026-11-06T12:00:00Z'}]}});
+ };
+ const res=await api.fetch(new Request('https://grablist.test/api/pricing/epiceries?name=ground%20beef&size=1%20kg'),{});
+ const data=await res.json();
+ assert.equal(res.status,200);
+ assert.equal(data.results[0].price,14.99);
+ assert.equal(data.results[0].scope,'quebec_reference');
+});
