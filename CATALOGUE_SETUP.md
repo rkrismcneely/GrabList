@@ -110,6 +110,62 @@ NULL last-known prices. They must not be silently promoted to a selected
 Peterborough branch. Cross-store lookups use product name, package size, and
 explicit brand/UPC restrictions.
 
+## FreshCo and Your Independent Grocer direct-link candidates (November 7)
+
+The remaining two supported retailer banners now have source-specific URL-only
+imports. **Neither source guarantees stock at your Peterborough location.**
+
+### Your Independent Grocer — shared Loblaw product IDs
+
+Loblaw's website uses common product IDs across its No Frills and Your
+Independent Grocer banners. For example, a publicly indexed Independent
+product page for large eggs shows the same `20812144001_EA` product number as
+our No Frills catalogue:
+`https://www.yourindependentgrocer.ca/en/large-size-eggs-12-pack/p/20812144001_EA`.
+
+`scripts/discover_remaining_urls.py` reuses published No Frills product
+SKUs and product name/path segments to construct **Independent candidate
+routes** only when the path exactly matches the known Loblaw `/en/.../p/SKU`
+convention. The initial dataset contains **2,412 candidate routes** covering
+**260 of 368 catalogue descriptions**. We cannot prove that Independent sells
+each shared SKU or that every route renders a product instead of an app-shell
+fallback. Do **not** describe the 2,412 as live verified Independent links.
+
+The records carry `discoveryStatus=shared_loblaw_sku_candidate_unverified`,
+are stored as `online_unverified`, and are explicitly labelled as candidates
+in the comparison UI. They never count as verified Independent shelf prices.
+
+### FreshCo — publisher-issued, search-indexed product pages
+
+FreshCo's actual website has `/products/<product-slug>` item pages, but its
+robots.txt disallows automatic crawling of the product paths from our GitHub
+Actions runner. We respect that restriction and do not circumvent a 403.
+
+A curated source file, `data/freshco-indexed-product-pages.json`, contains
+**55 actual official FreshCo product URLs** returned by independent
+search-engine indexes, with their indexed product titles. No product-page
+slugs were fabricated and the importer does not crawl the FreshCo site.
+The strict matching step retained **45 entries**, covering **25 existing
+GrabList product descriptions**, including bread, eggs, milk, butter,
+marshmallows and several flyer-advertised staples. These are not guaranteed
+to apply to either local FreshCo store or to be current.
+
+### Integration / safe import behaviour
+
+- `data/independent-parts/` (31 small shards) and `data/freshco-parts/`
+  (1 small shard) are reproducible from the checked-in metadata.
+- `/api/catalogue/import-independent` and `/api/catalogue/import-freshco`
+  use the existing `CATALOGUE_WRITE_KEY` Worker secret. Neither imports
+  prices or asserts branch-specific availability.
+- **Compare prices → Refresh saved product prices** now loads both sources,
+  showing batch progress and saving the next shard index to resume if Safari
+  closes or the request fails. Previous prices/history remain untouched.
+- Each imported listing is `online_unverified`. The UI distinguishes
+  cross-banner SKU candidates from search-indexed FreshCo product pages.
+- Future full FreshCo coverage requires a permitted product-data feed or an
+  explicit data-sharing arrangement; Independent requires banner-specific
+  live SKU and branch validation before its candidates become verified listings.
+
 ## Costco public product sitemap coverage
 
 Costco publicly declares `https://www.costco.ca/sitemap_lw_index.xml` in

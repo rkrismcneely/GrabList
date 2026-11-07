@@ -1,6 +1,6 @@
 import { ensureCatalogueSchema } from "./catalogue-bootstrap.mjs";
 import { importCuratedBatch } from "./catalogue-sources.mjs";
-import { importHammerPart, importGiantTigerPart, importCostcoPart } from "./catalogue-hammer.mjs";
+import { importHammerPart, importGiantTigerPart, importCostcoPart, importIndependentPart, importFreshcoPart } from "./catalogue-hammer.mjs";
 // Single active GrabList pricing API. Requires a Cloudflare D1 binding named CATALOGUE_DB.
 // Legacy provider routes are deliberately disabled in worker.js; no optional services run here.
 const RETAILERS = new Set(['walmart','nofrills','freshco','independent','costco','gianttiger']);
@@ -237,6 +237,8 @@ async function importHammerUrlBatch(db,env,request,source='hammer'){
   try{
     return json(source==='gianttiger' ? await importGiantTigerPart(db,env.ASSETS,request.url,body.part) :
       source==='costco' ? await importCostcoPart(db,env.ASSETS,request.url,body.part) :
+      source==='independent' ? await importIndependentPart(db,env.ASSETS,request.url,body.part) :
+      source==='freshco' ? await importFreshcoPart(db,env.ASSETS,request.url,body.part) :
       await importHammerPart(db,env.ASSETS,request.url,body.part));
   }catch(cause){
     console.error('Project Hammer URL metadata import failed',cause);
@@ -281,6 +283,8 @@ export async function handleCatalogueApi(request,env){
   if(path==='/api/catalogue/import-hammer')return importHammerUrlBatch(db,env,request);
   if(path==='/api/catalogue/import-gianttiger')return importHammerUrlBatch(db,env,request,'gianttiger');
   if(path==='/api/catalogue/import-costco')return importHammerUrlBatch(db,env,request,'costco');
+  if(path==='/api/catalogue/import-independent')return importHammerUrlBatch(db,env,request,'independent');
+  if(path==='/api/catalogue/import-freshco')return importHammerUrlBatch(db,env,request,'freshco');
   if(path==='/api/catalogue/compare')return compare(db,request);
   if(path==='/api/catalogue/refresh')return refresh(db,env,request);
   return error('Unknown catalogue endpoint',404,'not_found');
