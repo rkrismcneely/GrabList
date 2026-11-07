@@ -45,8 +45,8 @@ function assess(item,c,opts={}){
  if(item.size){
   if(!c.packageSize)return {ok:false,reason:'size_unverified'};
   if(measure(item.size)!==measure(c.packageSize))return {ok:false,reason:'different_size'};
- }else if(c.source==='Statistics Canada')return {ok:false,reason:'size_unspecified'};
- if(c.source==='Statistics Canada'&&c.matchStatus!=='reference_size')return {ok:false,reason:'not_exact_reference'};
+ }else if(c.source==='Statistics Canada'&&c.matchStatus!=='size_unspecified')return {ok:false,reason:'size_unspecified'};
+ if(c.source==='Statistics Canada'&&c.matchStatus!==(item.size?'reference_size':'size_unspecified'))return {ok:false,reason:'not_exact_reference'};
  if(c.source==='Open Prices'&&c.matchType!=='barcode')return {ok:false,reason:'name_only_observation'};
  if(c.source==='VynnAI'&&(!item.barcode||c.matchType!=='barcode'||c.barcode!==item.barcode||!c.storeId))
   return {ok:false,reason:'retailer_identity_unverified'};
