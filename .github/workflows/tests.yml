@@ -59,6 +59,8 @@ jobs:
         run: python3 -m unittest discover -s tests -p 'test_existing_catalogue_import.py' -v
       - name: Validate conservative bulk retailer product matching
         run: python3 -m unittest discover -s tests -p 'test_hammer_discovery.py' -v
+      - name: Verify discovered product links and sharded dataset
+        run: python3 -m unittest discover -s tests -p 'test_hammer_manifest.py' -v
       - name: Validate pricing UI and Worker module syntax
         run: |
           node --check delivery.js
