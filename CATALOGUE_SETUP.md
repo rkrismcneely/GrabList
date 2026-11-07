@@ -110,6 +110,53 @@ NULL last-known prices. They must not be silently promoted to a selected
 Peterborough branch. Cross-store lookups use product name, package size, and
 explicit brand/UPC restrictions.
 
+## Expanded official grocery inventory (November 7, 2026)
+
+A more complete product source was identified: Giant Tiger's official public
+Shopify **grocery collection**, rather than its mixed home/fashion/grocery
+`/products.json` feed, which stops at 25,000 products.
+
+A bounded, robots-permitted single-collection scan of 46 published pages
+discovered **11,375 distinct variant product-page URLs**. Of these, **6,631
+product identities** are new to the 368-item GrabList starter catalogue;
+another **218 existing descriptions** were also matched. Each entry contains a
+published retailer URL, vendor, product title, size hint (where discernible),
+category, and the publisher's variant ID. No online prices, historical quotes,
+photographs, or local warehouse availability were copied.
+
+- Source job: `scripts/discover_full_gianttiger_grocery.py`, with conservative
+  request pacing, robots checks, and respect for HTTP 429 (do not bypass
+  restrictions). The official grocery collection covered its smaller
+  grocery subcollections, so redundant scans were removed.
+- Full research metadata: `data/gianttiger-grocery-products.json` in GitHub,
+  excluded from static asset deployment. Import data:
+  `data/gianttiger-grocery/` (**143 shards**, at most 80 records each).
+- `/api/catalogue/import-gt-grocery` requires the existing owner write key
+  and uses two prepared D1 batch statements: `INSERT OR IGNORE` canonical
+  descriptions and an upsert of the retailer link. Existing observations are
+  never reset. All new listings are **online_unverified**.
+- The existing **Compare prices → Refresh saved product prices** action loads
+  the larger catalogue with visible per-batch progress and a saved resume
+  cursor if the browser tab closes. It will make the catalogue substantially
+  larger than 368 products. Product quantities, package sizes and brands
+  still require strict client matching before any price can be compared.
+- The read-side SQL now prioritizes full product-name and barcode matches
+  over fuzzy matches so the larger catalogue doesn't bury relevant results.
+- Public product records do not verify a product is stocked at Giant Tiger
+  Peterborough. We do not claim branch prices from the generic national feed.
+
+FreshCo indexed pages were independently expanded from **55 to 84 actual
+publisher product URLs** (including coffee, oat beverages, wings and household
+items); the strict matcher retained **74 links** covering **34 catalogue
+descriptions**. No FreshCo product-page crawler was used, because its
+robots policy disallows that path. A new one-time import version reprocesses
+the updated FreshCo shard even if the earlier 45-link source was already
+imported.
+
+This approach discovers more inventory without paying for external price
+APIs or falsely treating published national products as local offers. Review
+retailer terms before substantial reuse beyond this private/family tool.
+
 ## FreshCo and Your Independent Grocer direct-link candidates (November 7)
 
 The remaining two supported retailer banners now have source-specific URL-only
