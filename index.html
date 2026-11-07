@@ -1216,6 +1216,65 @@ async function refreshCataloguePrices(){
   button.disabled=true;
   let checked=0,saved=0,unavailable=0,imported=0,importError='';
   try{
+    // Import pre-matched No Frills and Walmart product-page URLs. Each 80-link
+    // shard is idempotent. Persist the page cursor so Safari can resume safely.
+    const hammerRelease='hammer-2026-11-v1';
+    let done=false,part=0;
+    try{
+      done=localStorage.getItem(hammerRelease+'-complete')==='1';
+      part=Number(localStorage.getItem(hammerRelease+'-next')||0);
+    }catch{}
+    if(!done){
+      $('compare-progress').hidden=false;
+      let partCount=0,loaded=0;
+      try{
+        for(let page=0;page<100;page++){
+          output.textContent='Importing Walmart and No Frills product links · batch '+(part+1)+'…';
+          const response=await fetch('/api/catalogue/import-hammer',{
+            method:'POST',headers:{'Content-Type':'application/json','x-grablist-key':key},
+            body:JSON.stringify({part})
+          });
+          const data=await response.json();
+          if(!response.ok){
+            if(response.status===401){
+              try{sessionStorage.removeItem(CATALOGUE_KEY_STORAGE);}catch{}
+              throw Error('Invalid catalogue refresh key');
+            }
+            throw Error(data.error||'Bulk product URL import failed');
+          }
+          if(!Number.isInteger(data.processed)||!Number.isInteger(data.totalParts)||!Number.isInteger(data.totalRecords)){
+            throw Error('Invalid bulk URL import response');
+          }
+          imported+=data.processed;
+          loaded+=data.processed;
+          partCount=data.totalParts;
+          $('compare-progress').max=partCount;
+          $('compare-progress').value=part+1;
+          try{localStorage.setItem(hammerRelease+'-next',String(part+1));}catch{}
+          output.textContent='Imported '+Math.min((part+1)*80,data.totalRecords)+' of '+data.totalRecords+
+            ' historical product-page links · batch '+(part+1)+' of '+partCount;
+          if(data.finished){
+            try{
+              localStorage.setItem(hammerRelease+'-complete','1');
+              localStorage.removeItem(hammerRelease+'-next');
+            }catch{}
+            break;
+          }
+          if(!Number.isInteger(data.nextPart)||data.nextPart<=part)throw Error('Invalid bulk import continuation');
+          part=data.nextPart;
+          if(page===99)throw Error('Bulk catalogue import exceeded its safety limit');
+        }
+      }catch(error){
+        if(String(error.message||'').includes('Invalid catalogue refresh key'))throw error;
+        importError='Bulk URL import incomplete; next attempt resumes: '+String(error.message||'Unknown error');
+      }finally{
+        $('compare-progress').hidden=true;
+      }
+      if(loaded){
+        output.textContent='Imported '+loaded+' retailer product links. Checking your shopping list…';
+        await loadCatalogueComparison();
+      }
+    }
     // Reuse existing retailer product URLs no more than weekly. Imports are
     // idempotent, and a transient source failure must not block price refresh.
     let importedAt=0;
