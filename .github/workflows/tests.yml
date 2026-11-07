@@ -15,7 +15,7 @@ jobs:
       # Older provider/worker suites remain in tests/ but assert deliberately disabled routes.
       # They can be re-enabled if that system is ever restored.
       - name: Validate active catalogue and core list utilities
-        run: node --test tests/catalogue.test.cjs tests/catalogue-integration.test.cjs tests/catalogue-isolation.test.cjs tests/catalogue-bootstrap.test.cjs tests/catalogue-sources.test.cjs tests/delivery.test.cjs tests/intelligence.test.cjs tests/location.test.cjs
+        run: node --test tests/catalogue.test.cjs tests/catalogue-integration.test.cjs tests/catalogue-isolation.test.cjs tests/catalogue-bootstrap.test.cjs tests/catalogue-sources.test.cjs tests/catalogue-hammer.test.cjs tests/delivery.test.cjs tests/intelligence.test.cjs tests/location.test.cjs
       - name: Validate catalogue SQL migration and unpriced starter catalogue
         run: |
           python3 - <<'PY'
@@ -68,6 +68,7 @@ jobs:
           node --check catalogue-bootstrap.mjs
           node --check catalogue-flyer-seeds.mjs
           node --check catalogue-sources.mjs
+          node --check catalogue-hammer.mjs
           node --input-type=module --check < worker.js
       - name: Check HTML inline JavaScript syntax
         run: |
