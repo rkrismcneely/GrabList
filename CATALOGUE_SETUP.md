@@ -110,6 +110,42 @@ NULL last-known prices. They must not be silently promoted to a selected
 Peterborough branch. Cross-store lookups use product name, package size, and
 explicit brand/UPC restrictions.
 
+## Direct product-page URL matching at scale
+
+A one-time [Project Hammer](https://www.projecthammer.org/get-the-data.html)
+metadata-only discovery run processed its publicly downloadable product table
+without importing any historical prices or source price history. It selected
+direct product-page URLs for the **No Frills and Walmart Canada** banners that
+match GrabList's canonical grocery products, respecting brand, product type,
+and available size constraints.
+
+- `scripts/discover_hammer_urls.py` downloads public product metadata to an
+  ephemeral GitHub Actions runner, matches existing catalogue identities,
+  ignores search URLs, and generates a compact URL-only manifest.
+- `data/hammer-parts/` holds 80-record shards for a fixed authenticated
+  `/api/catalogue/import-hammer` endpoint. Source attribution is retained.
+- First use of **Compare prices → Refresh saved product prices** after
+  deployment imports the shards, showing progress. The import resumes safely
+  on another click if a mobile browser closes or a request fails.
+- **Only direct retailer product-page links are saved**, not search queries,
+  price guesses, stock claims, UPC matches based on unverified assumptions,
+  or historical Toronto prices. Listings are `online_unverified`.
+- Matching is intentionally conservative but **does not guarantee live links,
+  Peterborough-specific availability, or equivalent prices**. The URL data
+  may contain stale/deleted product pages and some false-positive matches;
+  actual product-page checks are still required.
+- The source covers only **two of six stores**. Existing smaller curated
+  imports cover a few FreshCo and Costco URLs, and a matched No Frills set.
+  Full coverage of FreshCo, Independent, Giant Tiger and Costco needs a
+  permitted storefront product search feed or verified sitemap/catalogue
+  discovery. Do not fabricate cross-banner links by replacing domains.
+
+The source site publishes its complete archive openly for research. The
+GrabList repository retains only the product URL *subset* matching its own
+catalogue and credits the source. Do not republish the full Project Hammer
+archive, photographs or source price histories. Review the publisher's
+reuse/licensing terms before expanded redistribution.
+
 ## November 2026 flyer and staple catalogue expansion
 
 On the first catalogue API request after this release, D1 automatically
