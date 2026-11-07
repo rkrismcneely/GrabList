@@ -517,7 +517,7 @@ function sanitizeState(raw){
 }
 function loadState(){try{return sanitizeState(JSON.parse(localStorage.getItem(STORAGE_KEY)))}catch{return blankState()}}
 let state=loadState();
-let catalogueRows=new Map(),catalogueReady=false,catalogueRefreshReady=false,catalogueListingCount=0;
+let catalogueRows=new Map(),catalogueFlyerRows=new Map(),catalogueCandidateRows=new Map(),catalogueReady=false,catalogueRefreshReady=false,catalogueListingCount=0,catalogueProductCount=0,catalogueCurrentFlyerCount=0;
 function reconcileKnownPackageSizes(){
  let changed=false;
  for(const item of state.items){
@@ -1109,12 +1109,21 @@ compareSheet.querySelectorAll('[data-compare-close]').forEach(btn=>btn.addEventL
 function renderCatalogueComparison(){
   const active=state.items.filter(item=>!item.complete);
   const results=active.map(item=>({id:item.id,offers:catalogueRows.get(item.id)||[]}));
+  // Only price records from the chosen branch can change shopping totals.
   comparisonPlan=GrabListCatalogueComparison.evaluate(active,results,state.enabledStoreIds,state.catalogueBranches,state.savingsThreshold);
   const plan=comparisonPlan;
+  let matchedCatalogue=0,matchedLinks=0,matchedFlyers=0;
   const cards=active.map(item=>{
     const offers=(catalogueRows.get(item.id)||[]).filter(offer=>GrabListCatalogueComparison.productMatch(item,offer))
       .sort((a,b)=>(a.priceCents??Infinity)-(b.priceCents??Infinity));
-    const detail=offers.length?offers.slice(0,12).map(offer=>{
+    const candidates=(catalogueCandidateRows.get(item.id)||[]).filter(p=>
+      GrabListCatalogueComparison.productMatch(item,{productName:p.productName,size:p.size,brand:p.brand}));
+    const flyers=(catalogueFlyerRows.get(item.id)||[]).filter(p=>
+      GrabListCatalogueComparison.productMatch(item,{productName:p.productName,size:p.size,brand:p.brand}));
+    if(candidates.length||offers.length)matchedCatalogue++;
+    if(offers.length)matchedLinks++;
+    if(flyers.length)matchedFlyers++;
+    let detail=offers.length?offers.slice(0,12).map(offer=>{
       const name=storeById(offer.retailer)?.name||offer.retailer;
       const price=Number.isInteger(offer.priceCents)?currency.format(offer.priceCents/100):'Price not available';
       const scope=offer.scope==='selected_branch'?'Store-specific':'Online · store unverified';
@@ -1122,12 +1131,26 @@ function renderCatalogueComparison(){
       const freshness=offer.status==='stale'?' · stale':offer.status==='current'?'':'';
       const link=offer.url&&/^https:\/\//.test(offer.url)?' <a href="'+escapeHTML(offer.url)+'" target="_blank" rel="noopener noreferrer">Product page</a>':'';
       return '<p>'+escapeHTML(name)+' · <b>'+escapeHTML(price)+'</b> · '+escapeHTML(scope+freshness+' · '+date)+link+'</p>';
-    }).join(''):'<p>No matching saved retailer URL yet.</p>';
+    }).join(''):(candidates.length?'<p>Product known in catalogue; retailer product links still needed.</p>':'<p>No matching product or saved retailer URL yet.</p>');
+    // Flyer discovery is not a product-page URL or verified local price.
+    if(flyers.length){
+      const byStore=[...new Map(flyers.map(row=>[row.retailer,row])).values()];
+      detail+='<p><strong>Regional flyer mentions (not verified at your branch):</strong></p>'+
+        byStore.slice(0,8).map(row=>{
+          const store=storeById(row.retailer)?.name||row.retailer;
+          const ref=row.sourceUrl&&/^https:\/\//.test(row.sourceUrl)?
+            ' · <a href="'+escapeHTML(row.sourceUrl)+'" target="_blank" rel="noopener noreferrer">Flyer source</a>':'';
+          return '<p>'+escapeHTML(store)+' · advertised through '+escapeHTML(row.validTo||'unknown')+ref+'</p>';
+        }).join('');
+    }
     return '<div class="compare-card"><strong>'+escapeHTML(item.name+(item.size?' · '+item.size:''))+'</strong>'+detail+'</div>';
   }).join('');
   const root=$('comparison-summary');
-  root.innerHTML='<p class="compare-summary">Catalogue records found for '+active.filter(item=>(catalogueRows.get(item.id)||[]).some(o=>GrabListCatalogueComparison.productMatch(item,o))).length+
-    ' of '+active.length+' items. '+plan.eligibleCount+' have verified local-store prices for comparison. Last-known online prices are not treated as local shelf prices.</p>'+
+  root.innerHTML='<p class="compare-summary">Catalogue: '+catalogueProductCount+' product descriptions; '+
+    catalogueCurrentFlyerCount+' current regional flyer references. For your '+active.length+' list items, '+
+    matchedCatalogue+' match a known product, '+matchedLinks+' have saved retailer links, and '+
+    matchedFlyers+' appear in a current regional flyer. '+plan.eligibleCount+
+    ' have verified local-store prices for comparison. Flyer mentions and online prices cannot change your shopping totals.</p>'+
     (plan.changes.length?'<h3 style="font-size:16px">Potential verified savings: '+currency.format(plan.totalSavings)+'</h3>'+
     plan.changes.map(change=>'<div class="compare-card"><strong>'+escapeHTML(change.name)+'</strong><p>'+
       escapeHTML(storeById(change.from)?.name||change.from)+' → '+escapeHTML(storeById(change.to)?.name||change.to)+
@@ -1136,6 +1159,7 @@ function renderCatalogueComparison(){
   $('apply-price-comparison').disabled=!plan.changes.length;
   render();
 }
+
 async function loadCatalogueComparison(){
   const root=$('comparison-summary');
   root.textContent='Loading saved catalogue prices…';
@@ -1145,6 +1169,8 @@ async function loadCatalogueComparison(){
     catalogueReady=Boolean(status.ready);
     catalogueRefreshReady=Boolean(status.refreshReady);
     catalogueListingCount=Number(status.listings)||0;
+    catalogueProductCount=Number(status.products)||0;
+    catalogueCurrentFlyerCount=Number(status.currentFlyerDiscoveries)||0;
     if(!catalogueReady){
       comparisonPlan=null;
       $('apply-price-comparison').disabled=true;
@@ -1165,6 +1191,8 @@ async function loadCatalogueComparison(){
       gathered.push(...(data.results||[]));
     }
     catalogueRows=new Map(gathered.map(entry=>[entry.id,entry.offers||[]]));
+    catalogueFlyerRows=new Map(gathered.map(entry=>[entry.id,entry.flyerMatches||[]]));
+    catalogueCandidateRows=new Map(gathered.map(entry=>[entry.id,entry.productCandidates||[]]));
     renderCatalogueComparison();
   }catch(err){
     comparisonPlan=null;

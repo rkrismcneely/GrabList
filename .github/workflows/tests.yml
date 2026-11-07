@@ -30,6 +30,31 @@ jobs:
           assert db.execute('select count(*) from catalogue_listings where last_price_cents is not null').fetchone()[0] == 0
           print('Migrated', products, 'starter products and', listings, 'unpriced links')
           PY
+      - name: Validate November flyer candidate expansion and safe regional scoping
+        run: |
+          python3 - <<'PY'
+          import sqlite3
+          from pathlib import Path
+          db=sqlite3.connect(':memory:')
+          db.execute('PRAGMA foreign_keys=ON')
+          db.executescript(Path('migrations/0001_catalogue.sql').read_text())
+          expansion=Path('migrations/0002_flyer_candidates.sql').read_text()
+          db.executescript(expansion)
+          db.executescript(expansion)
+          products=db.execute('SELECT COUNT(*) FROM catalogue_products').fetchone()[0]
+          observed=db.execute('SELECT COUNT(*) FROM catalogue_flyer_discoveries').fetchone()[0]
+          stores=db.execute('SELECT COUNT(DISTINCT retailer) FROM catalogue_flyer_discoveries').fetchone()[0]
+          no_prices=db.execute('SELECT COUNT(*) FROM catalogue_listings WHERE last_price_cents IS NOT NULL').fetchone()[0]
+          assert products >= 300, products
+          assert observed >= 100, observed
+          assert stores == 6, stores
+          assert no_prices == 0, no_prices
+          assert db.execute('SELECT COUNT(*) FROM catalogue_flyer_discoveries WHERE market_scope != ?',('regional_unverified',)).fetchone()[0] == 0
+          for name in ('Marshmallows','Bread','Eggs','Milk'):
+            assert db.execute('SELECT 1 FROM catalogue_products WHERE display_name=?',(name,)).fetchone(),name
+          assert db.execute('SELECT COUNT(*) FROM catalogue_flyer_discoveries WHERE valid_to < ? ',('2026-11-07',)).fetchone()[0] == 0
+          print('Candidate catalogue:',products,'products;',observed,'flyer references across',stores,'retailers')
+          PY
       - name: Validate imported retailer URL dataset adapters
         run: python3 -m unittest discover -s tests -p 'test_existing_catalogue_import.py' -v
       - name: Validate pricing UI and Worker module syntax
@@ -39,6 +64,7 @@ jobs:
           node --check catalogue-comparison.js
           node --check catalogue-api.mjs
           node --check catalogue-bootstrap.mjs
+          node --check catalogue-flyer-seeds.mjs
           node --check catalogue-sources.mjs
           node --input-type=module --check < worker.js
       - name: Check HTML inline JavaScript syntax
