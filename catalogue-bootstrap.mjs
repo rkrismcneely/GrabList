@@ -4,7 +4,7 @@ export const CATALOGUE_V1_SQL = "-- GrabList catalogue v1. Apply with: npx wrang
 // D1's exec() handles batches differently from the Wrangler migration runner.
 // Prepare each statement and use D1 batch() for atomic execution.
 function statements(sql) {
-  return sql.split(';').map(part => part.replace(/^\s*(?:--[^\n]*\n\s*)*/g, '').trim()).filter(Boolean);
+  return sql.split('\n').filter(line => !/^\s*--/.test(line)).join('\n').split(';').map(part => part.trim()).filter(Boolean);
 }
 let inFlight = null;
 export async function ensureCatalogueSchema(db) {
