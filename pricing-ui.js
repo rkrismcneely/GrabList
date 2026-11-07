@@ -44,14 +44,17 @@ function recordReference(item,candidate){
   if(!item||!candidate||!Number.isFinite(candidate.price)||candidate.price<=0)return false;
   // A manually entered price is a deliberate choice. Never overwrite it.
   if(item.price!==null&&['manual','demo'].includes(item.priceSource))return false;
-  // A generic item with no requested size can use one real catalogue SKU as
-  // an explicitly labelled provisional package choice. No invented size.
-  if(!item.size&&candidate.source==='Épiceries.ca'&&candidate.packageSize){
+  // Suggest an actually published package size only when none was requested.
+  // This is not a shopper-confirmed size or a quote from the assigned store.
+  if(!item.size&&candidate.packageSize&&
+      (candidate.source==='Épiceries.ca'||
+       (candidate.source==='Statistics Canada'&&candidate.matchStatus==='size_unspecified'))){
     item.size=candidate.packageSize;
     state.profiles[normalizedKey(item.name)]={
       department:item.department,size:candidate.packageSize
     };
-    candidate={...candidate,sizeEvidence:'auto_selected_catalogue_pack'};
+    candidate={...candidate,sizeEvidence:candidate.source==='Statistics Canada'?
+      'auto_selected_national_pack':'auto_selected_catalogue_pack'};
   }
   item.price=candidate.price;
   item.priceSource='reference';
@@ -178,6 +181,7 @@ function fromNational(payload,item){
     scope:'national_average',url:r.sourceUrl||'https://www.statcan.gc.ca/en/topics-start/food-price',
     productName:r.productName+' ('+r.pack+')',pricePer:'UNIT',
     packageSize:r.pack,confidence:'reference average',
+    sizeEvidence:r.matchStatus==='size_unspecified'?'suggested_national_reference_pack':'reported',
     matchStatus:r.matchStatus
   })).filter(r=>Number.isFinite(r.price)&&r.price>0);
 }
@@ -615,7 +619,11 @@ $id('look-up-item-price').addEventListener('click',async()=>{
     requestJson('/api/pricing/open-prices?'+new URLSearchParams(barcode?{barcode}:{name})),
     getPulse(lookupItem),
     requestJson('/api/pricing/national-reference?'+new URLSearchParams({name,size:lookupItem.size||''})),
-    barcode?Promise.resolve({results:[]}):requestJson('/api/pricing/catalog-search?'+new URLSearchParams({name}))
+    barcode?Promise.resolve({results:[]}):requestJson('/api/pricing/catalog-search?'+new URLSearchParams({name})),
+    requestJson('/api/pricing/epiceries?'+new URLSearchParams({
+      name,size:lookupItem.size||'',brand:lookupItem.brand||'',
+      ...(barcode?{barcode}:{})
+    }))
   ];
   const settled=await Promise.allSettled(requests);
   let notes='',candidates=[],errors=[];
@@ -640,11 +648,13 @@ $id('look-up-item-price').addEventListener('click',async()=>{
   }else errors.push('GroceryPulse: '+settled[1].reason.message);
   if(settled[2].status==='fulfilled'){
     const refs=fromNational(settled[2].value,lookupItem);
-    candidates.push(...refs.filter(x=>x.matchStatus==='reference_size'));
+    candidates.push(...refs.filter(x=>['reference_size','size_unspecified'].includes(x.matchStatus)));
     for(const r of refs.filter(x=>x.matchStatus==='different_size'))
       notes+='<p class="sheet-help">Statistics Canada average: '+safe(r.productName)+' ≈'+money(r.price)+
         ' (September 2026). Different package size; not assigned automatically.</p>';
   }else errors.push('Statistics Canada: '+settled[2].reason.message);
+  if(settled[4].status==='fulfilled')candidates.push(...fromEpiceries(settled[4].value,lookupItem));
+  else errors.push('Épiceries.ca: '+settled[4].reason.message);
   let catalogueHtml='';
   if(settled[3].status==='fulfilled'){
     catalogueChoices=(Array.isArray(settled[3].value?.results)?settled[3].value.results:[]).slice(0,12);
@@ -810,6 +820,12 @@ async function lookupComparisonCandidates(lookup,options={}){
  if(responses[2].status==='fulfilled')
    choices.push(...(Array.isArray(responses[2].value?.results)?responses[2].value.results:[])
      .map(result=>fromOpenPrice(lookup,result)).filter(Boolean));
+ if(Array.isArray(options.diagnostics)){
+  ['GroceryPulse','Statistics Canada','Open Prices'].forEach((source,index)=>{
+   if(responses[index].status==='rejected')
+    options.diagnostics.push(source+': '+String(responses[index].reason?.message||'request failed'));
+  });
+ }
  const noPaidBest=autoPick(lookup,choices);
  // Fill genuine product gaps from the free Québec catalogue, never
  // pretending these are Ontario shelf prices. Only use it if no better
@@ -821,7 +837,10 @@ async function lookupComparisonCandidates(lookup,options={}){
      ...(lookup.barcode?{barcode:lookup.barcode}:{})
    }),{timeoutMs:16000});
    choices.push(...fromEpiceries(ep,lookup));
-  }catch{}
+  }catch(error){
+   if(Array.isArray(options.diagnostics))
+    options.diagnostics.push('Épiceries.ca: '+String(error?.message||'request failed'));
+  }
  }
  // Do not spend the optional VynnAI allowance on generic name searches:
  // GrabList requires an exact saved barcode to use its results automatically.
@@ -920,7 +939,10 @@ function renderComparisonReferenceOffers(scanned,total,updated){
     row.count++;row.total+=c.price*units;
   }
   if(!displayed.length){
-   rows.push('<div class="compare-card"><strong>'+safe(item.name)+'</strong><p>No comparable price returned by the connected lookup sources.</p></div>');
+   const explanation=record.sourceErrors?.length?
+    'At least one price source failed. See Source failures below.':
+    'The queried sources returned no compatible, dated product price.';
+   rows.push('<div class="compare-card"><strong>'+safe(item.name)+'</strong><p>'+explanation+'</p></div>');
    continue;
   }
   rows.push('<div class="compare-card"><strong>'+safe(item.name)+
@@ -947,6 +969,12 @@ function renderComparisonReferenceOffers(scanned,total,updated){
    '<p class="sheet-help">These are <strong>partial subtotals</strong>, not directly comparable whole-basket prices unless the same items are covered at each store.</p>'+byStore:'';
  const priced=state.items.filter(i=>!i.complete&&i.price!==null).length;
  const missing=state.items.filter(i=>!i.complete&&i.price===null);
+ const sourceErrors=[...comparisonCandidates.values()].flatMap(record=>record.sourceErrors||[]);
+ const uniqueErrors=[...new Set(sourceErrors)].slice(0,12);
+ const diagnosticHtml=sourceErrors.length?
+  '<details class="price-compare-details"><summary>Source failures ('+sourceErrors.length+')</summary>'+
+  '<p class="sheet-help">Provider/network failures are different from no matching price.</p>'+
+  uniqueErrors.map(message=>'<p class="sheet-help">'+safe(message)+'</p>').join('')+'</details>':'';
  root.innerHTML='<p class="sheet-help"><strong>Price all complete:</strong> '+scanned+' of '+total+
   ' active items checked; '+priced+' priced, '+missing.length+' still unavailable, '+updated+
   ' automatically added or updated. Every populated amount is a real dated reference or a price you previously entered, not a fabricated checkout quote. '+
@@ -954,7 +982,7 @@ function renderComparisonReferenceOffers(scanned,total,updated){
   (missing.length?'<details class="price-compare-details"><summary>Still missing ('+missing.length+')</summary>'+
     '<p class="sheet-help">'+missing.map(i=>safe(i.name)+(i.size?' ('+safe(i.size)+')':'')).join(' · ')+
     '. No sufficiently comparable source price was found automatically.</p></details>':'')+
-  summaryByStore+
+  diagnosticHtml+summaryByStore+
   (rows.length?rows.join(''):'<p class="sheet-help">No priced items were checked yet.</p>')+
   '<h3 style="font-size:14px;margin:14px 0 7px">Delivery-app review shortcuts</h3>'+
   '<p class="sheet-help">DoorDash, Uber Eats and Instacart are ordered by your preferences. Their prices have <strong>not</strong> been automatically retrieved. Follow a saved storefront to check a missing offer.</p>'+
@@ -987,16 +1015,16 @@ async function runFullPriceComparison(){
     ' groceries. No delivery apps are being scraped.';
   for(let index=0;index<run.length;index+=2){
    const results=await Promise.allSettled(run.slice(index,index+2).map(async original=>{
-    const key=autoKey(original),lookup={...original};
+    const key=autoKey(original),lookup={...original},sourceErrors=[];
     const candidates=await lookupComparisonCandidates(lookup,{
-      skipPulse:pulseEligible.get(original.id)===false
+      skipPulse:pulseEligible.get(original.id)===false,diagnostics:sourceErrors
     });
     const current=state.items.find(i=>i.id===original.id);
     if(!current||current.complete||autoKey(current)!==key)return;
     const eligible=GrabListIntelligence.select(current,candidates,{
       enabledStores:state.enabledStoreIds,storeOrder:state.storeOrderIds
     });
-    comparisonCandidates.set(current.id,{id:current.id,key,choices:eligible.eligible.map(x=>x.candidate),displayChoices:[]});
+    comparisonCandidates.set(current.id,{id:current.id,key,choices:eligible.eligible.map(x=>x.candidate),displayChoices:[],sourceErrors});
     // A national estimate may fill a gap; another retailer's reference
     // never becomes the current store's price.
     let selected=GrabListIntelligence.bestForAssignedStore(current,candidates,{
