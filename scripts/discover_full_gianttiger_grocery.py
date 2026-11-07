@@ -20,7 +20,7 @@ from discover_hammer_urls import candidates, matched_score, tokens, SIZE, COMMON
 
 BASE="https://www.gianttiger.com"
 AGENT="GrabListPersonalCatalogue/1.0"
-COLLECTIONS=("grocery","dairy-and-eggs","drinks-and-snacks","pantry","meat-and-seafood")
+COLLECTIONS=("grocery",)
 MAX_PAGES=100
 RECORDS_PER_SHARD=80
 MAX_RESPONSE=9*1024*1024
@@ -42,7 +42,7 @@ def fetch_json(url):
         return json.loads(raw)
 
 
-def grocery_items(root,max_pages=MAX_PAGES,throttle=0.3):
+def grocery_items(root,max_pages=MAX_PAGES,throttle=0.7):
     known=candidates(root)
     by_token=collections.defaultdict(list)
     for c in known:
@@ -167,7 +167,7 @@ def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root",default=".")
     parser.add_argument("--max-pages",type=int,default=MAX_PAGES)
-    parser.add_argument("--throttle",type=float,default=0.3)
+    parser.add_argument("--throttle",type=float,default=0.7)
     args=parser.parse_args()
     if args.max_pages<1 or args.max_pages>MAX_PAGES or args.throttle<0.25:
         parser.error("--max-pages must be 1..100, --throttle >= 0.25 seconds")
