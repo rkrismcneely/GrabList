@@ -9,3 +9,5 @@ tests/
 
 catalogue-api.mjs
 migrations/
+catalogue-bootstrap.mjs
+scripts/
