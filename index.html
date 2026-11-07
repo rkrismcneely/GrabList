@@ -599,6 +599,7 @@ function newItem(raw){
   const item={id:uid(),name:parsed.name,barcode:'',catalogueSize:'',quantity:'1',size:parsed.size||inferredSize(parsed.name,profile),brand:parsed.brand||'',department:profile.department||detectDepartment(parsed.name),storeId:null,storeAutoAssigned:false,storeManuallyCleared:false,offers:[],price:null,priceSource:null,priceEvidence:null,complete:false,order:state.nextOrder++,createdAt:Date.now()};
   state.items.unshift(item);
   update();
+  if(mode==='shopping')void loadCatalogueComparison(); // D1 read, never external price search.
   return item;
 }
 
@@ -716,7 +717,7 @@ document.addEventListener('pointerdown',e=>{
     closeComposer();
   }
 },true);
-function switchMode(next){if(next===mode)return;mode=next;render();$('list-scroller').scrollTop=0;$('auto-price-status').hidden=true;}
+function switchMode(next){if(next===mode)return;mode=next;render();$('list-scroller').scrollTop=0;$('auto-price-status').hidden=true;if(next==='shopping')void loadCatalogueComparison();}
 $('planning-tab').addEventListener('click',()=>switchMode('planning'));
 $('shopping-tab').addEventListener('click',()=>switchMode('shopping'));
 
