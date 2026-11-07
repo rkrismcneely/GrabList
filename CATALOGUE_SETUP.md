@@ -8,32 +8,36 @@ endpoints (HTTP 410) and PWA script loading. Archived prices and provider
 settings remain in each device's existing local backup; they do not enter
 catalogue comparisons or shopping totals.
 
-## Configure Cloudflare (owner action required)
+## Cloudflare setup status (November 7, 2026)
 
-The assistant's GitHub integration can commit code, but cannot create or bind
-Cloudflare D1 databases or install Worker secrets in your account. Do **not**
-put a fake database ID or refresh secret in GitHub.
+The Cloudflare D1 database `grablist-catalogue` has **already been created**.
+Its verified UUID has been committed to `wrangler.jsonc` under the
+`CATALOGUE_DB` binding. **Do not create another database.**
 
-From an authenticated project checkout:
+Remaining deployment actions:
 
-1. `npx wrangler@latest d1 create grablist-catalogue --binding CATALOGUE_DB --update-config`
-   and commit the resulting `wrangler.jsonc` binding, including Cloudflare's
-   **real** database ID. Alternatively, create D1 in the Cloudflare dashboard
-   and bind it to the Worker as `CATALOGUE_DB`.
-2. `npx wrangler@latest d1 migrations apply grablist-catalogue --remote`
-   applies `migrations/0001_catalogue.sql`, creating the tables and an
-   unpriced starter product catalogue. Migrate **before** enabling price refresh.
-3. `npx wrangler@latest secret put CATALOGUE_WRITE_KEY`
-   with a long random value. Never place the secret in code, repo, URLs, or
-   screenshots. It is requested only when refreshing prices and held in
-   browser sessionStorage until the tab closes.
-4. Deploy or rebuild the Worker. Check
+1. Apply the committed schema and starter products using a local authenticated
+   checkout of this PR branch:
+   `npx wrangler@latest d1 migrations apply grablist-catalogue --remote`
+   (Cloudflare will prompt for authentication if necessary.) The migration
+   `migrations/0001_catalogue.sql` creates the tables and seeds unpriced
+   common groceries and two sample product URLs.
+2. Configure the Worker secret `CATALOGUE_WRITE_KEY` through Cloudflare's
+   Worker Settings → Variables and Secrets (type **Secret**), or using
+   `npx wrangler@latest secret put CATALOGUE_WRITE_KEY`. Use a randomly
+   generated long key and never commit it to GitHub.
+3. Merge PR #4 only after validating the migration and database binding,
+   then confirm the Worker deployment and check
    `https://grablist.rkrismcneely.workers.dev/api/catalogue/status`
    reports `ready:true` and `refreshReady:true`.
 
-For local development apply migrations with `--local` and a local secret in
-your development environment. The `/api/catalogue/status` endpoint returns
-clear diagnostics without performing third-party price lookups.
+No connection with Cloudflare's mutating management APIs is currently
+available from this Chat session, so these account changes remain
+manual or can be done through a browser-control session in Work mode.
+
+For local development, use `--local` instead. The
+`/api/catalogue/status` endpoint reports diagnostic status without
+retrieving external retailer prices.
 
 ## Current functionality
 
