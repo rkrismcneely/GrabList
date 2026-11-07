@@ -69,6 +69,7 @@ class GroceryCatalogueManifestTests(unittest.TestCase):
         db.execute("PRAGMA foreign_keys=ON")
         db.executescript((ROOT/"migrations/0001_catalogue.sql").read_text())
         db.executescript((ROOT/"migrations/0002_flyer_candidates.sql").read_text())
+        original_count=db.execute("SELECT COUNT(*) FROM catalogue_listings WHERE retailer='gianttiger'").fetchone()[0]
         shard=json.loads((ROOT/"data/gianttiger-grocery/0000.json").read_text())
         rows=shard["records"]
         entries=[]
@@ -92,7 +93,7 @@ class GroceryCatalogueManifestTests(unittest.TestCase):
                 product_url=excluded.product_url,product_name=excluded.product_name,
                 brand=excluded.brand,package_size=excluded.package_size""",offers)
         insert()
-        self.assertEqual(db.execute("SELECT COUNT(*) FROM catalogue_listings WHERE retailer='gianttiger'").fetchone()[0],80)
+        self.assertEqual(db.execute("SELECT COUNT(*) FROM catalogue_listings WHERE retailer='gianttiger'").fetchone()[0],original_count+80)
         key=rows[0]["listingKey"]
         db.execute("UPDATE catalogue_listings SET last_price_cents=1745,price_source='test' WHERE listing_key=?",(key,))
         insert()
