@@ -36,6 +36,8 @@ def main():
         except Exception as exc:
           print(json.dumps({"key":key,"robotsFailure":str(exc)[:110]}),flush=True)
           continue
+      if parsed.hostname=="www.freshco.com" and key=="freshco-known-egg":
+        print(json.dumps({"key":"freshco-robots","policy":"product paths blocked","canFetchProduct":robots[parsed.hostname].can_fetch(AGENT,url)}),flush=True)
       if not robots[parsed.hostname].can_fetch(AGENT,url):
         print(json.dumps({"key":key,"robotsAllowed":False}),flush=True)
         continue
@@ -45,6 +47,16 @@ def main():
         text=response.read(140000).decode("utf-8","replace")
         product_ids=re.findall(r"Product Number.{0,100}|product_number.{0,100}",text,re.I)
         urls=re.findall(r"https?[^<>\s\"']+freshco\.com/products/[a-z0-9%-]+",text,re.I)
+        if key=="bing-rss":
+          import xml.etree.ElementTree as ET
+          items=ET.fromstring(text).findall(".//item")
+          print(json.dumps({"source":"bing-rss-sample","items":[{"title":i.findtext("title"),"link":i.findtext("link")} for i in items[:5]]}),flush=True)
+        if key in ("google-html","bing-html"):
+          import html as htmlmod
+          decoded=htmlmod.unescape(text)
+          count=decoded.lower().count("freshco.com/products/")
+          sample=re.findall(r".{0,70}freshco\.com/products/.{0,110}",decoded,re.I)[:3]
+          print(json.dumps({"source":key+"-matches","count":count,"samples":sample}),flush=True)
         print(json.dumps({"key":key,"status":response.status,"finalUrl":response.url,
           "length":len(text),"title":(re.search(r"<title[^>]*>(.*?)</title>",text,re.I|re.S).group(1)[:130] if re.search(r"<title[^>]*>(.*?)</title>",text,re.I|re.S) else ""),
           "productIdMentions":product_ids[:2],"freshcoLinkCount":len(urls),
