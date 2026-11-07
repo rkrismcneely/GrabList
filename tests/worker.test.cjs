@@ -442,3 +442,45 @@ test('Québec catalogue searches ground beef instead of unrelated beef cuts',asy
  assert.equal(data.results[0].price,14.99);
  assert.equal(data.results[0].scope,'quebec_reference');
 });
+
+test('oat milk cannot be priced as oatmeal or dairy milk',async()=>{
+ const api=await worker();
+ global.fetch=async request=>{
+  const u=new URL(request);
+  if(u.searchParams.get('endpoint')==='search'){
+   assert.equal(u.searchParams.get('q'),'avoine');
+   return response({ok:true,data:{results:[
+    {id:'oatmeal',name:"Biscuits à l'avoine",size:'500 g',price:1.99,updated:'2026-11-06',store:'maxi'},
+    {id:'dairy',name:'Lait 2% partiellement écrémé',size:'1 L',price:1.59,updated:'2026-11-06',store:'maxi'},
+    {id:'oatdrink',name:"Boisson à l'avoine",size:'1 L',price:3.59,updated:'2026-11-06',store:'walmart'}
+   ]}});
+  }
+  assert.equal(u.searchParams.get('id'),'oatdrink');
+  return response({ok:true,data:{id:'oatdrink',name:"Boisson à l'avoine",
+   size:'1 L',prices:[{store:'walmart',price:3.59,size:'1 L',date:'2026-11-06T12:00:00Z'}]}});
+ };
+ const res=await api.fetch(new Request('https://grablist.test/api/pricing/epiceries?name=Oat%20Milk&size=1%20L'),{});
+ const result=await res.json();
+ assert.equal(res.status,200);
+ assert.equal(result.results.length,1);
+ assert.equal(result.results[0].price,3.59);
+});
+test('2% milk must not use a lower-priced 1% product',async()=>{
+ const api=await worker();
+ global.fetch=async request=>{
+  const u=new URL(request);
+  if(u.searchParams.get('endpoint')==='search'){
+   assert.equal(u.searchParams.get('q'),'lait');
+   return response({ok:true,data:{results:[
+    {id:'milk1',name:'Lait 1% écrémé',size:'4 L',price:3.99,updated:'2026-11-06',store:'maxi'},
+    {id:'milk2',name:'Lait 2% partiellement écrémé',size:'4 L',price:6.99,updated:'2026-11-06',store:'walmart'}
+   ]}});
+  }
+  assert.equal(u.searchParams.get('id'),'milk2');
+  return response({ok:true,data:{id:'milk2',name:'Lait 2% partiellement écrémé',
+   size:'4 L',prices:[{store:'walmart',price:6.99,size:'4 L',date:'2026-11-06T12:00:00Z'}]}});
+ };
+ const result=await (await api.fetch(new Request('https://grablist.test/api/pricing/epiceries?name=2%25%20Milk&size=4%20L'),{})).json();
+ assert.equal(result.results.length,1);
+ assert.equal(result.results[0].price,6.99);
+});
