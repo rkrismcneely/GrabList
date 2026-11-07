@@ -57,6 +57,8 @@ jobs:
           PY
       - name: Validate imported retailer URL dataset adapters
         run: python3 -m unittest discover -s tests -p 'test_existing_catalogue_import.py' -v
+      - name: Validate conservative bulk retailer product matching
+        run: python3 -m unittest discover -s tests -p 'test_hammer_discovery.py' -v
       - name: Validate pricing UI and Worker module syntax
         run: |
           node --check delivery.js
