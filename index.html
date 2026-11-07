@@ -1403,7 +1403,7 @@ async function refreshCataloguePrices(){
       {id:'independent',label:'Independent shared-SKU candidates'},
       {id:'freshco',label:'FreshCo indexed product pages'}
     ]){
-      const release='grablist-'+source.id+'-links-2026-11-v1';
+      const release='grablist-'+source.id+'-links-2026-11-v'+(source.id==='freshco'?'2':'1');
       let done=false,part=0;
       try{
         done=localStorage.getItem(release+'-complete')==='1';
@@ -1600,7 +1600,7 @@ async function refreshCataloguePrices(){
       output.textContent='Checked '+checked+' of '+keys.length+' · '+saved+' prices updated · '+unavailable+' unavailable';
     }
     await loadCatalogueComparison();
-    output.textContent=(imported?imported+' existing product links imported. ':'')+
+    output.textContent=(imported?imported+' retailer product links processed. ':'')+
       'Checked '+checked+' links. '+saved+' prices updated; '+unavailable+
       ' unavailable. Generic online prices remain unverified for local stores.'+
       (importError?' Some URL sources could not be imported: '+importError:'');
