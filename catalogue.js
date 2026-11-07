@@ -66,7 +66,7 @@
   function status(listing, now, maxAgeHours = 24) {
     if (!validPrice(listing?.lastPriceCents) || !validDate(listing?.priceObservedAt)) return "unavailable";
     const age = Date.parse(now) - Date.parse(listing.priceObservedAt);
-    return age >= 0 && age <= maxAgeHours * 3600000 ? "current" : "stale";
+    return age >= 0 && age < maxAgeHours * 3600000 ? "current" : "stale";
   }
   function mergeListings(existing, discovered) {
     const merged = new Map(existing.map(x => [x.key, { ...x }]));
