@@ -1188,31 +1188,50 @@ async function refreshCataloguePrices(){
   button.disabled=true;
   let checked=0,saved=0,unavailable=0,imported=0,importError='';
   try{
-    // First run: reuse public product URLs instead of asking for manual lookups.
-    // This never imports source prices or claims a local Peterborough shelf price.
-    if(catalogueListingCount<=2){
-      let offset=0,total=0;
-      for(let page=0;page<100;page++){
-        output.textContent='Finding existing Canadian retailer product links…'+(total?' '+offset+' of '+total:'');
-        const response=await fetch('/api/catalogue/import-curated',{
-          method:'POST',headers:{'Content-Type':'application/json','x-grablist-key':key},
-          body:JSON.stringify({offset})
-        });
-        const data=await response.json();
-        if(!response.ok){
-          if(response.status===401)try{sessionStorage.removeItem(CATALOGUE_KEY_STORAGE);}catch{}
-          throw Error(data.error||'Existing product URL import failed');
+    // Reuse existing retailer product URLs no more than weekly. Imports are
+    // idempotent, and a transient source failure must not block price refresh.
+    let importedAt=0;
+    try{importedAt=Number(localStorage.getItem('grablist-curated-import-at')||0);}catch{}
+    if(!importedAt||Date.now()-importedAt>7*86400000){
+      let sourceFailed=false;
+      for(const source of ['curated-grocery-tracker','nofrills-matched']){
+        let offset=0,total=0;
+        try{
+          for(let page=0;page<100;page++){
+            const label=source==='nofrills-matched'?'No Frills':'FreshCo, Walmart and Costco';
+            output.textContent='Importing existing '+label+' product links…'+(total?' '+offset+' of '+total:'');
+            const response=await fetch('/api/catalogue/import-curated',{
+              method:'POST',headers:{'Content-Type':'application/json','x-grablist-key':key},
+              body:JSON.stringify({source,offset})
+            });
+            const data=await response.json();
+            if(!response.ok){
+              if(response.status===401){
+                try{sessionStorage.removeItem(CATALOGUE_KEY_STORAGE);}catch{}
+                throw Error('Invalid catalogue refresh key');
+              }
+              throw Error(data.error||'Existing product URL source unavailable');
+            }
+            imported+=Number(data.processed)||0;
+            total=Number(data.total)||0;
+            if(data.finished)break;
+            if(!Number.isInteger(data.nextOffset)||data.nextOffset<=offset)throw Error('Invalid catalogue import continuation');
+            offset=data.nextOffset;
+            if(page===99)throw Error('Product import exceeded its safety limit');
+          }
+        }catch(error){
+          if(String(error.message||'').includes('Invalid catalogue refresh key'))throw error;
+          sourceFailed=true;
+          importError=String(error.message||'Product URL import unavailable');
         }
-        imported+=Number(data.processed)||0;
-        total=Number(data.total)||0;
-        if(data.finished)break;
-        if(!Number.isInteger(data.nextOffset)||data.nextOffset<=offset)throw Error('Invalid catalogue import continuation');
-        offset=data.nextOffset;
-        if(page===99)throw Error('Product import exceeded its safety limit');
       }
-      try{sessionStorage.setItem(CATALOGUE_KEY_STORAGE,key);}catch{}
-      output.textContent='Imported '+imported+' candidate product URLs. Checking your shopping list…';
-      await loadCatalogueComparison();
+      if(!sourceFailed){
+        try{localStorage.setItem('grablist-curated-import-at',String(Date.now()));}catch{}
+      }
+      if(imported){
+        output.textContent='Added or checked '+imported+' existing retailer links. Checking your shopping list…';
+        await loadCatalogueComparison();
+      }
     }
     const keys=[...new Set([...catalogueRows.values()].flatMap(offers=>offers.map(o=>o.key)))];
     if(!keys.length){
@@ -1247,7 +1266,8 @@ async function refreshCataloguePrices(){
     await loadCatalogueComparison();
     output.textContent=(imported?imported+' existing product links imported. ':'')+
       'Checked '+checked+' links. '+saved+' prices updated; '+unavailable+
-      ' unavailable. Generic online prices remain unverified for local stores.';
+      ' unavailable. Generic online prices remain unverified for local stores.'+
+      (importError?' Some URL sources could not be imported: '+importError:'');
   }catch(error){
     output.textContent=String(error.message||'Price update failed')+'. Previously known prices are retained.';
   }finally{
