@@ -19,7 +19,7 @@
   }
   function productMatch(item,listing){
     if(!item||!listing||!listing.productName)return false;
-    if(item.barcode&&listing.barcode&&item.barcode!==listing.barcode)return false;
+    if(item.barcode&&(!listing.barcode||item.barcode!==listing.barcode))return false;
     if(item.size&&measure(item.size)!==measure(listing.size))return false;
     const q=normalized(item.name),p=normalized(listing.productName+' '+(listing.masterName||''));
     const brand=normalized(item.brand);
