@@ -13,3 +13,4 @@ catalogue-bootstrap.mjs
 scripts/
 catalogue-sources.mjs
 catalogue-flyer-seeds.mjs
+catalogue-hammer.mjs

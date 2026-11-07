@@ -1,5 +1,6 @@
 import { ensureCatalogueSchema } from "./catalogue-bootstrap.mjs";
 import { importCuratedBatch } from "./catalogue-sources.mjs";
+import { importHammerPart } from "./catalogue-hammer.mjs";
 // Single active GrabList pricing API. Requires a Cloudflare D1 binding named CATALOGUE_DB.
 // Legacy provider routes are deliberately disabled in worker.js; no optional services run here.
 const RETAILERS = new Set(['walmart','nofrills','freshco','independent','costco','gianttiger']);
@@ -226,6 +227,20 @@ async function importExistingUrlBatch(db,env,request){
     return error('Existing product URL source is temporarily unavailable or could not be imported.',502,'catalogue_import_failed');
   }
 }
+async function importHammerUrlBatch(db,env,request){
+  if(request.method!=='POST')return error('POST required',405);
+  if(!env.CATALOGUE_WRITE_KEY)return error('Owner import key has not been configured.',503,'import_not_configured');
+  const supplied=str(request.headers.get('x-grablist-key'),256);
+  if(!supplied||supplied!==env.CATALOGUE_WRITE_KEY)return error('Invalid catalogue refresh key.',401,'unauthorized');
+  const body=await readBody(request,2000);
+  if(!body||!Number.isInteger(body.part)||body.part<0)return error('A valid product URL batch is required.');
+  try{
+    return json(await importHammerPart(db,env.ASSETS,request.url,body.part));
+  }catch(cause){
+    console.error('Project Hammer URL metadata import failed',cause);
+    return error('Product URL batch unavailable or could not be imported.',502,'catalogue_hammer_import_failed');
+  }
+}
 export async function handleCatalogueApi(request,env){
   const path=new URL(request.url).pathname;
   if(!path.startsWith('/api/catalogue/'))return null;
@@ -261,6 +276,7 @@ export async function handleCatalogueApi(request,env){
   }
   if(!db)return error('Catalogue D1 database has not been connected.',503,'catalogue_not_configured');
   if(path==='/api/catalogue/import-curated')return importExistingUrlBatch(db,env,request);
+  if(path==='/api/catalogue/import-hammer')return importHammerUrlBatch(db,env,request);
   if(path==='/api/catalogue/compare')return compare(db,request);
   if(path==='/api/catalogue/refresh')return refresh(db,env,request);
   return error('Unknown catalogue endpoint',404,'not_found');

@@ -1,0 +1,49 @@
+name: Discover retail product URLs from Project Hammer
+on:
+  push:
+    branches:
+      - feature/bulk-retailer-url-discovery
+    paths:
+      - scripts/discover_hammer_urls.py
+      - .github/workflows/discover-product-urls.yml
+  workflow_dispatch:
+concurrency:
+  group: project-hammer-url-discovery
+  cancel-in-progress: true
+permissions:
+  contents: write
+jobs:
+  discover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Discover matching direct links from public product metadata
+        run: |
+          python3 scripts/discover_hammer_urls.py --out data/hammer-url-matches.json --max-per-item 15
+      - uses: actions/upload-artifact@v4
+        with:
+          name: matched-product-urls
+          path: |
+            data/hammer-url-matches.json
+            data/hammer-parts/
+      - name: Commit matched URL-only catalogue to discovery branch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/hammer-url-matches.json data/hammer-parts/
+          if ! git diff --staged --quiet; then
+            git commit -m "Import Project Hammer matching product URL metadata (no prices)"
+            for attempt in 1 2 3 4 5; do
+              git fetch origin "${GITHUB_REF_NAME}"
+              git rebase "origin/${GITHUB_REF_NAME}"
+              if git push origin "HEAD:${GITHUB_REF_NAME}"; then exit 0; fi
+              sleep 3
+            done
+            exit 1
+          fi
