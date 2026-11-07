@@ -44,6 +44,11 @@ EXCLUDE = {
     "butter": {"peanut", "almond", "cashew", "cookie", "apple"},
     "tomatoes": {"sauce", "paste", "soup", "juice"},
     "marshmallows": {"cereal", "treats", "squares", "fluff"},
+    "bananas": {"marshmallow", "chocolate", "candy", "chips", "dried", "flavoured", "dessert"},
+    "garlic": {"bread", "butter", "sauce", "powder", "spread", "seasoning", "paste", "croutons"},
+    "bacon": {"bits", "crumbles", "dressing", "flavoured", "vegan", "turkey", "chicken"},
+    "bread": {"garlic", "banana", "zucchini", "crumbs", "crumb", "mix", "stuffing", "croutons"},
+    "butter": {"peanut", "almond", "cashew", "cookie", "apple", "vegan", "plant"},
 }
 COMMON_MODIFIERS = {"fresh", "bulk", "brand", "block"}
 COMMON_STORES = ("walmart", "nofrills")
@@ -149,6 +154,9 @@ def matched_score(candidate, name, brand, size):
                 return None
             if requested_fat == "skim" and {"1", "2", "whole"} & name_tokens:
                 return None
+    if "yogurt" in original and not ({"vegan", "coconut", "oat", "almond", "soy", "plant"} & original):
+        if {"vegan", "coconut", "oat", "almond", "soy", "plant"} & name_tokens:
+            return None
     if "eggs" in original:
         if "large" in original and {"extra", "medium", "small", "jumbo"} & name_tokens:
             return None
