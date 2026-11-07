@@ -71,6 +71,8 @@ jobs:
         run: python3 -m unittest discover -s tests -p 'test_costco_discovery.py' -v
       - name: Verify FreshCo and Independent product URL candidate manifests
         run: python3 -m unittest discover -s tests -p 'test_remaining_retailers_manifest.py' -v
+      - name: Verify complete official Giant Tiger grocery catalogue, links and D1 import
+        run: python3 -m unittest discover -s tests -p 'test_gianttiger_grocery_manifest.py' -v
       - name: Validate pricing UI and Worker module syntax
         run: |
           node --check delivery.js
