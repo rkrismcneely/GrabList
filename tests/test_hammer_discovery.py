@@ -31,6 +31,12 @@ class BulkLinkMatcherTests(unittest.TestCase):
         self.assertIsNone(mod.matched_score(req("Ground Coffee"), "Instant Ground Coffee Mix", "", ""))
         self.assertIsNone(mod.matched_score(req("Marshmallows"), "Lucky Charms Marshmallows Cereal", "", ""))
         self.assertIsNotNone(mod.matched_score(req("Marshmallows"), "No Name Large Marshmallows", "", "400g"))
+        self.assertIsNone(mod.matched_score(req("Bananas"), "Marshmallow Bananas", "", "600g"))
+        self.assertIsNone(mod.matched_score(req("Garlic"), "Furlani Garlic Bread", "", "450g"))
+        self.assertIsNone(mod.matched_score(req("Bacon"), "Bacon Bits", "", "85g"))
+        self.assertIsNone(mod.matched_score(req("Bread"), "Garlic Bread", "", "675g"))
+        self.assertIsNone(mod.matched_score(req("Plain Yogurt"), "Vegan Yogurt, Plain Coconut", "", "650g"))
+
 
     def test_brand_package_size_and_url_checks(self):
         c=req("Janes Chicken Wings", "660 g")
