@@ -1611,10 +1611,20 @@ async function refreshCataloguePrices(){
     $('compare-progress').hidden=true;
   }
 }
-function showPriceComparison(){
+async function showPriceComparison(){
   openSheet('compare');
   $('compare-auto-results').textContent='';
-  void loadCatalogueComparison();
+  await loadCatalogueComparison();
+  // One user action should both compare and refresh when this browser tab
+  // already holds the owner's key. Never prompt during the main action.
+  // If no key is available, the cached catalogue still renders immediately.
+  let hasRefreshKey=false;
+  try{hasRefreshKey=Boolean(sessionStorage.getItem(CATALOGUE_KEY_STORAGE));}catch{}
+  if(catalogueReady&&catalogueRefreshReady&&hasRefreshKey){
+    void refreshCataloguePrices();
+  }else if(catalogueReady&&catalogueRefreshReady){
+    $('compare-auto-results').textContent='Showing saved prices. Live refresh requires the owner key in this browser session; the catalogue has not checked retailer prices on this click.';
+  }
 }
 $('list-footer').addEventListener('click',event=>{
   if(event.target.closest('#compare-price-button'))showPriceComparison();
