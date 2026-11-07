@@ -602,7 +602,9 @@ const FR_TERMS=[
  [/\bsugar\b/i,'sucre','sucr'],
  [/\bcoffee\b/i,'café','caf'],
  [/\bchicken\b/i,'poulet','poulet'],
+ [/ground beef/i,'boeuf haché','boeuf hach'],
  [/\bbeef\b/i,'boeuf','boeuf'],
+ [/pasta sauce/i,'sauce pour pâtes','sauce pour pat'],
  [/\bpasta\b/i,'pâtes','pât'],
  [/\brice\b/i,'riz','riz'],
  [/\bpotatoes?\b/i,'pommes de terre','pomme de terre'],
@@ -679,7 +681,7 @@ async function epiceriesSearch(request){
  if(byBarcode)target.searchParams.set('code',barcode);
  else{
   target.searchParams.set('q',translated.term);
-  target.searchParams.set('limit','18');
+  target.searchParams.set('limit','60');
   target.searchParams.set('sort','updated_desc');
  }
  const data=await upstreamJson(target.toString());
