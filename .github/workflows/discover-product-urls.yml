@@ -26,12 +26,14 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: matched-product-urls
-          path: data/hammer-url-matches.json
+          path: |
+            data/hammer-url-matches.json
+            data/hammer-parts/
       - name: Commit matched URL-only catalogue to discovery branch
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add data/hammer-url-matches.json
+          git add data/hammer-url-matches.json data/hammer-parts/
           if ! git diff --staged --quiet; then
             git commit -m "Import Project Hammer matching product URL metadata (no prices)"
             git push origin "HEAD:${GITHUB_REF_NAME}"
