@@ -1,0 +1,45 @@
+name: Discover Costco product URLs from official sitemap
+on:
+  push:
+    branches: [feature/costco-official-product-sitemaps]
+    paths:
+      - scripts/discover_costco_urls.py
+      - .github/workflows/discover-costco-urls.yml
+  workflow_dispatch:
+concurrency:
+  group: discover-costco-public-product-sitemap
+  cancel-in-progress: true
+permissions:
+  contents: write
+jobs:
+  discover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Match Costco published sitemap product pages with catalogue
+        run: python3 scripts/discover_costco_urls.py --root . --per-product 12
+      - uses: actions/upload-artifact@v4
+        with:
+          name: costco-published-product-urls
+          path: |
+            data/costco-url-matches.json
+            data/costco-parts/
+      - name: Commit matched product-page URL metadata
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/costco-url-matches.json data/costco-parts/
+          if ! git diff --staged --quiet; then
+            git commit -m "Add Costco sitemap product-page URLs (no prices)"
+            for attempt in 1 2 3 4 5; do
+              git fetch origin "${GITHUB_REF_NAME}"
+              git rebase "origin/${GITHUB_REF_NAME}"
+              if git push origin "HEAD:${GITHUB_REF_NAME}"; then exit 0; fi
+              sleep 3
+            done
+            exit 1
+          fi

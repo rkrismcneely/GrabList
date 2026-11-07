@@ -1,6 +1,6 @@
 import { ensureCatalogueSchema } from "./catalogue-bootstrap.mjs";
 import { importCuratedBatch } from "./catalogue-sources.mjs";
-import { importHammerPart, importGiantTigerPart } from "./catalogue-hammer.mjs";
+import { importHammerPart, importGiantTigerPart, importCostcoPart } from "./catalogue-hammer.mjs";
 // Single active GrabList pricing API. Requires a Cloudflare D1 binding named CATALOGUE_DB.
 // Legacy provider routes are deliberately disabled in worker.js; no optional services run here.
 const RETAILERS = new Set(['walmart','nofrills','freshco','independent','costco','gianttiger']);
@@ -235,7 +235,9 @@ async function importHammerUrlBatch(db,env,request,source='hammer'){
   const body=await readBody(request,2000);
   if(!body||!Number.isInteger(body.part)||body.part<0)return error('A valid product URL batch is required.');
   try{
-    return json(source==='gianttiger' ? await importGiantTigerPart(db,env.ASSETS,request.url,body.part) : await importHammerPart(db,env.ASSETS,request.url,body.part));
+    return json(source==='gianttiger' ? await importGiantTigerPart(db,env.ASSETS,request.url,body.part) :
+      source==='costco' ? await importCostcoPart(db,env.ASSETS,request.url,body.part) :
+      await importHammerPart(db,env.ASSETS,request.url,body.part));
   }catch(cause){
     console.error('Project Hammer URL metadata import failed',cause);
     return error('Product URL batch unavailable or could not be imported.',502,'catalogue_hammer_import_failed');
@@ -278,6 +280,7 @@ export async function handleCatalogueApi(request,env){
   if(path==='/api/catalogue/import-curated')return importExistingUrlBatch(db,env,request);
   if(path==='/api/catalogue/import-hammer')return importHammerUrlBatch(db,env,request);
   if(path==='/api/catalogue/import-gianttiger')return importHammerUrlBatch(db,env,request,'gianttiger');
+  if(path==='/api/catalogue/import-costco')return importHammerUrlBatch(db,env,request,'costco');
   if(path==='/api/catalogue/compare')return compare(db,request);
   if(path==='/api/catalogue/refresh')return refresh(db,env,request);
   return error('Unknown catalogue endpoint',404,'not_found');
