@@ -1403,7 +1403,7 @@ async function refreshCataloguePrices(){
       {id:'independent',label:'Independent shared-SKU candidates'},
       {id:'freshco',label:'FreshCo indexed product pages'}
     ]){
-      const release='grablist-'+source.id+'-links-2026-11-v1';
+      const release='grablist-'+source.id+'-links-2026-11-v'+(source.id==='freshco'?'2':'1');
       let done=false,part=0;
       try{
         done=localStorage.getItem(release+'-complete')==='1';
@@ -1458,6 +1458,69 @@ async function refreshCataloguePrices(){
       }
       if(loaded){
         output.textContent='Imported '+loaded+' '+source.label+' links. Loading your list…';
+        await loadCatalogueComparison();
+      }
+    }
+    // Expand the master catalogue itself using Giant Tiger's public grocery
+    // collection. This adds new product names AND their actual publisher URLs;
+    // no price, availability or branch-specific claim is imported.
+    const groceryRelease='gt-grocery-full-2026-11-v1';
+    let groceryDone=false,groceryPart=0;
+    try{
+      groceryDone=localStorage.getItem(groceryRelease+'-complete')==='1';
+      groceryPart=Number(localStorage.getItem(groceryRelease+'-next')||0);
+    }catch{}
+    if(!groceryDone){
+      $('compare-progress').hidden=false;
+      let loaded=0,known=0;
+      try{
+        for(let page=0;page<500;page++){
+          output.textContent='Expanding the grocery catalogue · batch '+(groceryPart+1)+'…';
+          const response=await fetch('/api/catalogue/import-gt-grocery',{
+            method:'POST',
+            headers:{'Content-Type':'application/json','x-grablist-key':key},
+            body:JSON.stringify({part:groceryPart})
+          });
+          const data=await response.json();
+          if(!response.ok){
+            if(response.status===401){
+              try{sessionStorage.removeItem(CATALOGUE_KEY_STORAGE);}catch{}
+              throw Error('Invalid catalogue refresh key');
+            }
+            throw Error(data.error||'Grocery catalogue expansion failed');
+          }
+          if(!Number.isInteger(data.processed)||!Number.isInteger(data.totalParts)||
+             !Number.isInteger(data.totalRecords)||data.totalParts<1)
+            throw Error('Invalid grocery catalogue import response');
+          imported+=data.processed;
+          loaded+=data.processed;
+          known+=Number(data.productsDiscovered)||0;
+          $('compare-progress').max=data.totalParts;
+          $('compare-progress').value=groceryPart+1;
+          try{localStorage.setItem(groceryRelease+'-next',String(groceryPart+1));}catch{}
+          output.textContent='Grocery catalogue · '+Math.min((groceryPart+1)*80,data.totalRecords)+
+            ' of '+data.totalRecords+' product links · batch '+(groceryPart+1)+' of '+data.totalParts;
+          if(data.finished){
+            try{
+              localStorage.setItem(groceryRelease+'-complete','1');
+              localStorage.removeItem(groceryRelease+'-next');
+            }catch{}
+            break;
+          }
+          if(!Number.isInteger(data.nextPart)||data.nextPart<=groceryPart)
+            throw Error('Invalid catalogue expansion continuation');
+          groceryPart=data.nextPart;
+          if(page===499)throw Error('Grocery catalogue import exceeded its safety limit');
+        }
+      }catch(error){
+        if(String(error.message||'').includes('Invalid catalogue refresh key'))throw error;
+        importError+=(importError?' · ':'')+'Grocery catalogue expansion incomplete; next click resumes: '+
+          String(error.message||'Unknown error');
+      }finally{
+        $('compare-progress').hidden=true;
+      }
+      if(loaded){
+        output.textContent='Imported '+loaded+' grocery links and product descriptions. Loading your list…';
         await loadCatalogueComparison();
       }
     }
@@ -1537,7 +1600,7 @@ async function refreshCataloguePrices(){
       output.textContent='Checked '+checked+' of '+keys.length+' · '+saved+' prices updated · '+unavailable+' unavailable';
     }
     await loadCatalogueComparison();
-    output.textContent=(imported?imported+' existing product links imported. ':'')+
+    output.textContent=(imported?imported+' retailer product links processed. ':'')+
       'Checked '+checked+' links. '+saved+' prices updated; '+unavailable+
       ' unavailable. Generic online prices remain unverified for local stores.'+
       (importError?' Some URL sources could not be imported: '+importError:'');

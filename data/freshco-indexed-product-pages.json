@@ -3,7 +3,7 @@
   "checkedDate": "2026-11-07",
   "scope": "online_unverified",
   "priceImported": false,
-  "notes": "Links were returned by search results for the publisher's own product-page paths, not generated from title slugs. No FreshCo pages were fetched by the collector. Site robots disallows automated product crawling.",
+  "notes": "Real official FreshCo product URLs surfaced through search engine indexes. Do not crawl disallowed FreshCo product paths. No price, stock or Peterborough branch claim.",
   "records": [
     {
       "name": "Nutri Comfort Farm White Eggs Large 12 Count",
@@ -224,6 +224,122 @@
     {
       "name": "Compliments Balance Powder Instant Skim Milk 1 kg",
       "productUrl": "https://www.freshco.com/products/compliments-balance-powder-instant-skim-milk-1-kg"
+    },
+    {
+      "name": "Maxwell House Ground Coffee Original Roast 925 g",
+      "productUrl": "https://www.freshco.com/products/maxwell-house-ground-coffee-original-roast-925-g"
+    },
+    {
+      "name": "Maxwell House Ground Coffee Original Roast 864 g",
+      "productUrl": "https://www.freshco.com/products/maxwell-house-ground-coffee-original-roast-864-g"
+    },
+    {
+      "name": "Folgers Ground Coffee Classic Roast 816 g",
+      "productUrl": "https://www.freshco.com/products/folgers-ground-coffee-classic-roast-816-g"
+    },
+    {
+      "name": "Cafe Santo Domingo Ground Coffee 250 g",
+      "productUrl": "https://www.freshco.com/products/cafe-santo-domingo-ground-coffee-250-g"
+    },
+    {
+      "name": "Tim Hortons Ground Coffee Fine Grind Original 300 g",
+      "productUrl": "https://www.freshco.com/products/tim-hortons-ground-coffee-fine-grind-original-300-g"
+    },
+    {
+      "name": "Tim Hortons Ground Coffee Dark Roast Fine Grind 825 g",
+      "productUrl": "https://www.freshco.com/products/tim-hortons-ground-coffee-dark-roast-fine-grind-825-g"
+    },
+    {
+      "name": "Tim Hortons Ground Coffee Fine Grind Original Blend 875 g",
+      "productUrl": "https://www.freshco.com/products/tim-hortons-ground-coffee-fine-grind-original-blend-875-g"
+    },
+    {
+      "name": "Nabob Ground Coffee Decaffeinated 1896 Tradition 340 g",
+      "productUrl": "https://www.freshco.com/products/nabob-ground-coffee-decaffeinated-1896-tradition-340-g"
+    },
+    {
+      "name": "Nabob Ground Coffee 1896 Tradition Medium Roast 930 g",
+      "productUrl": "https://www.freshco.com/products/nabob-ground-coffee-1896-tradition-medium-roast-930-g"
+    },
+    {
+      "name": "Nabob Ground Coffee 1896 Tradition Medium Roast 340 g",
+      "productUrl": "https://www.freshco.com/products/nabob-ground-coffee-1896-tradition-medium-roast-340-g"
+    },
+    {
+      "name": "Earth's Own Dairy-Free Oat Milk Zero Sugar Unsweetened 1.75 L",
+      "productUrl": "https://www.freshco.com/products/earth-s-own-dairy-free-plant-based-beverage-oat-milk-zero-sugar-unsweetened-1%252E75-l"
+    },
+    {
+      "name": "Silk Dairy-free Unsweetened Oat Milk Vanilla 1.75 L",
+      "productUrl": "https://www.freshco.com/products/silk-dairy-free-unsweetened-oat-milk-alternative-vanilla-1%252E75-l"
+    },
+    {
+      "name": "Earth's Own Dairy-Free Oat Milk Chocolate 1.75 L",
+      "productUrl": "https://www.freshco.com/products/earth-s-own-dairy-free-plant-based-beverage-oat-milk-chocolate-1%252E75-l"
+    },
+    {
+      "name": "Earth's Own Gluten-Free Oat Milk Chocolate 1.75 L",
+      "productUrl": "https://www.freshco.com/products/earth-s-own-gluten-free-oat-milk-alternative-chocolate-1%252E75-l"
+    },
+    {
+      "name": "Silk Oat Milk Vanilla 1.75 L",
+      "productUrl": "https://www.freshco.com/products/silk-dairy-free-plant-based-oat-milk-alternative-vanilla-flavour-1%252E75-l"
+    },
+    {
+      "name": "Prime Frozen Chicken Wings Honey Garlic 695 g",
+      "productUrl": "https://www.freshco.com/products/prime-frozen-chicken-wings-honey-garlic-raised-without-antibiotics-695-g"
+    },
+    {
+      "name": "Waston Ridge Frozen Buffalo Chicken Wings 475 g",
+      "productUrl": "https://www.freshco.com/products/waston-ridge-frozen-buffalo-chicken-wings-475-g"
+    },
+    {
+      "name": "Prime Chicken Wings Raised Without Antibiotics 750 g",
+      "productUrl": "https://www.freshco.com/products/prime-chicken-wings-raised-without-antibiotics-750-g"
+    },
+    {
+      "name": "Janes Frozen Chicken Wings Classic BBQ 754 g",
+      "productUrl": "https://www.freshco.com/products/janes-frozen-chicken-wings-classic-bbq-754-g-"
+    },
+    {
+      "name": "Janes Frozen Chicken Wings Pub Style Buffalo Sauce 660 g",
+      "productUrl": "https://www.freshco.com/products/janes-frozen-chicken-wings-pub-style-fully-cooked-with-buffalo-sauce-660-g"
+    },
+    {
+      "name": "Zabiha Halal Frozen Chicken Wings Barbeque 908 g",
+      "productUrl": "https://www.freshco.com/products/zabiha-halal-frozen-chicken-wings-barbeque-style-908-g"
+    },
+    {
+      "name": "Tide Liquid Laundry Detergent Original Regular 2.48 L",
+      "productUrl": "https://www.freshco.com/products/tide-liquid-laundry-detergent-original-regular-2%252E48-l"
+    },
+    {
+      "name": "Tide Liquid Laundry Detergent Original With Oxi 2.48 L",
+      "productUrl": "https://www.freshco.com/products/tide-liquid-laundry-detergent-original-with-oxi-2%252E48-l"
+    },
+    {
+      "name": "Tide Liquid Laundry Detergent Original With Oxi 3.46 L",
+      "productUrl": "https://www.freshco.com/products/tide-liquid-laundry-detergent-original-with-oxi-3%252E46-l"
+    },
+    {
+      "name": "Purex Cold Water Liquid Laundry Detergent 6 L",
+      "productUrl": "https://www.freshco.com/products/purex-cold-water-liquid-laundry-detergent-6%252E0-l"
+    },
+    {
+      "name": "Persil Everyday Clean Liquid Laundry Detergent 2.21 L",
+      "productUrl": "https://www.freshco.com/products/persil-everyday-clean-liquid-laundry-detergent-original-48-loads-value-size-2%252E21-l"
+    },
+    {
+      "name": "Persil TripleCare Liquid Laundry Detergent Original 1.86 L",
+      "productUrl": "https://www.freshco.com/products/persil-triplecare-liquid-laundry-detergent-original-1%252E86-l"
+    },
+    {
+      "name": "Tide Liquid Laundry Detergent Cold Water Original 3.46 L",
+      "productUrl": "https://www.freshco.com/products/tide-liquid-laundry-detergent-cold-water-original-3%252E46-l"
+    },
+    {
+      "name": "Old Dutch Laundry Detergent Summer Fresh 2 L",
+      "productUrl": "https://www.freshco.com/products/old-dutch-laundry-detergent-summer-fresh-50-loads-2-l"
     }
   ]
 }

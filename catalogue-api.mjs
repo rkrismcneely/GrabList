@@ -1,6 +1,7 @@
 import { ensureCatalogueSchema } from "./catalogue-bootstrap.mjs";
 import { importCuratedBatch } from "./catalogue-sources.mjs";
 import { importHammerPart, importGiantTigerPart, importCostcoPart, importIndependentPart, importFreshcoPart } from "./catalogue-hammer.mjs";
+import { importGroceryPart } from "./catalogue-grocery.mjs";
 // Single active GrabList pricing API. Requires a Cloudflare D1 binding named CATALOGUE_DB.
 // Legacy provider routes are deliberately disabled in worker.js; no optional services run here.
 const RETAILERS = new Set(['walmart','nofrills','freshco','independent','costco','gianttiger']);
@@ -130,9 +131,19 @@ async function compare(db,request){
     const term=terms.length?terms.at(-1):q;
     const sql=`SELECT l.*,p.display_name,p.brand AS master_brand,p.package_size AS master_size,p.barcode AS master_barcode
     FROM catalogue_listings l JOIN catalogue_products p ON p.id=l.master_product_id
-    WHERE l.retailer IN (${placeholders}) AND (p.search_name LIKE ? OR lower(l.product_name) LIKE ? OR (? <> '' AND (p.barcode=? OR l.barcode=?)))
-    LIMIT 120`;
-    return db.prepare(sql).bind(...stores,'%'+term+'%','%'+term+'%',item.barcode,item.barcode,item.barcode);
+    WHERE l.retailer IN (${placeholders}) AND
+      (p.search_name LIKE ? OR lower(l.product_name) LIKE ? OR (? <> '' AND (p.barcode=? OR l.barcode=?)))
+    ORDER BY CASE
+      WHEN (? <> '' AND (p.barcode=? OR l.barcode=?)) THEN 0
+      WHEN lower(l.product_name)=? OR p.search_name=? THEN 1
+      WHEN lower(l.product_name) LIKE ? THEN 2
+      WHEN p.search_name LIKE ? THEN 3
+      ELSE 4 END,
+      CASE WHEN l.price_scope='selected_branch' AND l.last_price_cents IS NOT NULL THEN 0 ELSE 1 END,
+      length(l.product_name),l.listing_key
+    LIMIT 180`;
+    return db.prepare(sql).bind(...stores,'%'+term+'%','%'+term+'%',item.barcode,item.barcode,item.barcode,
+      item.barcode,item.barcode,item.barcode,q,q,'%'+q+'%','%'+q+'%');
   });
   try{
     const batches=statements.length?await db.batch(statements):[];
@@ -154,9 +165,14 @@ async function compare(db,request){
     const candidateQueries=items.map(item=>{
       const terms=item.name.toLowerCase().replace(/[%_]/g,'').split(/\s+/).filter(Boolean);
       const last=terms.at(-1)||'';
+      const full=item.name.toLowerCase().replace(/[%_]/g,'').replace(/\s+/g,' ').slice(0,85);
       return db.prepare(`SELECT display_name AS productName,package_size AS size,brand
-        FROM catalogue_products WHERE search_name LIKE ? LIMIT 60`
-      ).bind('%'+last+'%');
+        FROM catalogue_products WHERE search_name LIKE ?
+        ORDER BY CASE WHEN search_name=? THEN 0
+                      WHEN search_name LIKE ? THEN 1
+                      ELSE 2 END,
+          length(search_name),id LIMIT 120`
+      ).bind('%'+last+'%',full,'%'+full+'%');
     });
     const [flyers,candidates]=await Promise.all([
       discoveryQueries.length?db.batch(discoveryQueries):Promise.resolve([]),
@@ -239,6 +255,7 @@ async function importHammerUrlBatch(db,env,request,source='hammer'){
       source==='costco' ? await importCostcoPart(db,env.ASSETS,request.url,body.part) :
       source==='independent' ? await importIndependentPart(db,env.ASSETS,request.url,body.part) :
       source==='freshco' ? await importFreshcoPart(db,env.ASSETS,request.url,body.part) :
+      source==='gtgrocery' ? await importGroceryPart(db,env.ASSETS,request.url,body.part) :
       await importHammerPart(db,env.ASSETS,request.url,body.part));
   }catch(cause){
     console.error('Project Hammer URL metadata import failed',cause);
@@ -285,6 +302,7 @@ export async function handleCatalogueApi(request,env){
   if(path==='/api/catalogue/import-costco')return importHammerUrlBatch(db,env,request,'costco');
   if(path==='/api/catalogue/import-independent')return importHammerUrlBatch(db,env,request,'independent');
   if(path==='/api/catalogue/import-freshco')return importHammerUrlBatch(db,env,request,'freshco');
+  if(path==='/api/catalogue/import-gt-grocery')return importHammerUrlBatch(db,env,request,'gtgrocery');
   if(path==='/api/catalogue/compare')return compare(db,request);
   if(path==='/api/catalogue/refresh')return refresh(db,env,request);
   return error('Unknown catalogue endpoint',404,'not_found');

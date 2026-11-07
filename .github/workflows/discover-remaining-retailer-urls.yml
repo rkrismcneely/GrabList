@@ -1,7 +1,7 @@
 name: Discover Independent and FreshCo link candidates
 on:
   push:
-    branches: [feature/freshco-independent-url-import]
+    branches: [feature/freshco-independent-url-import, feature/grocery-catalogue-expansion-2026-11]
     paths:
       - scripts/discover_remaining_urls.py
       - data/freshco-indexed-product-pages.json
