@@ -1126,7 +1126,11 @@ function renderCatalogueComparison(){
     let detail=offers.length?offers.slice(0,12).map(offer=>{
       const name=storeById(offer.retailer)?.name||offer.retailer;
       const price=Number.isInteger(offer.priceCents)?currency.format(offer.priceCents/100):'Price not available';
-      const scope=offer.scope==='selected_branch'?'Store-specific':'Online · store unverified';
+      const scope=offer.key?.startsWith('independent|online|loblaw-')?
+        'Shared Loblaw SKU candidate · Independent page and stock unverified':
+        offer.key?.startsWith('freshco|online|indexed-')?
+        'Indexed FreshCo product page · local stock unverified':
+        offer.scope==='selected_branch'?'Store-specific':'Online · store unverified';
       const date=offer.observedAt?new Date(offer.observedAt).toLocaleDateString('en-CA'):'not checked';
       const freshness=offer.status==='stale'?' · stale':offer.status==='current'?'':'';
       const link=offer.url&&/^https:\/\//.test(offer.url)?' <a href="'+escapeHTML(offer.url)+'" target="_blank" rel="noopener noreferrer">Product page</a>':'';
@@ -1388,6 +1392,72 @@ async function refreshCataloguePrices(){
       }
       if(loaded){
         output.textContent='Imported '+loaded+' Costco product links. Checking shopping list…';
+        await loadCatalogueComparison();
+      }
+    }
+    // The remaining banners have different evidence standards:
+    // FreshCo uses product pages independently surfaced in a search index.
+    // Independent routes reuse Loblaw's real SKU, but banner assortment
+    // and actual route availability are NOT verified.
+    for(const source of [
+      {id:'independent',label:'Independent shared-SKU candidates'},
+      {id:'freshco',label:'FreshCo indexed product pages'}
+    ]){
+      const release='grablist-'+source.id+'-links-2026-11-v1';
+      let done=false,part=0;
+      try{
+        done=localStorage.getItem(release+'-complete')==='1';
+        part=Number(localStorage.getItem(release+'-next')||0);
+      }catch{}
+      if(done)continue;
+      $('compare-progress').hidden=false;
+      let loaded=0;
+      try{
+        for(let page=0;page<100;page++){
+          output.textContent='Importing '+source.label+' · batch '+(part+1)+'…';
+          const response=await fetch('/api/catalogue/import-'+source.id,{
+            method:'POST',headers:{'Content-Type':'application/json','x-grablist-key':key},
+            body:JSON.stringify({part})
+          });
+          const data=await response.json();
+          if(!response.ok){
+            if(response.status===401){
+              try{sessionStorage.removeItem(CATALOGUE_KEY_STORAGE);}catch{}
+              throw Error('Invalid catalogue refresh key');
+            }
+            throw Error(data.error||source.label+' import failed');
+          }
+          if(!Number.isInteger(data.processed)||!Number.isInteger(data.totalParts)||
+             !Number.isInteger(data.totalRecords)||data.totalParts<1)
+            throw Error('Invalid '+source.id+' import response');
+          imported+=data.processed;
+          loaded+=data.processed;
+          $('compare-progress').max=data.totalParts;
+          $('compare-progress').value=part+1;
+          try{localStorage.setItem(release+'-next',String(part+1));}catch{}
+          output.textContent='Imported '+Math.min((part+1)*80,data.totalRecords)+' of '+
+            data.totalRecords+' '+source.label+' · batch '+(part+1)+' of '+data.totalParts;
+          if(data.finished){
+            try{
+              localStorage.setItem(release+'-complete','1');
+              localStorage.removeItem(release+'-next');
+            }catch{}
+            break;
+          }
+          if(!Number.isInteger(data.nextPart)||data.nextPart<=part)
+            throw Error('Invalid '+source.id+' batch continuation');
+          part=data.nextPart;
+          if(page===99)throw Error(source.label+' import exceeded its safety limit');
+        }
+      }catch(error){
+        if(String(error.message||'').includes('Invalid catalogue refresh key'))throw error;
+        importError+=(importError?' · ':'')+source.label+' import incomplete; next click resumes: '+
+          String(error.message||'Unknown error');
+      }finally{
+        $('compare-progress').hidden=true;
+      }
+      if(loaded){
+        output.textContent='Imported '+loaded+' '+source.label+' links. Loading your list…';
         await loadCatalogueComparison();
       }
     }
