@@ -186,7 +186,17 @@ export async function handleCatalogueApi(request,env){
   const db=env.CATALOGUE_DB;
   if(db){
     try { await ensureCatalogueSchema(db); }
-    catch { return json({ready:false,refreshReady:false,reason:'Catalogue database could not be initialized. Check D1 binding and migration logs.',products:0,listings:0},503); }
+    catch (cause) {
+      // Only return a safe SQLite/D1 diagnostic code; never expose SQL or credentials.
+      const message=String(cause?.message||'');
+      const reason=/no such table/i.test(message)?'Database schema is incomplete':
+        /SQLITE_CONSTRAINT/i.test(message)?'Database constraint failed during setup':
+        /SQLITE_ERROR/i.test(message)?'Database rejected a schema statement':
+        /D1_ERROR/i.test(message)?'Cloudflare D1 rejected the setup operation':
+        'Database initialization failed';
+      console.error('Catalogue D1 bootstrap failed',cause);
+      return json({ready:false,refreshReady:false,reason,products:0,listings:0},503);
+    }
   }
   if(path==='/api/catalogue/status'){
     if(!db)return json({ready:false,refreshReady:false,reason:'Connect the CATALOGUE_DB D1 binding and apply migrations.',products:0,listings:0});
