@@ -110,6 +110,42 @@ NULL last-known prices. They must not be silently promoted to a selected
 Peterborough branch. Cross-store lookups use product name, package size, and
 explicit brand/UPC restrictions.
 
+## November 2026 flyer and staple catalogue expansion
+
+On the first catalogue API request after this release, D1 automatically
+applies `migrations/0002_flyer_candidates.sql` (idempotent). It adds:
+
+- **131 dated, manually reviewed product discoveries** spread across all six
+  active store banners: FreshCo (18), No Frills (20), Walmart (21),
+  Your Independent Grocer (23), Giant Tiger (20), and Costco (29).
+- **216 additional common staple/category entries**, including marshmallows,
+  bread, eggs, milk, snacks, produce, pantry, frozen and household goods.
+  After deduping some flyer/staple overlap there are ~333 new *candidate*
+  products on top of the original 35 (subject to existing catalogue rows).
+- `catalogue_flyer_discoveries` tracks the retailer, validity period,
+  regional-unverified scope, and original flyer page used to identify
+  each candidate. Expired flyer references no longer count as *current*.
+  No prices or guessed retailer product URLs are stored for these discoveries.
+- `/api/catalogue/status` returns product, saved URL, flyer-discovery and
+  current-flyer counts.
+- The comparison sheet now shows whether a list item matches a known
+  product, a currently dated regional flyer mention, and/or a saved
+  retailer product URL, without mixing these states or inventing savings.
+
+The sample was checked against flyers dated **November 4–11, 2026**
+(Costco's longer flyer through November 22). Sample associations
+**do not prove a Peterborough branch had the offer or advertised price**.
+This is a *first pass*, not a licensed bulk republication of every flyer
+item. Different flyers and branches can have different assortments.
+
+For a complete weekly import of *every* item, use an authorized retailer feed
+or a data source that permits that use. The Flipp application terms restrict
+copying application content into a database without permission, while
+Flyers Now's terms prohibit republishing substantial portions of its flyer
+library. Do not automate large-scale copying from either service without an
+appropriate agreement. The curated seed is limited to a modest number of
+verified product identities, and never copies photos, flyer layouts, or prices.
+
 ## Current functionality
 
 - A persistent `catalogue_products` table and store-/SKU-specific
