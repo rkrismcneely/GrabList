@@ -17,7 +17,7 @@ import urllib.robotparser
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
-from discover_hammer_urls import candidates, matched_score, tokens
+from discover_hammer_urls import candidates, matched_score, tokens, SIZE, parse_size
 
 BASE = "https://www.costco.ca"
 ROBOTS = BASE + "/robots.txt"
@@ -82,6 +82,28 @@ def describe_product(url):
         return None
 
 
+def safe_url_size(title):
+    # A sitemap slug is NOT a product specification; accept a size hint only
+    # when there is exactly one unambiguous, plausible size token.
+    matches=list(SIZE.finditer(title))
+    if len(matches)!=1:
+        return ""
+    value=matches[0].group(0)
+    parsed=parse_size(value)
+    if not parsed:
+        return ""
+    family, quantity, multiple=parsed
+    if family=="mass" and quantity>30000:
+        return ""
+    if family=="volume" and quantity>30000:
+        return ""
+    if family=="count" and quantity>500:
+        return ""
+    if multiple:
+        return ""
+    return value
+
+
 def collect(root,limit=PER_PRODUCT_LIMIT):
     robots=urllib.robotparser.RobotFileParser(ROBOTS)
     robots.read()
@@ -122,7 +144,8 @@ def collect(root,limit=PER_PRODUCT_LIMIT):
                 continue
             key=parsed["sku"]
             row=dict(retailer="costco",masterProductId=best[1]["id"],
-                     productName=name,brand="",packageSize="",
+                     productName=name,brand="",
+                     packageSize=best[1]["size"] or safe_url_size(name),
                      retailerSku="sitemap-"+key,productUrl=parsed["url"],
                      listingKey="costco|online|sitemap-"+hashlib.sha256(key.encode()).hexdigest()[:24],
                      score=best[0])
