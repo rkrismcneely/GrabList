@@ -1,4 +1,5 @@
 import { ensureCatalogueSchema } from "./catalogue-bootstrap.mjs";
+import { importCuratedBatch } from "./catalogue-sources.mjs";
 // Single active GrabList pricing API. Requires a Cloudflare D1 binding named CATALOGUE_DB.
 // Legacy provider routes are deliberately disabled in worker.js; no optional services run here.
 const RETAILERS = new Set(['walmart','nofrills','freshco','independent','costco','gianttiger']);
@@ -180,6 +181,20 @@ async function refresh(db,env,request){
   }
   return json({results,source:'saved_product_urls',notes:'Generic product-page prices are not verified at a selected branch.'});
 }
+async function importExistingUrlBatch(db,env,request){
+  if(request.method!=='POST')return error('POST required',405);
+  if(!env.CATALOGUE_WRITE_KEY)return error('Owner import key has not been configured.',503,'import_not_configured');
+  const supplied=str(request.headers.get('x-grablist-key'),256);
+  if(!supplied||supplied!==env.CATALOGUE_WRITE_KEY)return error('Invalid catalogue refresh key.',401,'unauthorized');
+  const body=await readBody(request,2000);
+  if(!body||!Number.isInteger(body.offset)||body.offset<0)return error('A valid import offset is required.');
+  try{
+    return json(await importCuratedBatch(db,body));
+  }catch(cause){
+    console.error('Curated retailer URL import failed',cause);
+    return error('Existing product URL source is temporarily unavailable or could not be imported.',502,'catalogue_import_failed');
+  }
+}
 export async function handleCatalogueApi(request,env){
   const path=new URL(request.url).pathname;
   if(!path.startsWith('/api/catalogue/'))return null;
@@ -206,6 +221,7 @@ export async function handleCatalogueApi(request,env){
     }catch{return json({ready:false,refreshReady:false,reason:'Apply the catalogue database migration first.',products:0,listings:0});}
   }
   if(!db)return error('Catalogue D1 database has not been connected.',503,'catalogue_not_configured');
+  if(path==='/api/catalogue/import-curated')return importExistingUrlBatch(db,env,request);
   if(path==='/api/catalogue/compare')return compare(db,request);
   if(path==='/api/catalogue/refresh')return refresh(db,env,request);
   return error('Unknown catalogue endpoint',404,'not_found');

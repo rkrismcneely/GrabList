@@ -517,7 +517,7 @@ function sanitizeState(raw){
 }
 function loadState(){try{return sanitizeState(JSON.parse(localStorage.getItem(STORAGE_KEY)))}catch{return blankState()}}
 let state=loadState();
-let catalogueRows=new Map(),catalogueReady=false,catalogueRefreshReady=false;
+let catalogueRows=new Map(),catalogueReady=false,catalogueRefreshReady=false,catalogueListingCount=0;
 function reconcileKnownPackageSizes(){
  let changed=false;
  for(const item of state.items){
@@ -1144,6 +1144,7 @@ async function loadCatalogueComparison(){
     const status=await statusResponse.json();
     catalogueReady=Boolean(status.ready);
     catalogueRefreshReady=Boolean(status.refreshReady);
+    catalogueListingCount=Number(status.listings)||0;
     if(!catalogueReady){
       comparisonPlan=null;
       $('apply-price-comparison').disabled=true;
@@ -1179,20 +1180,69 @@ async function refreshCataloguePrices(){
     output.textContent='Price refresh needs the owner to configure a catalogue refresh key in Cloudflare.';
     return;
   }
-  const keys=[...new Set([...catalogueRows.values()].flatMap(offers=>offers.map(o=>o.key)))];
-  if(!keys.length){output.textContent='No saved retailer URLs for these items yet. Flyer and cross-store discovery are still being built.';return;}
   let key='';try{key=sessionStorage.getItem(CATALOGUE_KEY_STORAGE)||'';}catch{}
   if(!key){
     key=prompt('Enter your GrabList catalogue refresh key (stored for this tab only):')||'';
     if(!key)return;
   }
   button.disabled=true;
-  output.textContent='Checking 0 of '+keys.length+' saved product links…';
-  $('compare-progress').hidden=false;
-  $('compare-progress').max=keys.length;
-  $('compare-progress').value=0;
-  let checked=0,saved=0,unavailable=0;
+  let checked=0,saved=0,unavailable=0,imported=0,importError='';
   try{
+    // Reuse existing retailer product URLs no more than weekly. Imports are
+    // idempotent, and a transient source failure must not block price refresh.
+    let importedAt=0;
+    try{importedAt=Number(localStorage.getItem('grablist-curated-import-at')||0);}catch{}
+    if(!importedAt||Date.now()-importedAt>7*86400000){
+      let sourceFailed=false;
+      for(const source of ['curated-grocery-tracker','nofrills-matched']){
+        let offset=0,total=0;
+        try{
+          for(let page=0;page<100;page++){
+            const label=source==='nofrills-matched'?'No Frills':'FreshCo, Walmart and Costco';
+            output.textContent='Importing existing '+label+' product links…'+(total?' '+offset+' of '+total:'');
+            const response=await fetch('/api/catalogue/import-curated',{
+              method:'POST',headers:{'Content-Type':'application/json','x-grablist-key':key},
+              body:JSON.stringify({source,offset})
+            });
+            const data=await response.json();
+            if(!response.ok){
+              if(response.status===401){
+                try{sessionStorage.removeItem(CATALOGUE_KEY_STORAGE);}catch{}
+                throw Error('Invalid catalogue refresh key');
+              }
+              throw Error(data.error||'Existing product URL source unavailable');
+            }
+            imported+=Number(data.processed)||0;
+            total=Number(data.total)||0;
+            if(data.finished)break;
+            if(!Number.isInteger(data.nextOffset)||data.nextOffset<=offset)throw Error('Invalid catalogue import continuation');
+            offset=data.nextOffset;
+            if(page===99)throw Error('Product import exceeded its safety limit');
+          }
+        }catch(error){
+          if(String(error.message||'').includes('Invalid catalogue refresh key'))throw error;
+          sourceFailed=true;
+          importError=String(error.message||'Product URL import unavailable');
+        }
+      }
+      if(!sourceFailed){
+        try{localStorage.setItem('grablist-curated-import-at',String(Date.now()));}catch{}
+      }
+      if(imported){
+        output.textContent='Added or checked '+imported+' existing retailer links. Checking your shopping list…';
+        await loadCatalogueComparison();
+      }
+    }
+    const keys=[...new Set([...catalogueRows.values()].flatMap(offers=>offers.map(o=>o.key)))];
+    if(!keys.length){
+      output.textContent=(imported?'Imported '+imported+' saved product links. ':'')+
+        'No matching saved URLs for the items on your list yet. Missing links will stay unknown.';
+      return;
+    }
+    output.textContent='Checking 0 of '+keys.length+' saved product links…';
+    $('compare-progress').hidden=false;
+    $('compare-progress').max=keys.length;
+    $('compare-progress').value=0;
     for(let i=0;i<keys.length;i+=12){
       const batch=keys.slice(i,i+12);
       const response=await fetch('/api/catalogue/refresh',{
@@ -1214,8 +1264,10 @@ async function refreshCataloguePrices(){
       output.textContent='Checked '+checked+' of '+keys.length+' · '+saved+' prices updated · '+unavailable+' unavailable';
     }
     await loadCatalogueComparison();
-    output.textContent='Checked '+checked+' product links. '+saved+' prices updated; '+unavailable+
-      ' unavailable. Generic online prices remain unverified for local stores.';
+    output.textContent=(imported?imported+' existing product links imported. ':'')+
+      'Checked '+checked+' links. '+saved+' prices updated; '+unavailable+
+      ' unavailable. Generic online prices remain unverified for local stores.'+
+      (importError?' Some URL sources could not be imported: '+importError:'');
   }catch(error){
     output.textContent=String(error.message||'Price update failed')+'. Previously known prices are retained.';
   }finally{

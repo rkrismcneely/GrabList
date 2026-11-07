@@ -11,3 +11,4 @@ catalogue-api.mjs
 migrations/
 catalogue-bootstrap.mjs
 scripts/
+catalogue-sources.mjs
