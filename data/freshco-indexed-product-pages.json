@@ -1,0 +1,229 @@
+{
+  "source": "FreshCo search-indexed official product pages",
+  "checkedDate": "2026-11-07",
+  "scope": "online_unverified",
+  "priceImported": false,
+  "notes": "Links were returned by search results for the publisher's own product-page paths, not generated from title slugs. No FreshCo pages were fetched by the collector. Site robots disallows automated product crawling.",
+  "records": [
+    {
+      "name": "Nutri Comfort Farm White Eggs Large 12 Count",
+      "productUrl": "https://www.freshco.com/products/nutri-comfort-farm-white-eggs-large-12-count"
+    },
+    {
+      "name": "Compliments White Eggs Free Run Large 12 Count",
+      "productUrl": "https://www.freshco.com/products/compliments-white-eggs-free-run-large-12-count"
+    },
+    {
+      "name": "Compliments White Eggs Medium 12 Count",
+      "productUrl": "https://www.freshco.com/products/compliments-white-eggs-medium-12-count"
+    },
+    {
+      "name": "Island Gold Jumbo White Eggs 12 EA",
+      "productUrl": "https://www.freshco.com/products/island-gold-jumbo-white-eggs-12-ea"
+    },
+    {
+      "name": "Island Gold Large Free Run Brown Eggs 12 EA",
+      "productUrl": "https://www.freshco.com/products/island-gold-large-free-run-brown-eggs-12-ea"
+    },
+    {
+      "name": "Gray Ridge White Eggs Grade A Extra Large 12 Count",
+      "productUrl": "https://www.freshco.com/products/gray-ridge-white-eggs-grade-a-extra-large-12-count"
+    },
+    {
+      "name": "Dairyland 2% Milk Partly Skimmed 4 L",
+      "productUrl": "https://www.freshco.com/products/dairyland-2--milk-partly-skimmed-4-l"
+    },
+    {
+      "name": "Farmers 2% Milk Polybag Partly Skimmed 4 L",
+      "productUrl": "https://www.freshco.com/products/farmers-2--milk-polybag--partly-skimmed-4-l"
+    },
+    {
+      "name": "Dairyland 6% Milk 4 L",
+      "productUrl": "https://www.freshco.com/products/dairyland-6--milk-4-l"
+    },
+    {
+      "name": "Sealtest 6% Milk 4 L",
+      "productUrl": "https://www.freshco.com/products/sealtest-6--milk-4-l"
+    },
+    {
+      "name": "Walker Farms Protein A2 1% Milk 4 L",
+      "productUrl": "https://www.freshco.com/products/walker-farms-protein-a2-1--milk-4-l"
+    },
+    {
+      "name": "Farmers 1% Milk Chocolate 4 L",
+      "productUrl": "https://www.freshco.com/products/farmers-1--milk-chocolate-4-l"
+    },
+    {
+      "name": "Island Farms 0.1% Skim Milk 4 L",
+      "productUrl": "https://www.freshco.com/products/island-farms-0%252E1--skim-milk-4-l"
+    },
+    {
+      "name": "Dempster's Sandwich Bread White 675 g",
+      "productUrl": "https://www.freshco.com/products/dempster-s-sandwich-bread-white-675-g"
+    },
+    {
+      "name": "Dempster's Sandwich Bread White Thin 675 g",
+      "productUrl": "https://www.freshco.com/products/dempster%E2%80%99s-sandwich-bread-white-thin-675-g"
+    },
+    {
+      "name": "Dempster's Whole Wheat Sandwich Bread 675 g",
+      "productUrl": "https://www.freshco.com/products/dempster-s-whole-wheat-sandwich-bread-675-g"
+    },
+    {
+      "name": "Dempster's Whole Wheat Bread Extra Thick 675 g",
+      "productUrl": "https://www.freshco.com/products/dempster-s-whole-wheat-bread-extra-thick-675-g"
+    },
+    {
+      "name": "Compliments Sandwich Bread White 675 g",
+      "productUrl": "https://www.freshco.com/products/compliments-sandwich-bread-white-675-g"
+    },
+    {
+      "name": "Compliments Sandwich Bread 100% Whole Wheat 675 g",
+      "productUrl": "https://www.freshco.com/products/compliments-sandwich-bread-100--whole-wheat-675-g"
+    },
+    {
+      "name": "Villaggio White Bread Classico Italian Style Thick Slice 675 g",
+      "productUrl": "https://www.freshco.com/products/villaggio-white-bread-classico-italian-style-thick-slice-675-g"
+    },
+    {
+      "name": "Compliments Bread 100% Whole Wheat 675 g",
+      "productUrl": "https://www.freshco.com/products/compliments-bread-100--whole-wheat-675-g"
+    },
+    {
+      "name": "Azores Cambridge Bakery Sliced Bread 100% WW 675 g",
+      "productUrl": "https://www.freshco.com/products/azores-cambridge-bakery-sliced-bread-100--ww-675-g"
+    },
+    {
+      "name": "Compliments Mini White Marshmallows 250 g",
+      "productUrl": "https://www.freshco.com/products/compliments-mini-white-marshmallows-250-g"
+    },
+    {
+      "name": "Dairyland Butter Salted 454 g",
+      "productUrl": "https://www.freshco.com/products/dairyland-butter-salted-454-g"
+    },
+    {
+      "name": "Dairyland Butter Unsalted 454 g",
+      "productUrl": "https://www.freshco.com/products/dairyland-butter-unsalted-454-g"
+    },
+    {
+      "name": "Compliments Butter Unsalted 454 g",
+      "productUrl": "https://www.freshco.com/products/compliments-butter-unsalted--454-g"
+    },
+    {
+      "name": "Compliments Butter Salted 454 g",
+      "productUrl": "https://www.freshco.com/products/compliments-butter-salted-454-g"
+    },
+    {
+      "name": "Compliments Butter Stick Unsalted 454 g",
+      "productUrl": "https://www.freshco.com/products/compliments-butter-stick-unsalted-454-g"
+    },
+    {
+      "name": "Gay Lea Butter Unsalted 454 g",
+      "productUrl": "https://www.freshco.com/products/gay-lea-butter-unsalted-454-g"
+    },
+    {
+      "name": "Fraser Valley Butter Salted 454 g",
+      "productUrl": "https://www.freshco.com/products/fraser-valley-butter-salted-454-g"
+    },
+    {
+      "name": "Kraft Extra Creamy Peanut Butter 1 kg",
+      "productUrl": "https://www.freshco.com/products/kraft-extra-creamy-peanut-butter-1-kg"
+    },
+    {
+      "name": "Kraft Peanut Butter Extra Roasted 1 kg",
+      "productUrl": "https://www.freshco.com/products/kraft-peanut-butter-extra-roasted-1-kg"
+    },
+    {
+      "name": "Planters Crunchy Peanut Butter 1 KG",
+      "productUrl": "https://www.freshco.com/products/planters-crunchy-peanut-butter-1-kg"
+    },
+    {
+      "name": "Italpasta Pasta Fusilli 900 g",
+      "productUrl": "https://www.freshco.com/products/italpasta-pasta-fusilli-900-g"
+    },
+    {
+      "name": "Italpasta Pasta Orzo 450 g",
+      "productUrl": "https://www.freshco.com/products/italpasta-pasta-orzo-450-g"
+    },
+    {
+      "name": "Italpasta Oven-Ready Lasagna 375 g",
+      "productUrl": "https://www.freshco.com/products/italpasta-oven-ready-lasagna-375-g"
+    },
+    {
+      "name": "Italpasta Artisan Pasta Cavatelli 450 g",
+      "productUrl": "https://www.freshco.com/products/italpasta-artisan-pasta-cavatelli-450-g"
+    },
+    {
+      "name": "Campbell's Chunky Soup Beef 515 ml",
+      "productUrl": "https://www.freshco.com/products/campbell-s-chunky-soup-beef-515-ml"
+    },
+    {
+      "name": "Campbell's Chunky Soup Chicken Noodle 515 ml",
+      "productUrl": "https://www.freshco.com/products/campbell-s-chunky-soup-chicken-noodle-515-ml"
+    },
+    {
+      "name": "Campbell's Soup Vegetable Beef Ready To Serve 515 ml",
+      "productUrl": "https://www.freshco.com/products/campbell-s-soup-vegetable-beef-ready-to-serve-515-ml"
+    },
+    {
+      "name": "Maxwell House Ground Coffee Dark Roast 900 g",
+      "productUrl": "https://www.freshco.com/products/maxwell-house-ground-coffee-dark-roast-900-g"
+    },
+    {
+      "name": "Chicken Breast Boneless Skinless 4 Count",
+      "productUrl": "https://www.freshco.com/products/chicken-breast-boneless-skinless-4-count"
+    },
+    {
+      "name": "Prime Boneless Skinless Chicken Breast",
+      "productUrl": "https://www.freshco.com/products/prime-boneless-skinless-chicken-breast"
+    },
+    {
+      "name": "Bananas 1 Bunch (5 - 6 bananas)",
+      "productUrl": "https://www.freshco.com/products/bananas-1-bunch-%285---6-bananas%29"
+    },
+    {
+      "name": "Organic Bananas 1 Bunch (5 - 6 bananas)",
+      "productUrl": "https://www.freshco.com/products/organic-bananas-1-bunch-%28-5---6-bananas-%29"
+    },
+    {
+      "name": "Baking Bananas",
+      "productUrl": "https://www.freshco.com/products/baking-bananas"
+    },
+    {
+      "name": "Empire Apples 3 lb",
+      "productUrl": "https://www.freshco.com/products/empire-apples-3-lb-"
+    },
+    {
+      "name": "Cashmere Toilet Paper 2-Ply 12 Double Rolls x 242 Sheets",
+      "productUrl": "https://www.freshco.com/products/cashmere-toilet-paper-2-ply-12-double-rolls-x-242-sheets"
+    },
+    {
+      "name": "Purex Toilet Paper 2 Ply 12 Double Rolls x 242 Sheets",
+      "productUrl": "https://www.freshco.com/products/purex-toilet-paper-2-ply-12-double-rolls-x-242-sheets-"
+    },
+    {
+      "name": "Compliments Cheddar Light Marble Cheese 400 g",
+      "productUrl": "https://www.freshco.com/products/compliments-cheddar-light-marble-cheese-400-g"
+    },
+    {
+      "name": "White Cheddar Cheese Curds 400 g",
+      "productUrl": "https://www.freshco.com/products/white-cheddar-cheese-curds-400-g"
+    },
+    {
+      "name": "Halloum Cheese 400 g",
+      "productUrl": "https://www.freshco.com/products/halloum-cheese-400-g"
+    },
+    {
+      "name": "Compliments Evaporated Milk 354 ml",
+      "productUrl": "https://www.freshco.com/products/compliments-evaporated-milk-354-ml"
+    },
+    {
+      "name": "Compliments Low Fat Sweetened Condensed Milk 300 ml",
+      "productUrl": "https://www.freshco.com/products/compliments-low-fat-sweetened-condensed-milk-300-ml"
+    },
+    {
+      "name": "Compliments Balance Powder Instant Skim Milk 1 kg",
+      "productUrl": "https://www.freshco.com/products/compliments-balance-powder-instant-skim-milk-1-kg"
+    }
+  ]
+}
