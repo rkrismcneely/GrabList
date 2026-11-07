@@ -6,3 +6,8 @@ README.md
 providers/
 tests/
 .assetsignore
+
+catalogue-api.mjs
+migrations/
+catalogue-bootstrap.mjs
+scripts/

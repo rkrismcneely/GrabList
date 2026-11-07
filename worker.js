@@ -1,3 +1,4 @@
+import { handleCatalogueApi } from "./catalogue-api.mjs";
 /* GrabList price gateway: public sources plus optional user-keyed providers.
    Fixed upstream destinations; no platform API keys or shared provider caches.
    User-funded searches are explicit or require the shopper's opt-in. */
@@ -773,17 +774,10 @@ async function epiceriesSearch(request){
 export default {
   async fetch(request,env){
     const {pathname}=new URL(request.url);
-    if(pathname==='/api/pricing/status')return json({ready:true,sources:['open-prices-barcode','grocerypulse-reference-cities','statistics-canada-national-averages'],optionalSources:['vynn-ai-user-key','reefapi-selected-branch-user-key','savvi-apify-user-key'],secondaryReferenceSources:['epiceries-quebec-budget-benchmarks'],liveStoreFeeds:false,userConnectedStoreFeeds:true});
-    if(pathname==='/api/pricing/open-prices')return openPrices(request);
-    if(pathname==='/api/pricing/catalog-search')return catalogSearch(request);
-    if(pathname==='/api/pricing/epiceries')return epiceriesSearch(request);
-    if(pathname==='/api/pricing/grocerypulse-plan')return groceryPulse(request);
-    if(pathname==='/api/pricing/savvi')return savviLookup(request);
-    if(pathname==='/api/pricing/vynn')return vynnLookup(request);
-    if(pathname==='/api/pricing/reef-stores')return reefLookup(request,'stores');
-    if(pathname==='/api/pricing/reef-search')return reefLookup(request,'search');
-    if(pathname==='/api/pricing/national-reference')return governmentReference(request);
-    if(pathname==='/api/pricing/national-reference-list')return governmentList(request);
+    // Single pricing source: the persistent catalogue. Archive (do not delete)
+    // older provider code; its HTTP routes must not execute during this rollout.
+    if(pathname.startsWith('/api/catalogue/'))return handleCatalogueApi(request,env);
+    if(pathname.startsWith('/api/pricing/'))return responseError('Legacy pricing integrations are temporarily disabled. Use the catalogue API.',410,'legacy_pricing_disabled');
     if(pathname.startsWith('/api/'))return responseError('Unknown API route',404,'not_found');
     return env.ASSETS.fetch(request);
   }
