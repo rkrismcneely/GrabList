@@ -590,6 +590,10 @@ const FR_TERMS=[
  [/peanut butter/i,"beurre d'arachide",'arachide'],
  [/orange juice/i,"jus d'orange",'orange'],
  [/potato chips/i,'croustilles','croustill'],
+ [/\boat milk\b/i,"boisson d'avoine",'avoine'],
+ [/\balmond milk\b/i,"boisson d'amande",'amand'],
+ [/\bsoy milk\b/i,'boisson de soya','soya'],
+ [/\bchocolate milk\b/i,'lait au chocolat','chocolat'],
  [/\bmilk\b/i,'lait','lait'],
  [/\bbutter\b/i,'beurre','beurre'],
  [/\beggs?\b/i,'oeufs','oeuf'],
@@ -651,6 +655,22 @@ function epiceriesMatchesProduct(name,stem,brand,requested=''){
  // Broad catalogue searches for simple generic groceries can return cheap
  // but fundamentally different derivatives. Never treat those as equivalents.
  const request=stripAccents(requested).trim();
+ // The French catalogue can return the wrong food type even if one broad
+ // keyword matches. Explicit variants must survive translation and matching.
+ const requiredVariants=[
+  [/\boat milk\b/,/avoine/,/\b(lait|boisson|breuvage)\b/],
+  [/\balmond milk\b/,/amand/,/\b(lait|boisson|breuvage)\b/],
+  [/\bsoy milk\b/,/soya|soja/,/\b(lait|boisson|breuvage)\b/],
+  [/\bchocolate milk\b/,/chocolat/,/\blait\b/],
+  [/\bwhole[ -]?wheat bread\b/,/ble entier|complet/,/\bpain\b/],
+  [/\bground coffee\b/,/moulu/,/\bcafe\b/],
+  [/\bchicken breasts?\b/,/poitrine/,/\bpoulet\b/]
+ ];
+ for(const [when,variant,kind] of requiredVariants)
+  if(when.test(request)&&(!variant.test(product)||!kind.test(product)))return false;
+ const milkPercent=request.match(/\b(0|1|2|3[.]25)\s*%\s*milk\b/);
+ if(milkPercent&&!new RegExp('\\b'+milkPercent[1].replace('.','[.]')+'\\s*%').test(product))
+  return false;
  const exclusions=[
   [/^milk$/,/(chocolat|amande|avoine|soya|coco|condense|evapore|lait de)/],
   [/^butter$/,/(arachide|amande|noisette|beurre de|beurre d')/],
