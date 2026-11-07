@@ -131,9 +131,19 @@ async function compare(db,request){
     const term=terms.length?terms.at(-1):q;
     const sql=`SELECT l.*,p.display_name,p.brand AS master_brand,p.package_size AS master_size,p.barcode AS master_barcode
     FROM catalogue_listings l JOIN catalogue_products p ON p.id=l.master_product_id
-    WHERE l.retailer IN (${placeholders}) AND (p.search_name LIKE ? OR lower(l.product_name) LIKE ? OR (? <> '' AND (p.barcode=? OR l.barcode=?)))
-    LIMIT 120`;
-    return db.prepare(sql).bind(...stores,'%'+term+'%','%'+term+'%',item.barcode,item.barcode,item.barcode);
+    WHERE l.retailer IN (${placeholders}) AND
+      (p.search_name LIKE ? OR lower(l.product_name) LIKE ? OR (? <> '' AND (p.barcode=? OR l.barcode=?)))
+    ORDER BY CASE
+      WHEN (? <> '' AND (p.barcode=? OR l.barcode=?)) THEN 0
+      WHEN lower(l.product_name)=? OR p.search_name=? THEN 1
+      WHEN lower(l.product_name) LIKE ? THEN 2
+      WHEN p.search_name LIKE ? THEN 3
+      ELSE 4 END,
+      CASE WHEN l.price_scope='selected_branch' AND l.last_price_cents IS NOT NULL THEN 0 ELSE 1 END,
+      length(l.product_name),l.listing_key
+    LIMIT 180`;
+    return db.prepare(sql).bind(...stores,'%'+term+'%','%'+term+'%',item.barcode,item.barcode,item.barcode,
+      item.barcode,item.barcode,item.barcode,q,q,'%'+q+'%','%'+q+'%');
   });
   try{
     const batches=statements.length?await db.batch(statements):[];
@@ -155,9 +165,14 @@ async function compare(db,request){
     const candidateQueries=items.map(item=>{
       const terms=item.name.toLowerCase().replace(/[%_]/g,'').split(/\s+/).filter(Boolean);
       const last=terms.at(-1)||'';
+      const full=item.name.toLowerCase().replace(/[%_]/g,'').replace(/\s+/g,' ').slice(0,85);
       return db.prepare(`SELECT display_name AS productName,package_size AS size,brand
-        FROM catalogue_products WHERE search_name LIKE ? LIMIT 60`
-      ).bind('%'+last+'%');
+        FROM catalogue_products WHERE search_name LIKE ?
+        ORDER BY CASE WHEN search_name=? THEN 0
+                      WHEN search_name LIKE ? THEN 1
+                      ELSE 2 END,
+          length(search_name),id LIMIT 120`
+      ).bind('%'+last+'%',full,'%'+full+'%');
     });
     const [flyers,candidates]=await Promise.all([
       discoveryQueries.length?db.batch(discoveryQueries):Promise.resolve([]),
