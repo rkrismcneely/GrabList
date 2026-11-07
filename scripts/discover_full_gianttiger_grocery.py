@@ -34,15 +34,33 @@ def sha24(value):
 
 def fetch_json(url):
     req=urllib.request.Request(url,headers={"User-Agent":AGENT,"Accept":"application/json"})
-    with urllib.request.urlopen(req,timeout=35) as response:
-        if not response.headers.get("Content-Type","").lower().startswith("application/json"):
-            raise ValueError("A grocery collection did not return application/json")
-        raw=response.read(MAX_RESPONSE+1)
-        if len(raw)>MAX_RESPONSE:raise ValueError("Collection JSON exceeds 9MB safety limit")
-        return json.loads(raw)
+    for attempt in range(3):
+        try:
+            with urllib.request.urlopen(req,timeout=35) as response:
+                if not response.headers.get("Content-Type","").lower().startswith("application/json"):
+                    raise ValueError("A grocery collection did not return application/json")
+                raw=response.read(MAX_RESPONSE+1)
+                if len(raw)>MAX_RESPONSE:raise ValueError("Collection JSON exceeds 9MB safety limit")
+                return json.loads(raw)
+        except urllib.error.HTTPError as exc:
+            # Do not circumvent access controls. Respect a rate-limit notice
+            # and make at most one additional request after a real cooldown.
+            if exc.code==429:
+                if attempt>=1:raise
+                retry=str(exc.headers.get("Retry-After","")).strip()
+                delay=min(120,max(45,int(retry))) if retry.isdigit() else 75
+                print(f"Rate limited; respecting {delay}-second cooldown",flush=True)
+                time.sleep(delay)
+                continue
+            if exc.code in (500,502,503,504) and attempt<2:
+                delay=10*(attempt+1)
+                print(f"Temporary retailer server error; pausing {delay}s",flush=True)
+                time.sleep(delay)
+                continue
+            raise
 
 
-def grocery_items(root,max_pages=MAX_PAGES,throttle=0.7):
+def grocery_items(root,max_pages=MAX_PAGES,throttle=1.25):
     known=candidates(root)
     by_token=collections.defaultdict(list)
     for c in known:
@@ -167,7 +185,7 @@ def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root",default=".")
     parser.add_argument("--max-pages",type=int,default=MAX_PAGES)
-    parser.add_argument("--throttle",type=float,default=0.7)
+    parser.add_argument("--throttle",type=float,default=1.25)
     args=parser.parse_args()
     if args.max_pages<1 or args.max_pages>MAX_PAGES or args.throttle<0.25:
         parser.error("--max-pages must be 1..100, --throttle >= 0.25 seconds")
