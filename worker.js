@@ -25,7 +25,7 @@ async function openPrices(request){
   if(request.method!=='GET')return responseError('GET required',405);
   const url=new URL(request.url),barcode=String(url.searchParams.get('barcode')||''),name=String(url.searchParams.get('name')||'').trim();
   const byBarcode=/^\d{8,14}$/.test(barcode);
-  if(!byBarcode&&!(name.length>=3&&name.length<=70&&/^[\p{L}\p{N} .,'&()-]+$/u.test(name)))
+  if(!byBarcode&&!(name.length>=3&&name.length<=70&&/^[\p{L}\p{N} %.,'&()/-]+$/u.test(name)))
     return responseError('Enter a product name (3–70 characters) or an 8–14 digit barcode.');
   const cutoff=new Date(Date.now()-730*86400000).toISOString().slice(0,10);
   const upstream=new URL('https://prices.openfoodfacts.org/api/v1/prices');
@@ -72,7 +72,7 @@ let catalogLastSearch=0;
 async function catalogSearch(request){
   if(request.method!=='GET')return responseError('GET required',405);
   const url=new URL(request.url),term=String(url.searchParams.get('name')||'').trim();
-  if(term.length<3||term.length>80||!(/^[\p{L}\p{N} ,.'()&/-]+$/u.test(term)))
+  if(term.length<3||term.length>80||!(/^[\p{L}\p{N} %,.'()&/-]+$/u.test(term)))
     return responseError('Enter a product name between 3 and 80 characters.');
   const key=term.toLowerCase().replace(/\s+/g,' ');
   const cached=CATALOG_CACHE.get(key);
@@ -590,6 +590,10 @@ const FR_TERMS=[
  [/peanut butter/i,"beurre d'arachide",'arachide'],
  [/orange juice/i,"jus d'orange",'orange'],
  [/potato chips/i,'croustilles','croustill'],
+ [/\boat milk\b/i,'avoine','avoine'],
+ [/\balmond milk\b/i,'amande','amand'],
+ [/\bsoy milk\b/i,'soya','soya'],
+ [/\bchocolate milk\b/i,'chocolat','chocolat'],
  [/\bmilk\b/i,'lait','lait'],
  [/\bbutter\b/i,'beurre','beurre'],
  [/\beggs?\b/i,'oeufs','oeuf'],
@@ -651,6 +655,22 @@ function epiceriesMatchesProduct(name,stem,brand,requested=''){
  // Broad catalogue searches for simple generic groceries can return cheap
  // but fundamentally different derivatives. Never treat those as equivalents.
  const request=stripAccents(requested).trim();
+ // The French catalogue can return the wrong food type even if one broad
+ // keyword matches. Explicit variants must survive translation and matching.
+ const requiredVariants=[
+  [/\boat milk\b/,/avoine/,/\b(lait|boisson|breuvage)\b/],
+  [/\balmond milk\b/,/amand/,/\b(lait|boisson|breuvage)\b/],
+  [/\bsoy milk\b/,/soya|soja/,/\b(lait|boisson|breuvage)\b/],
+  [/\bchocolate milk\b/,/chocolat/,/\blait\b/],
+  [/\bwhole[ -]?wheat bread\b/,/ble entier|complet/,/\bpain\b/],
+  [/\bground coffee\b/,/moulu/,/\bcafe\b/],
+  [/\bchicken breasts?\b/,/poitrine/,/\bpoulet\b/]
+ ];
+ for(const [when,variant,kind] of requiredVariants)
+  if(when.test(request)&&(!variant.test(product)||!kind.test(product)))return false;
+ const milkPercent=request.match(/\b(0|1|2|3[.]25)\s*%\s*milk\b/);
+ if(milkPercent&&!new RegExp('\\b'+milkPercent[1].replace('.','[.]')+'\\s*%').test(product))
+  return false;
  const exclusions=[
   [/^milk$/,/(chocolat|amande|avoine|soya|coco|condense|evapore|lait de)/],
   [/^butter$/,/(arachide|amande|noisette|beurre de|beurre d')/],
@@ -670,7 +690,7 @@ async function epiceriesSearch(request){
  const barcode=String(u.searchParams.get('barcode')||'').trim();
  const size=String(u.searchParams.get('size')||'').trim().slice(0,40);
  const byBarcode=/^\d{8,14}$/.test(barcode);
- if(!byBarcode&&(name.length<3||name.length>90||!/^[\p{L}\p{N} .,'&()-]+$/u.test(name)))
+ if(!byBarcode&&(name.length<3||name.length>90||!/^[\p{L}\p{N} %.,'&()/-]+$/u.test(name)))
   return responseError('Enter a product name or valid UPC.',400);
  const key=[name.toLowerCase(),brand.toLowerCase(),size,barcode].join('|');
  const cached=EPICERIES_CACHE.get(key);
