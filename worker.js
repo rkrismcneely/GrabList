@@ -25,7 +25,7 @@ async function openPrices(request){
   if(request.method!=='GET')return responseError('GET required',405);
   const url=new URL(request.url),barcode=String(url.searchParams.get('barcode')||''),name=String(url.searchParams.get('name')||'').trim();
   const byBarcode=/^\d{8,14}$/.test(barcode);
-  if(!byBarcode&&!(name.length>=3&&name.length<=70&&/^[\p{L}\p{N} .,'&()-]+$/u.test(name)))
+  if(!byBarcode&&!(name.length>=3&&name.length<=70&&/^[\p{L}\p{N} %.,'&()/-]+$/u.test(name)))
     return responseError('Enter a product name (3–70 characters) or an 8–14 digit barcode.');
   const cutoff=new Date(Date.now()-730*86400000).toISOString().slice(0,10);
   const upstream=new URL('https://prices.openfoodfacts.org/api/v1/prices');
@@ -72,7 +72,7 @@ let catalogLastSearch=0;
 async function catalogSearch(request){
   if(request.method!=='GET')return responseError('GET required',405);
   const url=new URL(request.url),term=String(url.searchParams.get('name')||'').trim();
-  if(term.length<3||term.length>80||!(/^[\p{L}\p{N} ,.'()&/-]+$/u.test(term)))
+  if(term.length<3||term.length>80||!(/^[\p{L}\p{N} %,.'()&/-]+$/u.test(term)))
     return responseError('Enter a product name between 3 and 80 characters.');
   const key=term.toLowerCase().replace(/\s+/g,' ');
   const cached=CATALOG_CACHE.get(key);
@@ -690,7 +690,7 @@ async function epiceriesSearch(request){
  const barcode=String(u.searchParams.get('barcode')||'').trim();
  const size=String(u.searchParams.get('size')||'').trim().slice(0,40);
  const byBarcode=/^\d{8,14}$/.test(barcode);
- if(!byBarcode&&(name.length<3||name.length>90||!/^[\p{L}\p{N} .,'&()-]+$/u.test(name)))
+ if(!byBarcode&&(name.length<3||name.length>90||!/^[\p{L}\p{N} %.,'&()/-]+$/u.test(name)))
   return responseError('Enter a product name or valid UPC.',400);
  const key=[name.toLowerCase(),brand.toLowerCase(),size,barcode].join('|');
  const cached=EPICERIES_CACHE.get(key);
