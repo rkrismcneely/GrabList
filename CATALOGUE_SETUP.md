@@ -110,6 +110,38 @@ NULL last-known prices. They must not be silently promoted to a selected
 Peterborough branch. Cross-store lookups use product name, package size, and
 explicit brand/UPC restrictions.
 
+## Giant Tiger official product feed coverage
+
+Giant Tiger publishes direct product and variant URLs in a publicly
+accessible Shopify catalogue. Our bounded read of its first 100 product-feed
+pages covered 25,000 products and retained **1,817 product-page links**
+matching **242 GrabList product descriptions** after strict title matching.
+Items might be sold online only or out of stock at a specific Peterborough
+location; no Giant Tiger shelf price, stock claim, or historical sale price
+is imported.
+
+- `scripts/discover_gianttiger_urls.py` observes the retailer's robots
+  directives and caps requests/pages. It only accepts publisher-issued handles
+  and variant IDs, not guessed URL slugs, and excludes mismatched variant
+  colours (for example, a rug coloured “Oat Milk” is not oat milk).
+- `data/gianttiger-parts/` contains small source-attributed shards.
+  The `/api/catalogue/import-gianttiger` endpoint requires the same owner
+  key as existing price refresh and uploads URL metadata with scope
+  `online_unverified`.
+- **Compare prices → Refresh saved product prices** imports those shards once
+  and retains a cursor locally to resume after a phone tab closes. Data
+  remains in D1 between sessions; no product prices are overwritten.
+- Verified no price is imported and no external provider or legacy pricing
+  integration is re-enabled.
+
+Our public-feed probes also found `Your Independent Grocer` serves a
+sitemap, but its first 1 MB contained category links, not product `/p/`
+links; its product catalogue remains to be discovered. FreshCo blocked
+automated listing/sitemap requests (HTTP 403), and we do not bypass those
+protections. Costco's actual robots-declared sitemap index is
+`https://www.costco.ca/sitemap_lw_index.xml`, with separate public product
+sitemap files; that is a candidate for the next importer.
+
 ## Direct product-page URL matching at scale
 
 A one-time [Project Hammer](https://www.projecthammer.org/get-the-data.html)

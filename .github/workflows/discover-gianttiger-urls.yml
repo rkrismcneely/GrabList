@@ -1,0 +1,45 @@
+name: Discover Giant Tiger direct grocery product links
+on:
+  push:
+    branches: [feature/more-retailer-catalogue-links]
+    paths:
+      - scripts/discover_gianttiger_urls.py
+      - .github/workflows/discover-gianttiger-urls.yml
+  workflow_dispatch:
+concurrency:
+  group: discover-gianttiger-public-feed
+  cancel-in-progress: true
+permissions:
+  contents: write
+jobs:
+  discover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Match public Giant Tiger products with standard grocery catalogue
+        run: python3 scripts/discover_gianttiger_urls.py --max-pages 100
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gianttiger-direct-product-links
+          path: |
+            data/gianttiger-url-matches.json
+            data/gianttiger-parts/
+      - name: Commit matched published product links
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/gianttiger-url-matches.json data/gianttiger-parts/
+          if ! git diff --staged --quiet; then
+            git commit -m "Discover Giant Tiger product URLs from public Shopify feed (no prices)"
+            for attempt in 1 2 3 4 5; do
+              git fetch origin "${GITHUB_REF_NAME}"
+              git rebase "origin/${GITHUB_REF_NAME}"
+              if git push origin "HEAD:${GITHUB_REF_NAME}"; then exit 0; fi
+              sleep 3
+            done
+            exit 1
+          fi

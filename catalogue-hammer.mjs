@@ -3,7 +3,8 @@
 // shelf-price claims, or inferred links are imported.
 const STORE_HOSTS = {
   walmart: new Set(['www.walmart.ca','walmart.ca']),
-  nofrills: new Set(['www.nofrills.ca','nofrills.ca'])
+  nofrills: new Set(['www.nofrills.ca','nofrills.ca']),
+  gianttiger: new Set(['www.gianttiger.com','gianttiger.com'])
 };
 const MAX_PART=99;
 const MAX_PART_BYTES=80000;
@@ -16,24 +17,29 @@ function safeProductUrl(raw,retailer){
     if(u.protocol!=='https:'||u.username||u.password||u.port||
       !STORE_HOSTS[retailer]?.has(u.hostname.toLowerCase())||
       (retailer==='walmart'&&!u.pathname.toLowerCase().includes('/ip/'))||
-      (retailer==='nofrills'&&!u.pathname.toLowerCase().includes('/p/')))return null;
-    u.search='';u.hash='';
+      (retailer==='nofrills'&&!u.pathname.toLowerCase().includes('/p/'))||
+      (retailer==='gianttiger'&&!u.pathname.toLowerCase().startsWith('/products/')))return null;
+    if(retailer!=='gianttiger')u.search='';
+    else if(u.search&&!/^\?variant=\d{5,20}$/.test(u.search))return null;
+    u.hash='';
     return u.href;
   }catch{return null;}
 }
 const clean=(s,len)=>typeof s==='string'?s.trim().replace(/\s+/g,' ').slice(0,len):'';
 
-export async function importHammerPart(db,assets,origin,part) {
+export async function importHammerPart(db,assets,origin,part,kind='hammer') {
+  if(!['hammer','gianttiger'].includes(kind))throw Error('Invalid source');
   if(!Number.isInteger(part)||part<0||part>MAX_PART)throw Error('Invalid import page');
   if(!db||!assets||typeof assets.fetch!=='function')throw Error('Catalogue static source is unavailable');
-  const name='/data/hammer-parts/'+String(part).padStart(4,'0')+'.json';
+  const name='/data/'+(kind==='gianttiger'?'gianttiger-parts':'hammer-parts')+'/'+String(part).padStart(4,'0')+'.json';
   const url=new URL(name,origin);
   const response=await assets.fetch(new Request(url,{method:'GET'}));
   if(!response.ok)throw Error('Product URL catalogue part is unavailable: '+part);
   const content=await response.text();
   if(content.length>MAX_PART_BYTES)throw Error('Product URL catalogue part is too large');
   const data=JSON.parse(content);
-  if(data?.source!=='Project Hammer'||data?.scope!=='online_unverified'||
+  const expectedSource=kind==='gianttiger'?'Giant Tiger public Shopify catalogue':'Project Hammer';
+  if(data?.source!==expectedSource||data?.scope!=='online_unverified'||
     data?.part!==part||!Array.isArray(data?.records)||
     data.records.length>MAX_RECORDS||
     !Number.isInteger(data.totalParts)||data.totalParts<1||data.totalParts>MAX_PART+1||
@@ -48,7 +54,8 @@ export async function importHammerPart(db,assets,origin,part) {
     const name=clean(row?.productName,180);
     if(!url||!name||!sku||!key||
       !/^[a-z0-9_-]{1,100}$/i.test(productId)||
-      !/^(?:walmart|nofrills)\|online\|hammer-[0-9a-f]{24}$/.test(key)){
+      !(kind==='gianttiger'?/^gianttiger\|online\|shopify-[0-9a-f]{24}$/.test(key):
+        /^(?:walmart|nofrills)\|online\|hammer-[0-9a-f]{24}$/.test(key))){
       rejected++;continue;
     }
     statements.push(db.prepare(
@@ -64,9 +71,11 @@ export async function importHammerPart(db,assets,origin,part) {
   }
   if(statements.length)await db.batch(statements);
   return {
-    source:'Project Hammer',sourceVersion:data.sourceVersion,
+    source:expectedSource,sourceVersion:data.sourceVersion,
     processed:statements.length,rejected,part,totalParts:data.totalParts,
     totalRecords:data.totalRecords,nextPart:part+1<data.totalParts?part+1:null,
     finished:part+1>=data.totalParts,scope:'online_unverified',pricesImported:0,
   };
 }
+
+export const importGiantTigerPart=(db,assets,origin,part)=>importHammerPart(db,assets,origin,part,'gianttiger');
