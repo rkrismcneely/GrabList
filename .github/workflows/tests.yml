@@ -63,6 +63,8 @@ jobs:
         run: python3 -m unittest discover -s tests -p 'test_hammer_manifest.py' -v
       - name: Check Giant Tiger published product title matching
         run: python3 -m unittest discover -s tests -p 'test_gianttiger_discovery.py' -v
+      - name: Verify Giant Tiger product page manifest and import shards
+        run: python3 -m unittest discover -s tests -p 'test_gianttiger_manifest.py' -v
       - name: Validate pricing UI and Worker module syntax
         run: |
           node --check delivery.js
