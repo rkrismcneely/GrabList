@@ -10,6 +10,7 @@ const offer=(retailer,priceCents,branchId='peterborough',extra={})=>({
 test('package sizes and variants prevent wrong matches',()=>{
  assert.equal(compare.measure('1 kg'),compare.measure('1000 g'));
  assert.equal(compare.productMatch(item,offer('walmart',1800)),true);
+ assert.equal(compare.productMatch({...item,barcode:'123456789012'},offer('walmart',1800)),false);
  assert.equal(compare.productMatch(item,offer('walmart',1800,'peterborough',{size:'340 g'})),false);
  assert.equal(compare.productMatch({name:'Oat Milk',size:'1 L'}, {productName:'Rolled Oats',size:'1 L'}),false);
  assert.equal(compare.productMatch({name:'2% Milk'}, {productName:'1% Milk'}),false);
