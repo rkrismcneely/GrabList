@@ -39,6 +39,28 @@ Manual CLI migration is still an option:
 This isn't required for the initial rollout, because first-run bootstrap
 uses the exact same SQL. Local `--local` migration is also supported.
 
+### Automatic starter URL import
+
+The first **Compare prices → Refresh saved product prices** action after entering
+your owner refresh key also imports existing direct product URLs automatically.
+It uses two **small** public URL lists:
+
+- `JP011098/grocery-price-tracker`: FreshCo, Walmart and Costco candidate links.
+- `Donny1479/Retail-Price-Scraper`: only confirmed matched No Frills URLs;
+  blocked search URLs and not-found results are ignored.
+
+Requests are HTTPS to fixed GitHub-hosted source paths, capped at 256 KB per
+source, and imported in D1 batches of 16. Each entry is restricted to an
+approved retailer host, tagged **online_unverified**, and imported with **no**
+price. A weekly local-browser timestamp avoids repeatedly importing unchanged
+lists. Re-imports don't reset saved prices. If the upstream source is down,
+previous product listings remain available.
+
+This source reuse is a starter only: the selected sources have limited scope,
+and matching, availability, and local Peterborough pricing must still be
+verified at the retailer. Review the publishers' licensing and use terms before
+redistributing substantial third-party datasets.
+
 ### Reusing existing Canadian grocery URL datasets
 
 We found existing product URL datasets, so don't crawl every retailer first:
