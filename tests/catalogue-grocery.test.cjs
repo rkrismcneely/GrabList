@@ -13,7 +13,7 @@ function sample(rows=2){
       brand:'Primo',packageSize:(650+i)+' ml',category:'Pantry',
       retailerSku:'shopify-'+(12345678901234+i),
       productUrl:'https://www.gianttiger.com/products/primo-pasta-sauce-original-'+(650+i)+'ml',
-      listingKey:'gianttiger|online|shopify-'+('0123456789abcdef0123456'+String(i).padStart(3,'0')),
+      listingKey:'gianttiger|online|shopify-'+('0123456789abcdef01234'+String(i).padStart(3,'0')),
       discoveryStatus:'official_grocery_collection_unverified_at_store',
     }))
   };
