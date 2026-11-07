@@ -135,7 +135,38 @@ async function compare(db,request){
   });
   try{
     const batches=statements.length?await db.batch(statements):[];
-    return json({stores,results:items.map((item,i)=>({id:item.id,offers:(batches[i]?.results||[]).map(asListing)})),scope:'catalogue_only'});
+    // Flyer records are only regional product discovery, never local shelf
+    // prices. They cannot enter asListing or the savings evaluator.
+    const discoveryQueries=items.map(item=>{
+      const terms=item.name.toLowerCase().replace(/[%_]/g,'').split(/\s+/).filter(Boolean);
+      const last=terms.at(-1)||'';
+      return db.prepare(`SELECT p.display_name AS productName,p.package_size AS size,p.brand,
+        f.retailer,f.valid_from AS validFrom,f.valid_to AS validTo,
+        f.source_url AS sourceUrl,f.market_scope AS scope
+        FROM catalogue_flyer_discoveries f
+        JOIN catalogue_products p ON p.id=f.master_product_id
+        WHERE f.retailer IN (${placeholders})
+          AND f.valid_to >= date('now') AND f.valid_from <= date('now')
+          AND p.search_name LIKE ? LIMIT 40`
+      ).bind(...stores,'%'+last+'%');
+    });
+    const candidateQueries=items.map(item=>{
+      const terms=item.name.toLowerCase().replace(/[%_]/g,'').split(/\s+/).filter(Boolean);
+      const last=terms.at(-1)||'';
+      return db.prepare(`SELECT display_name AS productName,package_size AS size,brand
+        FROM catalogue_products WHERE search_name LIKE ? LIMIT 60`
+      ).bind('%'+last+'%');
+    });
+    const [flyers,candidates]=await Promise.all([
+      discoveryQueries.length?db.batch(discoveryQueries):Promise.resolve([]),
+      candidateQueries.length?db.batch(candidateQueries):Promise.resolve([])
+    ]);
+    return json({stores,results:items.map((item,i)=>({
+      id:item.id,
+      offers:(batches[i]?.results||[]).map(asListing),
+      flyerMatches:flyers[i]?.results||[],
+      productCandidates:candidates[i]?.results||[]
+    })),scope:'catalogue_only'});
   }catch{return error('Catalogue query failed. Check that D1 migrations were applied.',503,'catalogue_schema_missing');}
 }
 async function refresh(db,env,request){
@@ -216,8 +247,16 @@ export async function handleCatalogueApi(request,env){
   if(path==='/api/catalogue/status'){
     if(!db)return json({ready:false,refreshReady:false,reason:'Connect the CATALOGUE_DB D1 binding and apply migrations.',products:0,listings:0});
     try{
-      const count=await db.prepare('SELECT (SELECT count(*) FROM catalogue_products) AS products,(SELECT count(*) FROM catalogue_listings) AS listings').first();
-      return json({ready:true,refreshReady:Boolean(env.CATALOGUE_WRITE_KEY),products:count.products,listings:count.listings});
+      const count=await db.prepare(`SELECT
+        (SELECT count(*) FROM catalogue_products) AS products,
+        (SELECT count(*) FROM catalogue_listings) AS listings,
+        (SELECT count(*) FROM catalogue_flyer_discoveries) AS flyerDiscoveries,
+        (SELECT count(*) FROM catalogue_flyer_discoveries
+          WHERE valid_from <= date('now') AND valid_to >= date('now')) AS currentFlyerDiscoveries`).first();
+      return json({ready:true,refreshReady:Boolean(env.CATALOGUE_WRITE_KEY),products:count.products,
+        listings:count.listings,flyerDiscoveries:count.flyerDiscoveries,
+        currentFlyerDiscoveries:count.currentFlyerDiscoveries,
+        flyerScope:'regional_unverified',priceScope:'product_urls_only'});
     }catch{return json({ready:false,refreshReady:false,reason:'Apply the catalogue database migration first.',products:0,listings:0});}
   }
   if(!db)return error('Catalogue D1 database has not been connected.',503,'catalogue_not_configured');
