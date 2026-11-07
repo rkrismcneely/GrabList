@@ -110,6 +110,38 @@ NULL last-known prices. They must not be silently promoted to a selected
 Peterborough branch. Cross-store lookups use product name, package size, and
 explicit brand/UPC restrictions.
 
+## Costco public product sitemap coverage
+
+Costco publicly declares `https://www.costco.ca/sitemap_lw_index.xml` in
+its `robots.txt`. Two linked product sitemaps contained **26,382 publicly
+listed item pages**. We match URL-derived product descriptions and their
+published item numbers to our canonical grocery catalogue, excluding obvious
+non-food/non-consumable keyword collisions such as bread knives, bread makers,
+coffee tables and novelty prints.
+
+The November 7 first pass retained approximately **767 candidate Costco
+direct product URLs** matching 186 GrabList descriptions, sharded in
+`data/costco-parts`; scripts and tests enumerate the exact count in a given
+source revision. The published pages may be online-only, absent at a nearby
+warehouse, or outdated; **no Costco shelf price or stock is inferred**.
+
+- `scripts/discover_costco_urls.py` reads only the explicitly published
+  product sitemap files, with a bounded 8 MB size check and a conservative
+  product matcher. It selects real publisher URLs, never guessed paths.
+- The `/api/catalogue/import-costco` endpoint imports URL-only D1
+  records in 80-link batches. Authorization uses the same owner's refresh
+  secret already configured in Cloudflare.
+- **Compare prices → Refresh saved product prices** imports Costco batches
+  along with the existing Walmart, No Frills and Giant Tiger sources. Its
+  progress and resume cursor survive a phone tab closing.
+- A sitemap slug is not a full product specification. A size is accepted
+  as a hint only where unambiguous and plausible, or where explicitly
+  matched against an existing canonical product size. Ambiguous or
+  decimal-stripped quantities are left unknown.
+- Some retailer sitemap fetches may temporarily fail; previously imported
+  product links and price observations are preserved, and a later import
+  can resume.
+
 ## Giant Tiger official product feed coverage
 
 Giant Tiger publishes direct product and variant URLs in a publicly
