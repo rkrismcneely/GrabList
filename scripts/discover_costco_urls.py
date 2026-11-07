@@ -30,7 +30,10 @@ PRODUCT_SLUG = re.compile(r"^/p/-/([a-z0-9%\-]+)/(\d{5,14})/?$", re.I)
 LEGACY_SLUG = re.compile(r"^/([a-z0-9%\-]+)\.product\.(\d{5,14})\.html$", re.I)
 NONFOOD = {"rug", "carpet", "costume", "dress", "shirt", "jacket", "sunglasses", "ornament",
            "necklace", "ring", "watch", "toy", "lego", "puzzle", "candle", "shoes", "tablet",
-           "laptop", "computer", "sofa", "sofas", "sweater", "pants", "lightbulb"}
+           "laptop", "computer", "sofa", "sofas", "sweater", "pants", "lightbulb",
+           "knife", "knives", "maker", "makers", "machine", "blender", "poster", "framed",
+           "print", "artwork", "decorative", "decoration", "table", "desk", "mug",
+           "chopper", "cutter", "grinder", "appliance", "couch", "headphones"}
 GROCERY_CATEGORIES = {"Produce", "Dairy", "Bakery", "Meat", "Pantry", "Frozen", "Snacks", "Drinks"}
 
 
@@ -110,7 +113,7 @@ def collect(root,limit=PER_PRODUCT_LIMIT):
             for candidate in potential.values():
                 # Avoid product titles representing non-food objects with a
                 # coincidental grocery word.
-                if candidate.get("category") in GROCERY_CATEGORIES and NONFOOD & available:
+                if NONFOOD & available:
                     continue
                 score=matched_score(candidate,name,"",name)
                 if score is not None and (best is None or score>best[0]):
