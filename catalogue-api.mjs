@@ -1,3 +1,4 @@
+import { ensureCatalogueSchema } from "./catalogue-bootstrap.mjs";
 // Single active GrabList pricing API. Requires a Cloudflare D1 binding named CATALOGUE_DB.
 // Legacy provider routes are deliberately disabled in worker.js; no optional services run here.
 const RETAILERS = new Set(['walmart','nofrills','freshco','independent','costco','gianttiger']);
@@ -183,6 +184,10 @@ export async function handleCatalogueApi(request,env){
   const path=new URL(request.url).pathname;
   if(!path.startsWith('/api/catalogue/'))return null;
   const db=env.CATALOGUE_DB;
+  if(db){
+    try { await ensureCatalogueSchema(db); }
+    catch { return json({ready:false,refreshReady:false,reason:'Catalogue database could not be initialized. Check D1 binding and migration logs.',products:0,listings:0},503); }
+  }
   if(path==='/api/catalogue/status'){
     if(!db)return json({ready:false,refreshReady:false,reason:'Connect the CATALOGUE_DB D1 binding and apply migrations.',products:0,listings:0});
     try{
