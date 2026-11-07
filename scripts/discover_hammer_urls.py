@@ -45,7 +45,7 @@ EXCLUDE = {
     "tomatoes": {"sauce", "paste", "soup", "juice"},
     "marshmallows": {"cereal", "treats", "squares", "fluff"},
 }
-COMMON_MODIFIERS = {"fresh", "bulk", "brand", "block", "large", "small"}
+COMMON_MODIFIERS = {"fresh", "bulk", "brand", "block"}
 COMMON_STORES = ("walmart", "nofrills")
 
 
@@ -125,19 +125,57 @@ def matched_score(candidate, name, brand, size):
         return None
 
     original = candidate["nameTokens"]
+    # Prevent wrong products that happen to share a generic search term.
     if len(original) == 1:
         key = next(iter(original))
         if EXCLUDE.get(key, set()) & name_tokens:
             return None
-    if "ground" in original and "instant" in name_tokens:
+    if "milk" in original:
+        plant = {"oat", "almond", "soy", "soya", "coconut"}
+        dairy_variants = {"goat", "sheep", "powder", "evaporated", "condensed"}
+        if not (original & plant) and (name_tokens & (plant | dairy_variants)):
+            return None
+        if "lactose" not in original and "lactose" in name_tokens:
+            return None
+        if "chocolate" not in original and "chocolate" in name_tokens:
+            return None
+        if ("2" in original or "1" in original or "skim" in original or "whole" in original):
+            requested_fat = "2" if "2" in original else "1" if "1" in original else "skim" if "skim" in original else "whole"
+            if requested_fat == "whole" and {"skim", "2", "1"} & name_tokens:
+                return None
+            if requested_fat == "2" and {"skim", "1", "whole"} & name_tokens:
+                return None
+            if requested_fat == "1" and {"skim", "2", "whole"} & name_tokens:
+                return None
+            if requested_fat == "skim" and {"1", "2", "whole"} & name_tokens:
+                return None
+    if "eggs" in original:
+        if "large" in original and {"extra", "medium", "small", "jumbo"} & name_tokens:
+            return None
+        if "medium" in original and {"extra", "large", "jumbo", "small"} & name_tokens:
+            return None
+        if {"powdered", "chocolate", "cadbury", "easter", "eggnog"} & name_tokens:
+            return None
+    if {"ground", "coffee"}.issubset(original) and {"instant", "pods", "bean"} & name_tokens:
         return None
-    if "instant" in original and "ground" in name_tokens:
+    if {"whole", "bean"}.issubset(original) and "ground" in name_tokens:
         return None
-    if "oat" in original and "milk" in original and "oat" not in name_tokens:
-        return None
-    if "whole" in original and "milk" in original and ("skim" in name_tokens or "2" in name_tokens):
-        return None
-    if "2" in original and "milk" in original and ("1" in name_tokens or "skim" in name_tokens):
+    if "bread" in original:
+        if {"sandwich", "salad"} <= name_tokens or {"sandwich", "ham"} <= name_tokens:
+            return None
+        if {"breadcrumbs", "stuffing", "croutons", "pudding"} & name_tokens:
+            return None
+        if "gluten" not in original and {"gluten", "free"} <= name_tokens:
+            return None
+    if "pizza" in original and not ({"snacks", "bites", "pockets", "rolls"} & original):
+        if {"snacks", "bites", "pockets", "rolls"} & name_tokens:
+            return None
+    if {"potatoes", "carrots", "broccoli", "onions", "apples", "tomatoes", "cauliflower"} & original:
+        if not ({"frozen", "canned", "cooked"} & original) and (
+            {"roasted", "soup", "sauce", "chips", "fries", "prepared", "meal", "diced"} & name_tokens
+        ):
+            return None
+    if {"lean", "ground", "beef"}.issubset(original) and "extra" in name_tokens and "extra" not in original:
         return None
 
     required_size = candidate["sizeValue"]
@@ -280,7 +318,31 @@ def main():
         "matchingPolicy": "conservative tokens, explicit brand and comparable package sizes; first-pass per-item cap",
         "records": records,
     }
-    target.write_text(json.dumps(payload, ensure_ascii=False, separators=(",", ":")) + "\n", encoding="utf-8")
+    encoded = json.dumps(payload, ensure_ascii=False, separators=(",", ":")) + "\n"
+    target.write_text(encoded, encoding="utf-8")
+    # Shards support small resumable D1 import requests, without 1+ MB fetches.
+    shard_dir = target.parent / "hammer-parts"
+    shard_dir.mkdir(parents=True, exist_ok=True)
+    for old in shard_dir.glob("*.json"):
+        old.unlink()
+    chunk_size = 80
+    digest = hashlib.sha256(encoded.encode("utf-8")).hexdigest()[:16]
+    total_parts = (len(records) + chunk_size - 1) // chunk_size
+    for index in range(total_parts):
+        shard = {
+            "source": "Project Hammer",
+            "sourceVersion": digest,
+            "part": index,
+            "totalParts": total_parts,
+            "totalRecords": len(records),
+            "scope": "online_unverified",
+            "records": records[index * chunk_size:(index + 1) * chunk_size],
+        }
+        (shard_dir / f"{index:04d}.json").write_text(
+            json.dumps(shard, ensure_ascii=False, separators=(",", ":")) + "\n",
+            encoding="utf-8"
+        )
+
     print(json.dumps({
         "sourceRowsMatched": stats["matched"], "unmatched": stats["unmatched"],
         "excludedInvalidUrl": stats["missing_or_non_product_url"],
@@ -288,6 +350,8 @@ def main():
         "uniqueProductsCovered": len({r["masterProductId"] for r in records}),
         "perRetailer": dict(collections.Counter(r["retailer"] for r in records)),
         "manifestBytes": target.stat().st_size,
+        "importShards": total_parts,
+        "sourceVersion": digest,
     }, indent=2))
 
 
