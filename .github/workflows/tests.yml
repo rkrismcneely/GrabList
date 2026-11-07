@@ -30,6 +30,8 @@ jobs:
           assert db.execute('select count(*) from catalogue_listings where last_price_cents is not null').fetchone()[0] == 0
           print('Migrated', products, 'starter products and', listings, 'unpriced links')
           PY
+      - name: Validate imported retailer URL dataset adapters
+        run: python3 -m unittest discover -s tests -p 'test_existing_catalogue_import.py' -v
       - name: Validate pricing UI and Worker module syntax
         run: |
           node --check delivery.js
