@@ -119,8 +119,8 @@ published item numbers to our canonical grocery catalogue, excluding obvious
 non-food/non-consumable keyword collisions such as bread knives, bread makers,
 coffee tables and novelty prints.
 
-The November 7 first pass retained approximately **767 candidate Costco
-direct product URLs** matching 186 GrabList descriptions, sharded in
+The November 7 first pass retained **809 candidate Costco
+direct product URLs** matching **191** GrabList descriptions, sharded in
 `data/costco-parts`; scripts and tests enumerate the exact count in a given
 source revision. The published pages may be online-only, absent at a nearby
 warehouse, or outdated; **no Costco shelf price or stock is inferred**.
