@@ -281,6 +281,7 @@ def discover(csv_rows, requested, max_per_item=20):
         chosen = sorted(values, key=lambda row:(-row["score"], row["productUrl"]))[:max_per_item]
         for row in chosen:
             row.pop("score", None)
+            row["listingKey"] = (row["retailer"] + "|online|hammer-" + hashlib.sha256((row["retailer"]+"|"+row["retailerSku"]).encode("utf-8")).hexdigest()[:24])
             records.append(row)
     records.sort(key=lambda row:(row["retailer"], row["masterProductId"], row["productUrl"]))
     return records, stats
