@@ -590,7 +590,7 @@ function itemRow(item,index,total,colors,departmentLabel='',completed=false){
   const palettePosition=Math.min(index/9,1);
   const rowBg=completed?'#e5ddd4':atGradient(colors,palettePosition);
   const ink=completed?'#6f665f':textColor(rowBg);
-  const detail=[item.quantity&&item.quantity!=='1'?`${item.quantity} ×`:null,item.size||null,item.brand?`· ${item.brand}`:null,item.priceEvidence?.sizeEvidence==='auto_selected_catalogue_pack'?'· suggested pack':null,item.priceSource==='reference'?`· estimate: ${item.priceEvidence?.location||'Canada'}`:null].filter(Boolean).join(' ');
+  const detail=[item.quantity&&item.quantity!=='1'?`${item.quantity} ×`:null,item.size||null,item.brand?`· ${item.brand}`:null,['auto_selected_catalogue_pack','auto_selected_national_pack'].includes(item.priceEvidence?.sizeEvidence)?'· suggested pack':null,item.priceSource==='reference'?`· estimate: ${item.priceEvidence?.location||'Canada'}`:null].filter(Boolean).join(' ');
   const text=[item.name,detail,item.price===null?'Price unknown':`${formatPrice(item)} (${item.priceSource==='reference'?'reference estimate':item.priceSource==='demo'?'demo':'manual'} price)`].filter(Boolean).join(', ');
   return `<div class="swipe-shell">
     <span class="swipe-action complete" aria-hidden="true"><svg viewBox="0 0 32 32"><path d="M6 17l7 7L27 9"/></svg></span>
