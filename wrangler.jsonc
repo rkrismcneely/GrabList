@@ -6,6 +6,16 @@
     "directory": "./",
     "binding": "ASSETS",
     "not_found_handling": "single-page-application",
-    "run_worker_first": ["/api/*"]
-  }
+    "run_worker_first": [
+      "/api/*"
+    ]
+  },
+  "d1_databases": [
+    {
+      "binding": "CATALOGUE_DB",
+      "database_name": "grablist-catalogue",
+      "database_id": "e1befcc0-69ee-4a8d-a4db-adb1c6e2f819",
+      "migrations_dir": "migrations"
+    }
+  ]
 }
