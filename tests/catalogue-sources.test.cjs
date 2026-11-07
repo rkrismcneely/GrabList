@@ -52,6 +52,36 @@ test('curated import batches are bounded, private and store only product metadat
   assert.equal(lastBatch.length,8);
 });
 
+test('No Frills existing links import only genuinely matched product URLs',async()=>{
+  const {extractMatchedNoFrillsLinks,importCuratedBatch,NOFRILLS_SOURCE_URL,NOFRILLS_METADATA_URL}
+    =await import('../catalogue-sources.mjs');
+  const products='product_id,item_description,brand,size_qty,size_uom\n'+
+    'sku_1,Chicken Noodle Soup,Tim Hortons,540,mL\n'+
+    'sku_2,Tomato Soup,Campbells,284,mL\n';
+  const urls='retailer_id,product_id,product_url,url_status,matched_product_name,last_checked,seller,notes\n'+
+    'no_frills,sku_1,https://www.nofrills.ca/en/chicken-noodle-soup/p/123_EA,matched,Chicken Noodle Soup,2026-11-07,,\n'+
+    'no_frills,sku_2,https://www.nofrills.ca/search?q=soup,blocked,,2026-11-07,,\n'+
+    'walmart,sku_1,https://www.walmart.ca/en/ip/soup/123,matched,Soup,2026-11-07,,\n';
+  const entries=extractMatchedNoFrillsLinks(urls,products);
+  assert.equal(entries.length,1);
+  assert.equal(entries[0].brand,'Tim Hortons');
+  assert.equal(entries[0].size,'540 mL');
+  let statements=[];
+  const db={prepare(sql){return {bind(...values){return {sql,values};}};},
+    async batch(batch){statements=batch;}};
+  const fetcher=async url=>({
+    ok:true,headers:{get:()=>null},
+    text:async()=>url===NOFRILLS_SOURCE_URL?urls:
+      url===NOFRILLS_METADATA_URL?products:''
+  });
+  const result=await importCuratedBatch(db,{source:'nofrills-matched',offset:0},fetcher);
+  assert.equal(result.processed,1);
+  assert.equal(result.pricesImported,0);
+  assert.equal(statements.length,2);
+  assert.equal(statements[1].values[2],'nofrills');
+  assert.equal(statements[1].values[3],'online');
+});
+
 test('catalogue API requires owner secret for importing URLs',async()=>{
   const {handleCatalogueApi}=await import('../catalogue-api.mjs');
   let attempts=0;
