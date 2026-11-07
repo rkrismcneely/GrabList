@@ -1333,6 +1333,64 @@ async function refreshCataloguePrices(){
         await loadCatalogueComparison();
       }
     }
+    // Costco exposes direct item pages in its official robots-declared sitemap.
+    // These are online URL candidates, NOT verified nearby-warehouse prices.
+    const costcoRelease='costco-sitemap-2026-11-v1';
+    let costcoDone=false,costcoPart=0;
+    try{
+      costcoDone=localStorage.getItem(costcoRelease+'-complete')==='1';
+      costcoPart=Number(localStorage.getItem(costcoRelease+'-next')||0);
+    }catch{}
+    if(!costcoDone){
+      $('compare-progress').hidden=false;
+      let loaded=0;
+      try{
+        for(let page=0;page<100;page++){
+          output.textContent='Importing Costco product pages · batch '+(costcoPart+1)+'…';
+          const response=await fetch('/api/catalogue/import-costco',{
+            method:'POST',headers:{'Content-Type':'application/json','x-grablist-key':key},
+            body:JSON.stringify({part:costcoPart})
+          });
+          const data=await response.json();
+          if(!response.ok){
+            if(response.status===401){
+              try{sessionStorage.removeItem(CATALOGUE_KEY_STORAGE);}catch{}
+              throw Error('Invalid catalogue refresh key');
+            }
+            throw Error(data.error||'Costco product URL import failed');
+          }
+          if(!Number.isInteger(data.processed)||!Number.isInteger(data.totalParts)||
+             !Number.isInteger(data.totalRecords))throw Error('Invalid Costco import response');
+          imported+=data.processed;
+          loaded+=data.processed;
+          $('compare-progress').max=data.totalParts;
+          $('compare-progress').value=costcoPart+1;
+          try{localStorage.setItem(costcoRelease+'-next',String(costcoPart+1));}catch{}
+          output.textContent='Imported '+Math.min((costcoPart+1)*80,data.totalRecords)+' of '+
+            data.totalRecords+' Costco links · batch '+(costcoPart+1)+' of '+data.totalParts;
+          if(data.finished){
+            try{
+              localStorage.setItem(costcoRelease+'-complete','1');
+              localStorage.removeItem(costcoRelease+'-next');
+            }catch{}
+            break;
+          }
+          if(!Number.isInteger(data.nextPart)||data.nextPart<=costcoPart)throw Error('Invalid Costco import continuation');
+          costcoPart=data.nextPart;
+          if(page===99)throw Error('Costco URL import exceeded its safety limit');
+        }
+      }catch(error){
+        if(String(error.message||'').includes('Invalid catalogue refresh key'))throw error;
+        importError+=(importError?' · ':'')+'Costco URL import incomplete; next click resumes: '+
+          String(error.message||'Unknown error');
+      }finally{
+        $('compare-progress').hidden=true;
+      }
+      if(loaded){
+        output.textContent='Imported '+loaded+' Costco product links. Checking shopping list…';
+        await loadCatalogueComparison();
+      }
+    }
     // Reuse existing retailer product URLs no more than weekly. Imports are
     // idempotent, and a transient source failure must not block price refresh.
     let importedAt=0;
