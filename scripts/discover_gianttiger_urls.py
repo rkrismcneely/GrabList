@@ -13,6 +13,7 @@ import re
 import sys
 import time
 import urllib.request
+import urllib.error
 import urllib.robotparser
 from pathlib import Path
 from discover_hammer_urls import candidates, matched_score, tokens, SIZE
@@ -20,7 +21,7 @@ from discover_hammer_urls import candidates, matched_score, tokens, SIZE
 BASE = "https://www.gianttiger.com"
 AGENT = "GrabListPersonalCatalogue/1.0 (+https://github.com/rkrismcneely/GrabList)"
 PATH = "/products.json?limit=250&page={page}"
-MAX_PAGES = 140
+MAX_PAGES = 100
 SLEEP_SECONDS = 0.8
 MAX_PER_ITEM = 15
 BATCH_SIZE = 80
@@ -54,7 +55,15 @@ def matching_entries(root, max_pages):
     page_count = 0
     observed = 0
     for page in range(1, max_pages + 1):
-        data = get_json(BASE + PATH.format(page=page))
+        try:
+            data = get_json(BASE + PATH.format(page=page))
+        except urllib.error.HTTPError as exc:
+            # Shopify often caps standard product pagination at page 100.
+            # Do not bypass/alter the access control; publish the covered subset.
+            if page > 100 and exc.code == 400:
+                print('Storefront product feed pagination limit reached; preserving first 100 pages',flush=True)
+                break
+            raise
         rows = data.get("products")
         if not isinstance(rows, list):
             raise ValueError("Unexpected Giant Tiger products.json schema")
@@ -148,10 +157,10 @@ def write_parts(records, directory):
 def main():
     parser=argparse.ArgumentParser()
     parser.add_argument("--root",default=".")
-    parser.add_argument("--max-pages",type=int,default=140)
+    parser.add_argument("--max-pages",type=int,default=100)
     args=parser.parse_args()
     if not 1<=args.max_pages<=MAX_PAGES:
-        parser.error("max-pages must be between 1 and 140")
+        parser.error("max-pages must be between 1 and 100")
     root=Path(args.root)
     records,pages,observed=matching_entries(root,args.max_pages)
     out=root/"data/gianttiger-url-matches.json"
