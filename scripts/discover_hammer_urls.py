@@ -109,13 +109,13 @@ def candidates(root):
     con.executescript((root / "migrations/0001_catalogue.sql").read_text(encoding="utf-8"))
     con.executescript((root / "migrations/0002_flyer_candidates.sql").read_text(encoding="utf-8"))
     rows = con.execute(
-        "SELECT id,display_name,brand,package_size,discovered_from FROM catalogue_products"
+        "SELECT id,display_name,brand,package_size,discovered_from,category FROM catalogue_products"
     ).fetchall()
     return [
         {"id": product_id, "name": name, "brand": brand, "size": size,
-         "source": source, "nameTokens": tokens(name), "brandTokens": tokens(brand),
+         "source": source, "category": category, "nameTokens": tokens(name), "brandTokens": tokens(brand),
          "sizeValue": parse_size(size)}
-        for product_id, name, brand, size, source in rows
+        for product_id, name, brand, size, source, category in rows
     ]
 
 
