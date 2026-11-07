@@ -1,0 +1,45 @@
+name: Discover Full Giant Tiger Grocery Assortment
+on:
+  push:
+    branches: [feature/grocery-catalogue-expansion-2026-11]
+    paths:
+      - scripts/discover_full_gianttiger_grocery.py
+      - .github/workflows/discover-gt-grocery.yml
+  workflow_dispatch:
+concurrency:
+  group: discover-gianttiger-grocery
+  cancel-in-progress: true
+permissions:
+  contents: write
+jobs:
+  discover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Build official grocery-only product and URL catalogue
+        run: python3 scripts/discover_full_gianttiger_grocery.py --max-pages 100 --throttle 0.3
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gianttiger-grocery-catalogue
+          path: |
+            data/gianttiger-grocery-products.json
+            data/gianttiger-grocery/
+      - name: Commit metadata-only grocery catalogue
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/gianttiger-grocery-products.json data/gianttiger-grocery/
+          if ! git diff --staged --quiet; then
+            git commit -m "Add official Giant Tiger grocery product links and descriptions (no prices)"
+            for attempt in 1 2 3 4 5; do
+              git fetch origin "${GITHUB_REF_NAME}"
+              git rebase "origin/${GITHUB_REF_NAME}"
+              if git push origin "HEAD:${GITHUB_REF_NAME}"; then exit 0; fi
+              sleep 3
+            done
+            exit 1
+          fi
