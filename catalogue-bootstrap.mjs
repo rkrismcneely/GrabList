@@ -10,10 +10,13 @@ export async function ensureCatalogueSchema(db) {
     inFlight = (async () => {
       try {
         await db.prepare('SELECT count(*) AS amount FROM catalogue_products').first();
+        await db.prepare('SELECT count(*) AS amount FROM catalogue_listings').first();
+        await db.prepare('SELECT count(*) AS amount FROM catalogue_price_history').first();
       } catch {
         await db.exec(CATALOGUE_V1_SQL);
       }
-      // Require both tables before claiming ready. A partial initialization fails closed.
+      // Require complete schema before claiming ready. A partial initialization fails closed.
+      await db.prepare('SELECT count(*) AS amount FROM catalogue_products').first();
       await db.prepare('SELECT count(*) AS amount FROM catalogue_listings').first();
       await db.prepare('SELECT count(*) AS amount FROM catalogue_price_history').first();
     })();
