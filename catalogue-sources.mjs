@@ -3,11 +3,16 @@
 // This adapter does not copy another project's scraper code or historic prices.
 export const CURATED_SOURCE_URL =
   'https://raw.githubusercontent.com/JP011098/grocery-price-tracker/main/products.json';
+export const NOFRILLS_SOURCE_URL =
+  'https://raw.githubusercontent.com/Donny1479/Retail-Price-Scraper/main/data/product_urls.csv';
+export const NOFRILLS_METADATA_URL =
+  'https://raw.githubusercontent.com/Donny1479/Retail-Price-Scraper/main/data/products.csv';
 
 const RETAILER_HOSTS = Object.freeze({
   walmart: ['walmart.ca','www.walmart.ca'],
   freshco: ['freshco.com','www.freshco.com'],
-  costco: ['costco.ca','www.costco.ca']
+  costco: ['costco.ca','www.costco.ca'],
+  nofrills: ['nofrills.ca','www.nofrills.ca']
 });
 const MAX_BATCH = 16;
 const MAX_SOURCE_BYTES = 256 * 1024;
@@ -50,6 +55,56 @@ export function extractCuratedLinks(data) {
   }
   return entries;
 }
+function csvRows(text) {
+  const rows=[]; let row=[],field='',quoted=false;
+  for(let i=0;i<text.length;i++){
+    const ch=text[i];
+    if(quoted){
+      if(ch==='"'&&text[i+1]==='"'){field+='"';i++;}
+      else if(ch==='"'){quoted=false;}
+      else field+=ch;
+    }else if(ch==='"'){quoted=true;}
+    else if(ch===','){row.push(field);field='';}
+    else if(ch==='\n'){
+      row.push(field.replace(/\r$/,''));field='';
+      if(row.some(v=>v!==''))rows.push(row);
+      row=[];
+    }else field+=ch;
+  }
+  if(field!==''||row.length){row.push(field.replace(/\r$/,''));rows.push(row);}
+  if(!rows.length)return [];
+  const heads=rows.shift().map(x=>x.trim().replace(/^\uFEFF/,''));
+  return rows.map(values=>Object.fromEntries(heads.map((head,i)=>[head,values[i]||''])));
+}
+export function extractMatchedNoFrillsLinks(urlCsv,productCsv) {
+  const productById=new Map(csvRows(productCsv).map(p=>[p.product_id,p]));
+  const entries=[],seen=new Set();
+  for(const row of csvRows(urlCsv)){
+    if(row.retailer_id!=='no_frills'||row.url_status!=='matched')continue;
+    const url=safeCuratedUrl(row.product_url,'nofrills');
+    const product=productById.get(row.product_id);
+    const name=clean(row.matched_product_name||product?.item_description,150);
+    if(!url||!name||seen.has(url))continue;
+    seen.add(url);
+    const sizeFromSource=product?.size_qty&&product?.size_uom?
+      clean(product.size_qty+' '+product.size_uom,45):'';
+    entries.push({retailer:'nofrills',url,name,
+      brand:clean(product?.brand,75),size:packageSize(name)||sizeFromSource});
+  }
+  return entries;
+}
+async function fetchSourceText(url,fetcher) {
+  const response=await fetcher(url,{
+    method:'GET',headers:{Accept:'application/json,text/csv'},
+    redirect:'error',signal:AbortSignal.timeout(10000)
+  });
+  if(!response.ok)throw Error('Source catalogue temporarily unavailable');
+  const len=Number(response.headers.get('content-length'));
+  if(Number.isFinite(len)&&len>MAX_SOURCE_BYTES)throw Error('Source catalogue too large');
+  const content=await response.text();
+  if(content.length>MAX_SOURCE_BYTES)throw Error('Source catalogue too large');
+  return content;
+}
 async function sha24(value) {
   const bytes=new TextEncoder().encode(value);
   const hash=await crypto.subtle.digest('SHA-256',bytes);
@@ -58,16 +113,19 @@ async function sha24(value) {
 export async function importCuratedBatch(db,body={},fetcher=fetch) {
   const offset=body?.offset;
   if(!Number.isInteger(offset)||offset<0||offset>20000)throw Error('Invalid import offset');
-  const response=await fetcher(CURATED_SOURCE_URL,{
-    method:'GET',headers:{Accept:'application/json'},
-    redirect:'error',signal:AbortSignal.timeout(10000)
-  });
-  if(!response.ok)throw Error('Source catalogue temporarily unavailable');
-  const len=Number(response.headers.get('content-length'));
-  if(Number.isFinite(len)&&len>MAX_SOURCE_BYTES)throw Error('Source catalogue too large');
-  const content=await response.text();
-  if(content.length>MAX_SOURCE_BYTES)throw Error('Source catalogue too large');
-  const links=extractCuratedLinks(JSON.parse(content));
+  const source=body?.source||'curated-grocery-tracker';
+  let links;
+  if(source==='curated-grocery-tracker'){
+    links=extractCuratedLinks(JSON.parse(await fetchSourceText(CURATED_SOURCE_URL,fetcher)));
+  }else if(source==='nofrills-matched'){
+    const [urlCsv,productsCsv]=await Promise.all([
+      fetchSourceText(NOFRILLS_SOURCE_URL,fetcher),
+      fetchSourceText(NOFRILLS_METADATA_URL,fetcher)
+    ]);
+    links=extractMatchedNoFrillsLinks(urlCsv,productsCsv);
+  }else{
+    throw Error('Unknown curated source');
+  }
   const batch=links.slice(offset,offset+MAX_BATCH);
   const statements=[];
   for(const item of batch){
@@ -89,6 +147,6 @@ export async function importCuratedBatch(db,body={},fetcher=fetch) {
   }
   if(statements.length)await db.batch(statements);
   const nextOffset=offset+batch.length<links.length?offset+batch.length:null;
-  return {source:'curated-grocery-tracker',processed:batch.length,total:links.length,
+  return {source,processed:batch.length,total:links.length,
     nextOffset,finished:nextOffset===null,scope:'online_unverified',pricesImported:0};
 }
