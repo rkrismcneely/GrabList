@@ -60,7 +60,16 @@
     const kind=itemKind(item);
     if(kind==='standard-milk'&&!standardMilk(p))return false;
     if(kind==='standard-eggs'&&!standardEggs(p,listing.size))return false;
-    if(kind==='standard-bread'&&!standardBread(p))return false;
+    if(kind==='standard-bread'){
+      if(!standardBread(p))return false;
+      // "1 loaf" should not compare a 1.4 kg club pack against an ordinary
+      // 570–675 g sandwich loaf just because both say bread.
+      const grams=measure(listing.size);
+      if(/^\d+(?:\.\d+)?g$/.test(grams)){
+        const weight=parseFloat(grams);
+        if(weight<450||weight>800)return false;
+      }
+    }
     const cases=[
       [/(^| )oat milk($| )/,/(^| )oat milk($| )/],
       [/(^| )almond milk($| )/,/(^| )almond milk($| )/],
