@@ -274,7 +274,8 @@ function asListing(row){
     key:row.listing_key,productId:row.master_product_id,retailer:row.retailer,branchId:row.branch_id,
     productName:row.product_name,masterName:row.display_name,
     brand:row.brand||row.master_brand||'',size:row.package_size||row.master_size||'',
-    barcode:row.barcode||row.master_barcode||'',url:row.product_url,
+    barcode:row.barcode||row.master_barcode||'',
+    url:row.retailer==='nofrills'?(canonicalNofrillsUrl(row.product_url)||row.product_url):row.product_url,
     priceCents:row.last_price_cents,source:row.price_source,scope:row.price_scope,
     observedAt:at,lastAttemptedAt:row.last_attempted_at,lastError:row.last_error,
     status:!Number.isInteger(row.last_price_cents)?'unavailable':age>=0&&age<=36*3600000?'current':'stale'
