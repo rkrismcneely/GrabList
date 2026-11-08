@@ -120,6 +120,37 @@ export function extractShopifyProductPrice(product, rawProductUrl){
   if(unique.length!==1)return {priceCents:null,reason:unique.length?'Different variant prices; select a variant':'Product currently unavailable'};
   return {priceCents:unique[0],scope:'online_unverified',source:'gianttiger-shopify-product'};
 }
+
+/* A conservative fallback for direct Loblaw-bannner product pages that expose
+ * a price in product text but omit price-bearing JSON-LD/meta. Anchor only
+ * after a matching product H1, never a search card, nav promotion or flyer.
+ */
+export function extractLoblawVisiblePrice(html,rawUrl){
+  let url;
+  try{url=new URL(rawUrl);}catch{return {priceCents:null,reason:'Invalid product URL'};}
+  if(!['www.nofrills.ca','nofrills.ca','www.yourindependentgrocer.ca',
+        'yourindependentgrocer.ca','www.independentgrocer.ca','independentgrocer.ca'].includes(url.hostname))
+    return {priceCents:null,reason:'Not a supported product page'};
+  const path=url.pathname.match(/^\/en\/([a-z0-9%-]+)\/p\/\d{6,14}_(?:EA|KG)\/?$/i);
+  if(!path)return {priceCents:null,reason:'Not a direct Loblaw product URL'};
+  const h1=/<h1\b[^>]*>([\s\S]{0,2000}?)<\/h1\s*>/i.exec(html);
+  if(!h1)return {priceCents:null,reason:'No product heading'};
+  const title=h1[1].replace(/<[^>]*>/g,' ').toLowerCase().replace(/[^a-z0-9 ]/g,' ');
+  const tokens=decodeURIComponent(path[1]).toLowerCase().split('-')
+    .filter(t=>t.length>2&&t!=='and');
+  if(!tokens.length||tokens.filter(t=>title.split(/\s+/).includes(t)).length<Math.ceil(tokens.length*.6))
+    return {priceCents:null,reason:'Product heading does not match URL'};
+  const from=h1.index+h1[0].length;
+  let section=html.slice(from,from+12000).split(/<h[12]\b|product description|Product description/i)[0];
+  section=section.replace(/<script\b[^>]*>[\s\S]*?<\/script\s*>/gi,'')
+    .replace(/<style\b[^>]*>[\s\S]*?<\/style\s*>/gi,'')
+    .replace(/<[^>]*>/g,' ').replace(/&nbsp;|&#160;/gi,' ');
+  const price=section.match(/\$\s*(\d{1,4}(?:,\d{3})?(?:\.\d{2})?)\s*(?:ea|each)\b/i);
+  const cents=price?validPriceCents(price[1]):null;
+  return cents===null?{priceCents:null,reason:'No unambiguous per-item price near product heading'}:
+    {priceCents:cents,scope:'online_unverified',source:'loblaw-product-page'};
+}
+
 async function getProductPagePrice(raw){
   const url=permittedProductUrl(raw);
   if(!url)return {priceCents:null,reason:'Unapproved or unsafe product URL'};
@@ -148,7 +179,11 @@ async function getProductPagePrice(raw){
     if(!response.ok)return {priceCents:null,reason:'Product request returned HTTP '+response.status};
     const contentType=(response.headers.get('content-type')||'').toLowerCase();
     if(contentType&&!contentType.includes('text/html'))return {priceCents:null,reason:'Product URL did not return HTML'};
-    return extractProductPrice(await readHtml(response));
+    const html=await readHtml(response);
+    const structured=extractProductPrice(html);
+    if(structured.priceCents!==null)return structured;
+    const visible=extractLoblawVisiblePrice(html,url);
+    return visible.priceCents!==null?visible:structured;
   }catch(ex){return {priceCents:null,reason:String(ex?.message||'Product fetch failed').slice(0,125)};}
 }
 async function readBody(request,bytes=16000){
