@@ -1,3 +1,4 @@
+import {vynnFallback} from "./catalogue-price-fallback.mjs";
 import { canonicalNofrillsUrl, withNofrillsStore } from "./catalogue-nofrills.mjs";
 import { loadQuickLinks, quickLinkMatches } from "./catalogue-link-index.mjs";
 import { ensureCatalogueSchema } from "./catalogue-bootstrap.mjs";
@@ -538,7 +539,8 @@ export async function handleCatalogueApi(request,env){
         (SELECT count(*) FROM catalogue_flyer_discoveries) AS flyerDiscoveries,
         (SELECT count(*) FROM catalogue_flyer_discoveries
           WHERE valid_from <= date('now') AND valid_to >= date('now')) AS currentFlyerDiscoveries`).first();
-      return json({ready:true,refreshReady:Boolean(env.CATALOGUE_WRITE_KEY),products:count.products,
+      return json({ready:true,refreshReady:Boolean(env.CATALOGUE_WRITE_KEY),
+        referencePriceFallbackConfigured:Boolean(env.VYNN_API_KEY),products:count.products,
         listings:count.listings,flyerDiscoveries:count.flyerDiscoveries,
         currentFlyerDiscoveries:count.currentFlyerDiscoveries,
         flyerScope:'regional_unverified',priceScope:'product_urls_only'});
@@ -554,6 +556,7 @@ export async function handleCatalogueApi(request,env){
   if(path==='/api/catalogue/import-gt-grocery')return importHammerUrlBatch(db,env,request,'gtgrocery');
   if(path==='/api/catalogue/compare')return compare(db,env.ASSETS,request);
   if(path==='/api/catalogue/quote')return quoteSavedUrls(db,request,env.ASSETS);
+  if(path==='/api/catalogue/reference-prices')return vynnFallback(db,env,request);
   if(path==='/api/catalogue/refresh')return refresh(db,env,request);
   return error('Unknown catalogue endpoint',404,'not_found');
 }
