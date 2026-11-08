@@ -572,6 +572,22 @@ try{
   const loaded=JSON.parse(localStorage.getItem(PRICE_CACHE_KEY)||'{}');
   if(loaded&&typeof loaded==='object'&&!Array.isArray(loaded))priceCache=loaded;
 }catch{}
+function nofrillsBrowserLink(raw){
+  try{
+    const u=new URL(raw);
+    if(u.protocol!=='https:'||!['nofrills.ca','www.nofrills.ca'].includes(u.hostname.toLowerCase()))return null;
+    const match=u.pathname.match(/^\/(?:en\/)?([a-z0-9%._-]+)\/p\/([0-9]{6,14}_(?:EA|KG|C\d{2}))\/?$/i);
+    if(!match)return null;
+    const id=state.catalogueBranches?.nofrills||'';
+    return 'https://www.nofrills.ca/en/'+match[1].toLowerCase()+'/p/'+match[2].toUpperCase()+
+      (/^\d{4,6}$/.test(id)?'?storeId='+id:'');
+  }catch{return null;}
+}
+function productPageHref(offer){
+  if(!offer?.url||!/^https:\/\//.test(offer.url))return null;
+  if(offer.retailer==='nofrills')return nofrillsBrowserLink(offer.url);
+  return offer.url;
+}
 function keepQuote(offer){
   // Cached prices belong to the exact retailer URL and product identity, not
   // a generic name. They're always unverified online quotes, never local prices.
@@ -579,7 +595,8 @@ function keepQuote(offer){
      !offer.key||!offer.url||!offer.observedAt)return;
   priceCache[offer.key]={
     priceCents:offer.priceCents,observedAt:offer.observedAt,source:offer.source,
-    url:offer.url,productName:offer.productName,size:offer.size
+    url:offer.url,productName:offer.productName,size:offer.size,
+    storeContext:offer.storeContext||''
   };
   const cutoff=Date.now()-PRICE_CACHE_MAX_AGE;
   const entries=Object.entries(priceCache)
@@ -592,11 +609,13 @@ function restoreQuote(offer){
   if(offer.scope!=='online_unverified')return offer;
   const saved=priceCache[offer.key];
   if(!saved||saved.url!==offer.url||saved.productName!==offer.productName||
-    saved.size!==offer.size||!Number.isInteger(saved.priceCents)||
+    saved.size!==offer.size||
+    (offer.retailer==='nofrills'&&String(saved.storeContext||'')!==String(state.catalogueBranches?.nofrills||''))||
+    !Number.isInteger(saved.priceCents)||
     Date.now()-Date.parse(saved.observedAt)>PRICE_CACHE_MAX_AGE)return offer;
   if(offer.observedAt&&Date.parse(offer.observedAt)>Date.parse(saved.observedAt))return offer;
   return {...offer,priceCents:saved.priceCents,observedAt:saved.observedAt,
-    source:saved.source,status:'current',lastError:null};
+    source:saved.source,storeContext:saved.storeContext||'',status:'current',lastError:null};
 }
 function reconcileKnownPackageSizes(){
  let changed=false;
@@ -649,6 +668,7 @@ function onlineCataloguePrice(item){
  if(!item.storeId)return null;
  return (catalogueRows.get(item.id)||[]).filter(o=>
    o.retailer===item.storeId&&o.scope==='online_unverified'&&o.status==='current'&&
+   (o.retailer!=='nofrills'||String(o.storeContext||'')===String(state.catalogueBranches?.nofrills||''))&&
    (!item.preferredListingByStore?.[item.storeId]||o.key===item.preferredListingByStore[item.storeId])&&
    Number.isInteger(o.priceCents)&&o.priceCents>0&&
    GrabListCatalogueComparison.productMatch(item,o)
@@ -931,8 +951,8 @@ function renderEditCataloguePrices(){
       const date=offer.observedAt?new Date(offer.observedAt).toLocaleDateString('en-CA'):'not checked';
       const scope=offer.scope==='selected_branch'?'Store-specific price':'Online estimate · local stock and price unconfirmed';
       const reason=offer.lastError?' · '+offer.lastError:'';
-      const href=offer.url&&/^https:\/\//.test(offer.url)?
-        ' · <a href="'+escapeHTML(offer.url)+'" target="_blank" rel="noopener noreferrer">Product page</a>':'';
+      const productHref=productPageHref(offer);
+      const href=productHref?' · <a href="'+escapeHTML(productHref)+'" target="_blank" rel="noopener noreferrer">Product page</a>':'';
       return '<div class="edit-price-option"><div><div class="edit-product-name">'+
         escapeHTML(offer.productName)+'</div><small>'+escapeHTML((offer.size?offer.size+' · ':'')+
         price+' · '+scope+' · '+date+reason)+href+'</small></div>'+
@@ -1411,8 +1431,8 @@ function renderCatalogueComparison(){
       const store=storeById(retailer)?.name||retailer;
       const local=offer.scope==='selected_branch'&&offer.branchId===state.catalogueBranches[retailer];
       const date=offer.observedAt?new Date(offer.observedAt).toLocaleString('en-CA',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}):'unknown date';
-      const link=offer.url&&/^https:\/\//.test(offer.url)?
-        ' <a href="'+escapeHTML(offer.url)+'" target="_blank" rel="noopener noreferrer">Product page</a>':'';
+      const productHref=productPageHref(offer);
+      const link=productHref?' <a href="'+escapeHTML(productHref)+'" target="_blank" rel="noopener noreferrer">Product page</a>':'';
       return '<p><strong>'+escapeHTML(store)+'</strong> · <b>'+(local?'':'≈ ')+
         currency.format(offer.priceCents/100)+'</b>'+
         '<span class="compare-product-name"> · '+escapeHTML(offer.productName)+'</span>'+
@@ -1551,7 +1571,8 @@ async function quoteCataloguePrices(itemIds=null,stores=state.enabledStoreIds,op
       const batch=keys.slice(i,i+8);
       const response=await fetch('/api/catalogue/quote',{
         method:'POST',headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({keys:batch,refresh:Boolean(options.refresh&&itemIds)}),
+        body:JSON.stringify({keys:batch,refresh:Boolean(options.refresh&&itemIds),
+          nofrillsStoreId:state.catalogueBranches?.nofrills||''}),
         signal:controller.signal
       });
       const data=await response.json();
@@ -1567,6 +1588,7 @@ async function quoteCataloguePrices(itemIds=null,stores=state.enabledStoreIds,op
             offer.source=result.source;
             offer.status='current';
             offer.observedAt=result.observedAt;
+            offer.storeContext=result.storeContext||'';
             offer.lastError=null;
             keepQuote(offer);
           }else if(result.status==='unavailable'){
