@@ -57,6 +57,10 @@ export function productTitleCompatible(expected,actual){
   if(!expected||!actual)return true;
   const eSize=titleSize(expected),aSize=titleSize(actual);
   if(eSize&&aSize&&eSize!==aSize)return false;
+  const percents=x=>[...String(x).matchAll(/(\d+(?:\.\d+)?)\s*%/g)].map(m=>Number(m[1]));
+  const expectedPercents=percents(expected),actualPercents=percents(actual);
+  if(expectedPercents.length&&actualPercents.length&&
+     !expectedPercents.some(x=>actualPercents.includes(x)))return false;
   const words=value=>String(value||'').toLowerCase().normalize('NFKD')
     .replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9% ]/g,' ')
     .split(/\s+/).filter(x=>x.length>2||x.includes('%'));
