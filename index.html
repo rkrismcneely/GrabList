@@ -1120,7 +1120,7 @@ compareSheet.setAttribute('role','dialog');
 compareSheet.setAttribute('aria-modal','true');
 compareSheet.setAttribute('aria-labelledby','compare-title');
 compareSheet.hidden=true;
-compareSheet.innerHTML='<div class="sheet-grabber"></div><div class="sheet-heading"><h2 id="compare-title">Compare prices</h2><button class="sheet-close" type="button" data-compare-close aria-label="Close">×</button></div><p class="sheet-help">Prices come only from saved retailer product URLs. Unverified online prices are shown separately; only verified local-store prices can change your shopping plan.</p><div id="comparison-summary" style="margin-top:12px"></div><details class="price-compare-details"><summary>Advanced: update retailer links</summary><button type="button" id="compare-refresh-prices" class="savvi-lookup-button">Import links and save prices</button><progress id="compare-maintenance-progress" max="1" value="0" aria-label="Catalogue maintenance progress" hidden></progress><div id="compare-maintenance-results" role="status" aria-live="polite"></div></details><progress id="compare-progress" max="1" value="0" aria-label="Price lookup progress" hidden></progress><div id="compare-auto-results" role="status" aria-live="polite"></div><details class="price-compare-details"><summary>More: regional basket totals</summary><button type="button" id="search-online-price-button">Check Canadian reference-market totals</button><div id="online-price-results" role="status" aria-live="polite"></div></details><div class="sheet-actions"><button type="button" class="button-danger" data-compare-close>Cancel</button><button type="button" class="button-primary" id="apply-price-comparison">Apply suggestions</button></div>';
+compareSheet.innerHTML='<div class="sheet-grabber"></div><div class="sheet-heading"><h2 id="compare-title">Compare prices</h2><button class="sheet-close" type="button" data-compare-close aria-label="Close">×</button></div><p class="sheet-help">GrabList looks up prices from known retailer product pages automatically. Prices marked ≈ are online estimates, not confirmed local-store prices.</p><div id="comparison-summary" style="margin-top:12px"></div><details class="price-compare-details"><summary>Advanced: update retailer links</summary><button type="button" id="compare-refresh-prices" class="savvi-lookup-button">Import links and save prices</button><progress id="compare-maintenance-progress" max="1" value="0" aria-label="Catalogue maintenance progress" hidden></progress><div id="compare-maintenance-results" role="status" aria-live="polite"></div></details><progress id="compare-progress" max="1" value="0" aria-label="Price lookup progress" hidden></progress><div id="compare-auto-results" role="status" aria-live="polite"></div><details class="price-compare-details"><summary>More: regional basket totals</summary><button type="button" id="search-online-price-button">Check Canadian reference-market totals</button><div id="online-price-results" role="status" aria-live="polite"></div></details><div class="sheet-actions"><button type="button" class="button-danger" data-compare-close>Cancel</button><button type="button" class="button-primary" id="apply-price-comparison">Apply suggestions</button></div>';
 $('settings-sheet').before(compareSheet);
 compareSheet.querySelectorAll('[data-compare-close]').forEach(btn=>btn.addEventListener('click',closeSheet));
 
@@ -1141,7 +1141,18 @@ function renderCatalogueComparison(){
     if(candidates.length||offers.length)matchedCatalogue++;
     if(offers.length)matchedLinks++;
     if(flyers.length)matchedFlyers++;
-    let detail=offers.length?offers.slice(0,12).map(offer=>{
+    // Show useful priced matches first, then a representative selection from
+    // each enabled retailer instead of 12 near-identical unpriced URLs.
+    const pricedOffers=offers.filter(o=>Number.isInteger(o.priceCents)).slice(0,12);
+    const shown=new Set(pricedOffers.map(o=>o.key));
+    const previewOffers=[...pricedOffers];
+    for(const id of state.enabledStoreIds){
+      for(const offer of offers.filter(o=>o.retailer===id&&!shown.has(o.key)).slice(0,2)){
+        if(previewOffers.length>=12)break;
+        previewOffers.push(offer);shown.add(offer.key);
+      }
+    }
+    let detail=offers.length?previewOffers.map(offer=>{
       const name=storeById(offer.retailer)?.name||offer.retailer;
       const price=Number.isInteger(offer.priceCents)?currency.format(offer.priceCents/100):'Price not available';
       const scope=offer.key?.startsWith('independent|online|loblaw-')?
@@ -1152,8 +1163,9 @@ function renderCatalogueComparison(){
       const date=offer.observedAt?new Date(offer.observedAt).toLocaleDateString('en-CA'):'not checked';
       const freshness=offer.status==='stale'?' · stale':offer.status==='current'?'':'';
       const link=offer.url&&/^https:\/\//.test(offer.url)?' <a href="'+escapeHTML(offer.url)+'" target="_blank" rel="noopener noreferrer">Product page</a>':'';
-      return '<p>'+escapeHTML(name)+' · <b>'+escapeHTML(price)+'</b> · '+escapeHTML(scope+freshness+' · '+date)+link+'</p>';
-    }).join(''):(candidates.length?'<p>Product known in catalogue; retailer product links still needed.</p>':'<p>No matching product or saved retailer URL yet.</p>');
+      const failure=!Number.isInteger(offer.priceCents)&&offer.lastError?' · '+offer.lastError:'';
+      return '<p>'+escapeHTML(name)+' · <b>'+escapeHTML(price)+'</b> · '+escapeHTML(scope+freshness+' · '+date+failure)+link+'</p>';
+    }).join(''):(candidates.length?'<p>Product known in catalogue; no matching retailer product links found.</p>':'<p>No matching product or saved retailer URL yet.</p>');
     // Flyer discovery is not a product-page URL or verified local price.
     if(flyers.length){
       const byStore=[...new Map(flyers.map(row=>[row.retailer,row])).values()];
@@ -1170,7 +1182,7 @@ function renderCatalogueComparison(){
   const root=$('comparison-summary');
   root.innerHTML='<p class="compare-summary">Catalogue: '+catalogueProductCount+' product descriptions; '+
     catalogueCurrentFlyerCount+' current regional flyer references. For your '+active.length+' list items, '+
-    matchedCatalogue+' match a known product, '+matchedLinks+' have saved retailer links, and '+
+    matchedCatalogue+' match a known product, '+matchedLinks+' have available retailer links, and '+
     matchedFlyers+' appear in a current regional flyer. '+plan.eligibleCount+
     ' have verified local-store prices for comparison. Flyer mentions and online prices cannot change your shopping totals.</p>'+
     (plan.changes.length?'<h3 style="font-size:16px">Potential verified savings: '+currency.format(plan.totalSavings)+'</h3>'+
@@ -1272,7 +1284,13 @@ async function quoteCataloguePrices(){
               offer.lastError=null;
             }
           }
-        }else if(result.status==='unavailable')unavailable++;
+        }else if(result.status==='unavailable'){
+          unavailable++;
+          for(const offers of catalogueRows.values()){
+            for(const offer of offers)if(offer.key===result.key&&offer.scope!=='selected_branch')
+              offer.lastError=String(result.reason||'Source did not supply a price').slice(0,100);
+          }
+        }
       }
       progress.value=Math.min(i+batch.length,keys.length);
       renderCatalogueComparison();
