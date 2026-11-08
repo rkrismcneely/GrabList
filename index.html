@@ -82,6 +82,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, .item-row:focus
 .edit-price-option button {flex:0 0 auto;border:1px solid #d8ad99;background:#fff6ee;border-radius:9px;padding:8px 9px;color:#904333;font-size:12px;font-weight:750}
 .edit-price-option button[aria-pressed="true"] {background:#d34b35;color:white;border-color:#d34b35}
 .edit-other-stores {font-size:12px;color:#6d5850;line-height:1.5}
+.store-branch-select {width:100%;padding:11px;background:white;border:1px solid #dfcabb;border-radius:10px;color:#292420;font-size:15px}
 .edit-other-store-button {margin:3px 4px 3px 0;border:1px solid #e5c6b7;border-radius:8px;
  background:#fff6ef;padding:7px 8px;font-size:12px;color:#7b4135}
 .edit-price-option a {color:#a34436}
@@ -357,6 +358,13 @@ body.sheet-open {overflow:hidden}
       <p class="sheet-help" id="postal-code-status" role="status" aria-live="polite">Add your postal code for future nearby-store price lookups.</p>
       <h3>My stores</h3>
       <p class="sheet-help">Check the stores you use. Move your favourites to the top; this order breaks price ties and orders stores in Shop mode.</p>
+      <label class="settings-label" for="nofrills-branch">No Frills location for product links</label>
+      <select id="nofrills-branch" class="store-branch-select">
+        <option value="">No store selected (online prices only)</option>
+        <option value="3142">George Street, Peterborough (3142)</option>
+        <option value="3634">Lansdowne Street West, Peterborough (3634)</option>
+      </select>
+      <p class="sheet-help" id="nofrills-branch-note">Product links can open with your selected store. The website may still block automated prices.</p>
       <div id="store-options" class="store-options"></div>
       <h3 class="legacy-price-heading">Delivery app preferences</h3>
       <p class="sheet-help legacy-price-heading">Delivery app shortcuts are temporarily hidden.</p>
@@ -549,6 +557,13 @@ function sanitizeState(raw){
 }
 function loadState(){try{return sanitizeState(JSON.parse(localStorage.getItem(STORAGE_KEY)))}catch{return blankState()}}
 let state=loadState();
+try{
+  const requestedStore=new URLSearchParams(location.search).get('nofrillsStore');
+  if(/^(3142|3634)$/.test(requestedStore||'')){
+    state.catalogueBranches.nofrills=requestedStore;
+    history.replaceState(null,'',location.pathname+location.hash);
+  }
+}catch{}
 let catalogueRows=new Map(),catalogueFlyerRows=new Map(),catalogueCandidateRows=new Map(),catalogueReady=false,catalogueRefreshReady=false,catalogueListingCount=0,catalogueProductCount=0,catalogueCurrentFlyerCount=0;
 const PRICE_CACHE_KEY='grablist-online-quotes-v1';
 const PRICE_CACHE_MAX_AGE=45*60000;
@@ -557,6 +572,26 @@ try{
   const loaded=JSON.parse(localStorage.getItem(PRICE_CACHE_KEY)||'{}');
   if(loaded&&typeof loaded==='object'&&!Array.isArray(loaded))priceCache=loaded;
 }catch{}
+function nofrillsBrowserLink(raw){
+  try{
+    const u=new URL(raw);
+    if(u.protocol!=='https:'||!['nofrills.ca','www.nofrills.ca'].includes(u.hostname.toLowerCase()))return null;
+    const match=u.pathname.match(/^\/(?:en\/)?([a-z0-9%._-]+)\/p\/([0-9]{6,14}_(?:EA|KG|C\d{2}))\/?$/i);
+    if(!match)return null;
+    const id=state.catalogueBranches?.nofrills||'';
+    return 'https://www.nofrills.ca/en/'+match[1].toLowerCase()+'/p/'+match[2].toUpperCase()+
+      (/^\d{4,6}$/.test(id)?'?storeId='+id:'');
+  }catch{return null;}
+}
+function quoteInSelectedStoreContext(offer){
+  return offer?.retailer!=='nofrills'||
+    String(offer.storeContext||'')===String(state.catalogueBranches?.nofrills||'');
+}
+function productPageHref(offer){
+  if(!offer?.url||!/^https:\/\//.test(offer.url))return null;
+  if(offer.retailer==='nofrills')return nofrillsBrowserLink(offer.url);
+  return offer.url;
+}
 function keepQuote(offer){
   // Cached prices belong to the exact retailer URL and product identity, not
   // a generic name. They're always unverified online quotes, never local prices.
@@ -564,7 +599,8 @@ function keepQuote(offer){
      !offer.key||!offer.url||!offer.observedAt)return;
   priceCache[offer.key]={
     priceCents:offer.priceCents,observedAt:offer.observedAt,source:offer.source,
-    url:offer.url,productName:offer.productName,size:offer.size
+    url:offer.url,productName:offer.productName,size:offer.size,
+    storeContext:offer.storeContext||''
   };
   const cutoff=Date.now()-PRICE_CACHE_MAX_AGE;
   const entries=Object.entries(priceCache)
@@ -577,11 +613,13 @@ function restoreQuote(offer){
   if(offer.scope!=='online_unverified')return offer;
   const saved=priceCache[offer.key];
   if(!saved||saved.url!==offer.url||saved.productName!==offer.productName||
-    saved.size!==offer.size||!Number.isInteger(saved.priceCents)||
+    saved.size!==offer.size||
+    (offer.retailer==='nofrills'&&String(saved.storeContext||'')!==String(state.catalogueBranches?.nofrills||''))||
+    !Number.isInteger(saved.priceCents)||
     Date.now()-Date.parse(saved.observedAt)>PRICE_CACHE_MAX_AGE)return offer;
   if(offer.observedAt&&Date.parse(offer.observedAt)>Date.parse(saved.observedAt))return offer;
   return {...offer,priceCents:saved.priceCents,observedAt:saved.observedAt,
-    source:saved.source,status:'current',lastError:null};
+    source:saved.source,storeContext:saved.storeContext||'',status:'current',lastError:null};
 }
 function reconcileKnownPackageSizes(){
  let changed=false;
@@ -634,6 +672,7 @@ function onlineCataloguePrice(item){
  if(!item.storeId)return null;
  return (catalogueRows.get(item.id)||[]).filter(o=>
    o.retailer===item.storeId&&o.scope==='online_unverified'&&o.status==='current'&&
+   (o.retailer!=='nofrills'||String(o.storeContext||'')===String(state.catalogueBranches?.nofrills||''))&&
    (!item.preferredListingByStore?.[item.storeId]||o.key===item.preferredListingByStore[item.storeId])&&
    Number.isInteger(o.priceCents)&&o.priceCents>0&&
    GrabListCatalogueComparison.productMatch(item,o)
@@ -910,14 +949,14 @@ function renderEditCataloguePrices(){
   }else{
     markup+=rows.map(offer=>{
       const selected=preferred===offer.key;
-      const price=Number.isInteger(offer.priceCents)&&offer.status==='current'?
+      const price=Number.isInteger(offer.priceCents)&&offer.status==='current'&&quoteInSelectedStoreContext(offer)?
         (offer.scope==='selected_branch'?'':'≈ ')+currency.format(offer.priceCents/100):
         'Price unavailable';
       const date=offer.observedAt?new Date(offer.observedAt).toLocaleDateString('en-CA'):'not checked';
       const scope=offer.scope==='selected_branch'?'Store-specific price':'Online estimate · local stock and price unconfirmed';
       const reason=offer.lastError?' · '+offer.lastError:'';
-      const href=offer.url&&/^https:\/\//.test(offer.url)?
-        ' · <a href="'+escapeHTML(offer.url)+'" target="_blank" rel="noopener noreferrer">Product page</a>':'';
+      const productHref=productPageHref(offer);
+      const href=productHref?' · <a href="'+escapeHTML(productHref)+'" target="_blank" rel="noopener noreferrer">Product page</a>':'';
       return '<div class="edit-price-option"><div><div class="edit-product-name">'+
         escapeHTML(offer.productName)+'</div><small>'+escapeHTML((offer.size?offer.size+' · ':'')+
         price+' · '+scope+' · '+date+reason)+href+'</small></div>'+
@@ -927,7 +966,7 @@ function renderEditCataloguePrices(){
   }
   const other=state.enabledStoreIds.filter(id=>id!==store).map(id=>{
     const found=(catalogueRows.get(draft.id)||[]).filter(o=>o.retailer===id&&
-      o.status==='current'&&Number.isInteger(o.priceCents)&&
+      o.status==='current'&&quoteInSelectedStoreContext(o)&&Number.isInteger(o.priceCents)&&
       GrabListCatalogueComparison.productMatch(draft,o))
       .sort((a,b)=>a.priceCents-b.priceCents)[0];
     return '<button type="button" data-edit-switch-store="'+escapeHTML(id)+
@@ -1058,12 +1097,39 @@ function renderSettings(){
      </div>`;
   }).join('');
   $('savings-input').value=state.savingsThreshold;
+  $('nofrills-branch').value=/^(3142|3634)$/.test(state.catalogueBranches?.nofrills||'')?
+    state.catalogueBranches.nofrills:'';
   $('postal-code-input').value=state.postalCode||'';
   $('postal-code-input').setAttribute('aria-invalid','false');
   $('postal-code-status').textContent=state.postalCode
     ?'Saved '+state.postalCode+'. Used to identify your preferred retailer locations.'
     :'Add a postal code to help connect your preferred store locations.';
 }
+$('nofrills-branch').addEventListener('change',()=>{
+  const selected=$('nofrills-branch').value;
+  const previous=state.catalogueBranches.nofrills||'';
+  if(selected===previous)return;
+  if(selected)state.catalogueBranches.nofrills=selected;
+  else delete state.catalogueBranches.nofrills;
+  // Never reuse a quote from another store's context.
+  for(const offers of catalogueRows.values()){
+    for(const offer of offers){
+      if(offer.retailer!=='nofrills'||offer.scope!=='online_unverified')continue;
+      offer.priceCents=null;offer.status='unavailable';offer.observedAt=null;offer.storeContext=null;
+    }
+  }
+  for(const key of Object.keys(priceCache))if(key.startsWith('nofrills|'))delete priceCache[key];
+  try{localStorage.setItem(PRICE_CACHE_KEY,JSON.stringify(priceCache));}catch{}
+  update();
+  priceStatus($('auto-price-status'),selected?
+    'No Frills store selected. Checking No Frills online quotes for that location…':
+    'No Frills store cleared. Online prices are not store-specific.');
+  void (async()=>{
+    if(await loadCatalogueComparison()){
+      await quoteCataloguePrices(null,['nofrills'],{output:$('auto-price-status'),refresh:true});
+    }
+  })();
+});
 $('settings-button').addEventListener('click',()=>{renderSettings();openSheet('settings')});
 $('postal-code-input').addEventListener('change',event=>{
   const input=event.target,raw=input.value.trim();
@@ -1353,7 +1419,7 @@ function renderCatalogueComparison(){
     // grades or packages are interchangeable.
     const offers=(catalogueRows.get(item.id)||[]).filter(o=>GrabListCatalogueComparison.productMatch(item,o));
     if(offers.length)linked++;
-    const prices=offers.filter(o=>Number.isInteger(o.priceCents)&&o.priceCents>0&&o.status==='current');
+    const prices=offers.filter(o=>quoteInSelectedStoreContext(o)&&Number.isInteger(o.priceCents)&&o.priceCents>0&&o.status==='current');
     if(prices.length)pricedItems++;
     if(prices.some(o=>o.scope==='selected_branch'&&
        o.branchId===state.catalogueBranches[o.retailer]))localItems++;
@@ -1369,8 +1435,8 @@ function renderCatalogueComparison(){
       const store=storeById(retailer)?.name||retailer;
       const local=offer.scope==='selected_branch'&&offer.branchId===state.catalogueBranches[retailer];
       const date=offer.observedAt?new Date(offer.observedAt).toLocaleString('en-CA',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}):'unknown date';
-      const link=offer.url&&/^https:\/\//.test(offer.url)?
-        ' <a href="'+escapeHTML(offer.url)+'" target="_blank" rel="noopener noreferrer">Product page</a>':'';
+      const productHref=productPageHref(offer);
+      const link=productHref?' <a href="'+escapeHTML(productHref)+'" target="_blank" rel="noopener noreferrer">Product page</a>':'';
       return '<p><strong>'+escapeHTML(store)+'</strong> · <b>'+(local?'':'≈ ')+
         currency.format(offer.priceCents/100)+'</b>'+
         '<span class="compare-product-name"> · '+escapeHTML(offer.productName)+'</span>'+
@@ -1509,7 +1575,8 @@ async function quoteCataloguePrices(itemIds=null,stores=state.enabledStoreIds,op
       const batch=keys.slice(i,i+8);
       const response=await fetch('/api/catalogue/quote',{
         method:'POST',headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({keys:batch,refresh:Boolean(options.refresh&&itemIds)}),
+        body:JSON.stringify({keys:batch,refresh:Boolean(options.refresh&&itemIds),
+          nofrillsStoreId:state.catalogueBranches?.nofrills||''}),
         signal:controller.signal
       });
       const data=await response.json();
@@ -1525,6 +1592,7 @@ async function quoteCataloguePrices(itemIds=null,stores=state.enabledStoreIds,op
             offer.source=result.source;
             offer.status='current';
             offer.observedAt=result.observedAt;
+            offer.storeContext=result.storeContext||'';
             offer.lastError=null;
             keepQuote(offer);
           }else if(result.status==='unavailable'){

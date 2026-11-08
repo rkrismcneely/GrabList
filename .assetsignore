@@ -9,6 +9,7 @@ tests/
 
 catalogue-api.mjs
 catalogue-link-index.mjs
+catalogue-nofrills.mjs
 migrations/
 catalogue-bootstrap.mjs
 scripts/
