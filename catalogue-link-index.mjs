@@ -1,3 +1,4 @@
+import { canonicalNofrillsUrl } from "./catalogue-nofrills.mjs";
 // Read-only, deployment-bundled index of published retailer product URLs.
 // Constructed from the existing approved catalogue shard manifests. Unlike
 // owner-only D1 imports, this does not require a write key or modify D1.
@@ -18,7 +19,9 @@ function safe(record){
  if(!/^[a-z0-9_-]{1,100}$/i.test(masterId)||!key.startsWith(retailer+'|online|')||
     !HOSTS[retailer]||!clean(name,200)||!clean(rawUrl,1500))return null;
  try{
-   const u=new URL(rawUrl);
+   const cleanedUrl=retailer==='nofrills'?canonicalNofrillsUrl(rawUrl):rawUrl;
+   if(!cleanedUrl)return null;
+   const u=new URL(cleanedUrl);
    if(u.protocol!=='https:'||u.username||u.password||u.port||!HOSTS[retailer].has(u.hostname.toLowerCase()))return null;
    if(retailer==='gianttiger'&&!/^\/products\/[a-z0-9%._-]+\/?$/i.test(u.pathname))return null;
    if(retailer==='freshco'&&!u.pathname.startsWith('/products/'))return null;
