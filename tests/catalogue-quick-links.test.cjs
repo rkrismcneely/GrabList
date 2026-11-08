@@ -79,7 +79,7 @@ test('shop displays online price estimates but does not promote them to local qu
  const html=fs.readFileSync('index.html','utf8');
  assert.match(html,/function onlineCataloguePrice\(item\)/);
  assert.match(html,/online estimates · not local prices/);
- assert.match(html,/void quoteCataloguePrices\(\)/);
+ assert.match(html,/void refreshAllCataloguePrices\(\)/);
  const show=html.slice(html.indexOf('async function showPriceComparison()'),html.indexOf("\$('list-footer').addEventListener",html.indexOf('async function showPriceComparison()')));
  assert.doesNotMatch(show,/void refreshCataloguePrices\(\)/);
 });
