@@ -1102,7 +1102,7 @@ compareSheet.setAttribute('role','dialog');
 compareSheet.setAttribute('aria-modal','true');
 compareSheet.setAttribute('aria-labelledby','compare-title');
 compareSheet.hidden=true;
-compareSheet.innerHTML='<div class="sheet-grabber"></div><div class="sheet-heading"><h2 id="compare-title">Compare prices</h2><button class="sheet-close" type="button" data-compare-close aria-label="Close">×</button></div><p class="sheet-help">Prices come only from saved retailer product URLs. Unverified online prices are shown separately; only verified local-store prices can change your shopping plan.</p><div id="comparison-summary" style="margin-top:12px"></div><button type="button" id="compare-refresh-prices" class="savvi-lookup-button">Refresh saved product prices</button><progress id="compare-progress" max="1" value="0" aria-label="Price lookup progress" hidden></progress><div id="compare-auto-results" role="status" aria-live="polite"></div><details class="price-compare-details"><summary>More: regional basket totals</summary><button type="button" id="search-online-price-button">Check Canadian reference-market totals</button><div id="online-price-results" role="status" aria-live="polite"></div></details><div class="sheet-actions"><button type="button" class="button-danger" data-compare-close>Cancel</button><button type="button" class="button-primary" id="apply-price-comparison">Apply suggestions</button></div>';
+compareSheet.innerHTML='<div class="sheet-grabber"></div><div class="sheet-heading"><h2 id="compare-title">Compare prices</h2><button class="sheet-close" type="button" data-compare-close aria-label="Close">×</button></div><p class="sheet-help">Prices come only from saved retailer product URLs. Unverified online prices are shown separately; only verified local-store prices can change your shopping plan.</p><div id="comparison-summary" style="margin-top:12px"></div><details class="price-compare-details"><summary>Advanced: update retailer links</summary><button type="button" id="compare-refresh-prices" class="savvi-lookup-button">Import links and save prices</button><progress id="compare-maintenance-progress" max="1" value="0" aria-label="Catalogue maintenance progress" hidden></progress><div id="compare-maintenance-results" role="status" aria-live="polite"></div></details><progress id="compare-progress" max="1" value="0" aria-label="Price lookup progress" hidden></progress><div id="compare-auto-results" role="status" aria-live="polite"></div><details class="price-compare-details"><summary>More: regional basket totals</summary><button type="button" id="search-online-price-button">Check Canadian reference-market totals</button><div id="online-price-results" role="status" aria-live="polite"></div></details><div class="sheet-actions"><button type="button" class="button-danger" data-compare-close>Cancel</button><button type="button" class="button-primary" id="apply-price-comparison">Apply suggestions</button></div>';
 $('settings-sheet').before(compareSheet);
 compareSheet.querySelectorAll('[data-compare-close]').forEach(btn=>btn.addEventListener('click',closeSheet));
 
@@ -1205,8 +1205,72 @@ async function loadCatalogueComparison(){
       '</p><p>No legacy price lookup was attempted.</p></div>';
   }
 }
+function matchingCataloguePriceKeys(){
+  // Strict match before hitting a retailer, and at most two URL candidates per
+  // item and store. This prevents thousands of unrelated queries for e.g. milk.
+  return [...new Set(state.items.filter(item=>!item.complete).flatMap(item=>{
+    const matches=(catalogueRows.get(item.id)||[]).filter(offer=>
+      offer.key&&offer.url&&offer.scope!=='selected_branch'&&
+      GrabListCatalogueComparison.productMatch(item,offer));
+    return state.enabledStoreIds.flatMap(store=>matches.filter(offer=>offer.retailer===store)
+      .sort((a,b)=>
+        Number(Boolean(a.lastError))-Number(Boolean(b.lastError))||
+        Number(!Number.isInteger(a.priceCents))-Number(!Number.isInteger(b.priceCents))||
+        a.productName.length-b.productName.length)
+      .slice(0,2).map(offer=>offer.key));
+  }))];
+}
+async function quoteCataloguePrices(){
+  const output=$('compare-auto-results'),progress=$('compare-progress');
+  if(!catalogueReady)return;
+  const keys=matchingCataloguePriceKeys();
+  if(!keys.length){
+    output.textContent='No retailer product URLs match this shopping list yet. Catalogue links must be imported first.';
+    return;
+  }
+  let found=0,unavailable=0;
+  progress.hidden=false;progress.max=keys.length;progress.value=0;
+  output.textContent='Checking online prices · 0 of '+keys.length+' links…';
+  try{
+    for(let i=0;i<keys.length;i+=8){
+      const batch=keys.slice(i,i+8);
+      const response=await fetch('/api/catalogue/quote',{
+        method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({keys:batch})
+      });
+      const data=await response.json();
+      if(!response.ok)throw Error(data.error||'Online prices could not be checked');
+      for(const result of data.results||[]){
+        if(result.status==='priced'){
+          found++;
+          for(const offers of catalogueRows.values()){
+            const offer=offers.find(o=>o.key===result.key);
+            if(offer&&offer.scope!=='selected_branch'){
+              offer.priceCents=result.priceCents;
+              offer.source=result.source;
+              offer.scope='online_unverified';
+              offer.status='current';
+              offer.observedAt=result.observedAt;
+              offer.lastError=null;
+            }
+          }
+        }else if(result.status==='unavailable')unavailable++;
+      }
+      progress.value=Math.min(i+batch.length,keys.length);
+      renderCatalogueComparison();
+      output.textContent='Online prices found: '+found+' · Checked '+
+        progress.value+' of '+keys.length+' URLs';
+    }
+    output.textContent='Found '+found+' online product prices · '+unavailable+
+      ' unavailable. Online prices may differ at your selected store.';
+  }catch(error){
+    output.textContent='Some online price checks failed: '+String(error.message||error)+
+      '. Prices already found remain visible.';
+  }finally{progress.hidden=true;}
+}
+
 async function refreshCataloguePrices(){
-  const output=$('compare-auto-results'),button=$('compare-refresh-prices');
+  const output=$('compare-maintenance-results'),button=$('compare-refresh-prices');
   if(!catalogueReady){await loadCatalogueComparison();if(!catalogueReady)return;}
   if(!catalogueRefreshReady){
     output.textContent='Price refresh needs the owner to configure a catalogue refresh key in Cloudflare.';
@@ -1218,7 +1282,7 @@ async function refreshCataloguePrices(){
     if(!key)return;
   }
   button.disabled=true;
-  let checked=0,saved=0,unavailable=0,imported=0,importError='';
+  let checked=0,saved=0,unavailable=0,throttled=0,imported=0,importError='';
   try{
     // Import pre-matched No Frills and Walmart product-page URLs. Each 80-link
     // shard is idempotent. Persist the page cursor so Safari can resume safely.
@@ -1229,7 +1293,7 @@ async function refreshCataloguePrices(){
       part=Number(localStorage.getItem(hammerRelease+'-next')||0);
     }catch{}
     if(!done){
-      $('compare-progress').hidden=false;
+      $('compare-maintenance-progress').hidden=false;
       let partCount=0,loaded=0;
       try{
         for(let page=0;page<100;page++){
@@ -1252,8 +1316,8 @@ async function refreshCataloguePrices(){
           imported+=data.processed;
           loaded+=data.processed;
           partCount=data.totalParts;
-          $('compare-progress').max=partCount;
-          $('compare-progress').value=part+1;
+          $('compare-maintenance-progress').max=partCount;
+          $('compare-maintenance-progress').value=part+1;
           try{localStorage.setItem(hammerRelease+'-next',String(part+1));}catch{}
           output.textContent='Imported '+Math.min((part+1)*80,data.totalRecords)+' of '+data.totalRecords+
             ' historical product-page links · batch '+(part+1)+' of '+partCount;
@@ -1272,7 +1336,7 @@ async function refreshCataloguePrices(){
         if(String(error.message||'').includes('Invalid catalogue refresh key'))throw error;
         importError='Bulk URL import incomplete; next attempt resumes: '+String(error.message||'Unknown error');
       }finally{
-        $('compare-progress').hidden=true;
+        $('compare-maintenance-progress').hidden=true;
       }
       if(loaded){
         output.textContent='Imported '+loaded+' retailer product links. Checking your shopping list…';
@@ -1288,7 +1352,7 @@ async function refreshCataloguePrices(){
       tigerPart=Number(localStorage.getItem(tigerRelease+'-next')||0);
     }catch{}
     if(!tigerDone){
-      $('compare-progress').hidden=false;
+      $('compare-maintenance-progress').hidden=false;
       let loaded=0;
       try{
         for(let page=0;page<100;page++){
@@ -1309,8 +1373,8 @@ async function refreshCataloguePrices(){
               !Number.isInteger(data.totalRecords))throw Error('Invalid Giant Tiger import response');
           imported+=data.processed;
           loaded+=data.processed;
-          $('compare-progress').max=data.totalParts;
-          $('compare-progress').value=tigerPart+1;
+          $('compare-maintenance-progress').max=data.totalParts;
+          $('compare-maintenance-progress').value=tigerPart+1;
           try{localStorage.setItem(tigerRelease+'-next',String(tigerPart+1));}catch{}
           output.textContent='Imported '+Math.min((tigerPart+1)*80,data.totalRecords)+' of '+
             data.totalRecords+' Giant Tiger links · batch '+(tigerPart+1)+' of '+data.totalParts;
@@ -1330,7 +1394,7 @@ async function refreshCataloguePrices(){
         importError+=(importError?' · ':'')+'Giant Tiger URL import incomplete; next click resumes: '+
           String(error.message||'Unknown error');
       }finally{
-        $('compare-progress').hidden=true;
+        $('compare-maintenance-progress').hidden=true;
       }
       if(loaded){
         output.textContent='Imported '+loaded+' Giant Tiger product links. Checking shopping list…';
@@ -1346,7 +1410,7 @@ async function refreshCataloguePrices(){
       costcoPart=Number(localStorage.getItem(costcoRelease+'-next')||0);
     }catch{}
     if(!costcoDone){
-      $('compare-progress').hidden=false;
+      $('compare-maintenance-progress').hidden=false;
       let loaded=0;
       try{
         for(let page=0;page<100;page++){
@@ -1367,8 +1431,8 @@ async function refreshCataloguePrices(){
              !Number.isInteger(data.totalRecords))throw Error('Invalid Costco import response');
           imported+=data.processed;
           loaded+=data.processed;
-          $('compare-progress').max=data.totalParts;
-          $('compare-progress').value=costcoPart+1;
+          $('compare-maintenance-progress').max=data.totalParts;
+          $('compare-maintenance-progress').value=costcoPart+1;
           try{localStorage.setItem(costcoRelease+'-next',String(costcoPart+1));}catch{}
           output.textContent='Imported '+Math.min((costcoPart+1)*80,data.totalRecords)+' of '+
             data.totalRecords+' Costco links · batch '+(costcoPart+1)+' of '+data.totalParts;
@@ -1388,7 +1452,7 @@ async function refreshCataloguePrices(){
         importError+=(importError?' · ':'')+'Costco URL import incomplete; next click resumes: '+
           String(error.message||'Unknown error');
       }finally{
-        $('compare-progress').hidden=true;
+        $('compare-maintenance-progress').hidden=true;
       }
       if(loaded){
         output.textContent='Imported '+loaded+' Costco product links. Checking shopping list…';
@@ -1410,7 +1474,7 @@ async function refreshCataloguePrices(){
         part=Number(localStorage.getItem(release+'-next')||0);
       }catch{}
       if(done)continue;
-      $('compare-progress').hidden=false;
+      $('compare-maintenance-progress').hidden=false;
       let loaded=0;
       try{
         for(let page=0;page<100;page++){
@@ -1432,8 +1496,8 @@ async function refreshCataloguePrices(){
             throw Error('Invalid '+source.id+' import response');
           imported+=data.processed;
           loaded+=data.processed;
-          $('compare-progress').max=data.totalParts;
-          $('compare-progress').value=part+1;
+          $('compare-maintenance-progress').max=data.totalParts;
+          $('compare-maintenance-progress').value=part+1;
           try{localStorage.setItem(release+'-next',String(part+1));}catch{}
           output.textContent='Imported '+Math.min((part+1)*80,data.totalRecords)+' of '+
             data.totalRecords+' '+source.label+' · batch '+(part+1)+' of '+data.totalParts;
@@ -1454,7 +1518,7 @@ async function refreshCataloguePrices(){
         importError+=(importError?' · ':'')+source.label+' import incomplete; next click resumes: '+
           String(error.message||'Unknown error');
       }finally{
-        $('compare-progress').hidden=true;
+        $('compare-maintenance-progress').hidden=true;
       }
       if(loaded){
         output.textContent='Imported '+loaded+' '+source.label+' links. Loading your list…';
@@ -1471,7 +1535,7 @@ async function refreshCataloguePrices(){
       groceryPart=Number(localStorage.getItem(groceryRelease+'-next')||0);
     }catch{}
     if(!groceryDone){
-      $('compare-progress').hidden=false;
+      $('compare-maintenance-progress').hidden=false;
       let loaded=0,known=0;
       try{
         for(let page=0;page<500;page++){
@@ -1495,8 +1559,8 @@ async function refreshCataloguePrices(){
           imported+=data.processed;
           loaded+=data.processed;
           known+=Number(data.productsDiscovered)||0;
-          $('compare-progress').max=data.totalParts;
-          $('compare-progress').value=groceryPart+1;
+          $('compare-maintenance-progress').max=data.totalParts;
+          $('compare-maintenance-progress').value=groceryPart+1;
           try{localStorage.setItem(groceryRelease+'-next',String(groceryPart+1));}catch{}
           output.textContent='Grocery catalogue · '+Math.min((groceryPart+1)*80,data.totalRecords)+
             ' of '+data.totalRecords+' product links · batch '+(groceryPart+1)+' of '+data.totalParts;
@@ -1517,7 +1581,7 @@ async function refreshCataloguePrices(){
         importError+=(importError?' · ':'')+'Grocery catalogue expansion incomplete; next click resumes: '+
           String(error.message||'Unknown error');
       }finally{
-        $('compare-progress').hidden=true;
+        $('compare-maintenance-progress').hidden=true;
       }
       if(loaded){
         output.textContent='Imported '+loaded+' grocery links and product descriptions. Loading your list…';
@@ -1569,16 +1633,16 @@ async function refreshCataloguePrices(){
         await loadCatalogueComparison();
       }
     }
-    const keys=[...new Set([...catalogueRows.values()].flatMap(offers=>offers.map(o=>o.key)))];
+    const keys=matchingCataloguePriceKeys();
     if(!keys.length){
       output.textContent=(imported?'Imported '+imported+' saved product links. ':'')+
         'No matching saved URLs for the items on your list yet. Missing links will stay unknown.';
       return;
     }
     output.textContent='Checking 0 of '+keys.length+' saved product links…';
-    $('compare-progress').hidden=false;
-    $('compare-progress').max=keys.length;
-    $('compare-progress').value=0;
+    $('compare-maintenance-progress').hidden=false;
+    $('compare-maintenance-progress').max=keys.length;
+    $('compare-maintenance-progress').value=0;
     for(let i=0;i<keys.length;i+=12){
       const batch=keys.slice(i,i+12);
       const response=await fetch('/api/catalogue/refresh',{
@@ -1594,27 +1658,37 @@ async function refreshCataloguePrices(){
       for(const result of data.results||[]){
         if(result.status==='saved')saved++;
         if(result.status==='unavailable')unavailable++;
+        if(result.status==='throttled')throttled++;
       }
       checked+=batch.length;
-      $('compare-progress').value=checked;
+      $('compare-maintenance-progress').value=checked;
       output.textContent='Checked '+checked+' of '+keys.length+' · '+saved+' prices updated · '+unavailable+' unavailable';
     }
     await loadCatalogueComparison();
     output.textContent=(imported?imported+' retailer product links processed. ':'')+
-      'Checked '+checked+' links. '+saved+' prices updated; '+unavailable+
-      ' unavailable. Generic online prices remain unverified for local stores.'+
+      'Checked '+checked+' matching product links. '+saved+' prices updated; '+unavailable+
+      ' unavailable; '+throttled+' recently checked. Online prices are not verified at your local branch.'+
       (importError?' Some URL sources could not be imported: '+importError:'');
   }catch(error){
     output.textContent=String(error.message||'Price update failed')+'. Previously known prices are retained.';
   }finally{
     button.disabled=false;
-    $('compare-progress').hidden=true;
+    $('compare-maintenance-progress').hidden=true;
   }
 }
-function showPriceComparison(){
+async function showPriceComparison(){
   openSheet('compare');
   $('compare-auto-results').textContent='';
-  void loadCatalogueComparison();
+  await loadCatalogueComparison();
+  // Price retrieval is read-only and uses server-saved retailer URLs, so it
+  // never needs a user-supplied key. It updates the comparison as prices arrive.
+  if(catalogueReady)void quoteCataloguePrices();
+  // The owner-only URL importer can still continue on the same click if this
+  // tab is already authorized. It must not prompt in the comparison flow.
+  let hasRefreshKey=false;
+  try{hasRefreshKey=Boolean(sessionStorage.getItem(CATALOGUE_KEY_STORAGE));}catch{}
+  if(catalogueReady&&catalogueRefreshReady&&hasRefreshKey)
+    void refreshCataloguePrices();
 }
 $('list-footer').addEventListener('click',event=>{
   if(event.target.closest('#compare-price-button'))showPriceComparison();

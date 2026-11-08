@@ -33,16 +33,18 @@ function offerPrices(offer,depth=0){
   if(depth>3||!offer||typeof offer!=='object')return [];
   if(Array.isArray(offer))return offer.flatMap(v=>offerPrices(v,depth+1));
   if(offer.priceCurrency&&String(offer.priceCurrency).toUpperCase()!=='CAD')return [];
-  const price=validPriceCents(offer.price??offer.lowPrice);
+  const raw=offer.price ?? (offer.lowPrice===offer.highPrice?offer.lowPrice:null);
+  const price=validPriceCents(raw);
   const specs=offer.priceSpecification?offerPrices(offer.priceSpecification,depth+1):[];
   return [...(price===null?[]:[price]),...specs];
 }
 export function extractProductPrice(html){
   if(typeof html!=='string'||!html)return {priceCents:null,reason:'Empty product page'};
   const candidates=[];
-  const scripts=html.matchAll(/<script\b[^>]*type\s*=\s*["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script\s*>/gi);
+  const scripts=html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script\s*>/gi);
   for(const match of scripts){
-    let data;try{data=JSON.parse(match[1].trim());}catch{continue;}
+    if(!/\btype\s*=\s*["']application\/ld\+json["']/i.test(match[1]))continue;
+    let data;try{data=JSON.parse(match[2].trim());}catch{continue;}
     for(const product of findStructuredProducts(data)){
       candidates.push(...offerPrices(product.offers));
     }
@@ -85,15 +87,103 @@ async function readHtml(response,limit=1500000){
     return out+decoder.decode();
   }finally{reader.releaseLock();}
 }
+
+/**
+ * Giant Tiger's public Shopify Ajax product endpoint reports the merchant's
+ * online price in cents. Never assume an online price is a local shelf price.
+ * A variant query parameter must resolve to the SAME variant: silently taking
+ * a default variant could show the price of the wrong size/package.
+ */
+export function extractShopifyProductPrice(product, rawProductUrl){
+  if(!product||typeof product!=='object'||!Array.isArray(product.variants)||!product.variants.length)
+    return {priceCents:null,reason:'Product feed has no variants'};
+  let variantId;
+  try{variantId=new URL(rawProductUrl).searchParams.get('variant');}catch{
+    return {priceCents:null,reason:'Invalid product URL'};
+  }
+  let variants=product.variants;
+  if(variantId){
+    if(!/^\d{5,24}$/.test(variantId))return {priceCents:null,reason:'Invalid selected variant'};
+    const variant=variants.find(v=>String(v.id)===variantId);
+    if(!variant)return {priceCents:null,reason:'Selected variant missing from product feed'};
+    variants=[variant];
+  }
+  const prices=[];
+  for(const variant of variants){
+    if(variant.available===false)continue;
+    const cents=Number(variant.price);
+    if(!Number.isSafeInteger(cents)||cents<=0||cents>999999)
+      return {priceCents:null,reason:'Variant price unavailable'};
+    prices.push(cents);
+  }
+  const unique=[...new Set(prices)];
+  if(unique.length!==1)return {priceCents:null,reason:unique.length?'Different variant prices; select a variant':'Product currently unavailable'};
+  return {priceCents:unique[0],scope:'online_unverified',source:'gianttiger-shopify-product'};
+}
+
+/* A conservative fallback for direct Loblaw-bannner product pages that expose
+ * a price in product text but omit price-bearing JSON-LD/meta. Anchor only
+ * after a matching product H1, never a search card, nav promotion or flyer.
+ */
+export function extractLoblawVisiblePrice(html,rawUrl){
+  let url;
+  try{url=new URL(rawUrl);}catch{return {priceCents:null,reason:'Invalid product URL'};}
+  if(!['www.nofrills.ca','nofrills.ca','www.yourindependentgrocer.ca',
+        'yourindependentgrocer.ca','www.independentgrocer.ca','independentgrocer.ca'].includes(url.hostname))
+    return {priceCents:null,reason:'Not a supported product page'};
+  const path=url.pathname.match(/^\/en\/([a-z0-9%-]+)\/p\/\d{6,14}_(?:EA|KG)\/?$/i);
+  if(!path)return {priceCents:null,reason:'Not a direct Loblaw product URL'};
+  const h1=/<h1\b[^>]*>([\s\S]{0,2000}?)<\/h1\s*>/i.exec(html);
+  if(!h1)return {priceCents:null,reason:'No product heading'};
+  const title=h1[1].replace(/<[^>]*>/g,' ').toLowerCase().replace(/[^a-z0-9 ]/g,' ');
+  const tokens=decodeURIComponent(path[1]).toLowerCase().split('-')
+    .filter(t=>t.length>2&&t!=='and');
+  if(!tokens.length||tokens.filter(t=>title.split(/\s+/).includes(t)).length<Math.ceil(tokens.length*.6))
+    return {priceCents:null,reason:'Product heading does not match URL'};
+  const from=h1.index+h1[0].length;
+  let section=html.slice(from,from+12000).split(/<h[12]\b|product description|Product description/i)[0];
+  section=section.replace(/<script\b[^>]*>[\s\S]*?<\/script\s*>/gi,'')
+    .replace(/<style\b[^>]*>[\s\S]*?<\/style\s*>/gi,'')
+    .replace(/<[^>]*>/g,' ').replace(/&nbsp;|&#160;/gi,' ');
+  const price=section.match(/\$\s*(\d{1,4}(?:,\d{3})?(?:\.\d{2})?)\s*(?:ea|each)\b/i);
+  const cents=price?validPriceCents(price[1]):null;
+  return cents===null?{priceCents:null,reason:'No unambiguous per-item price near product heading'}:
+    {priceCents:cents,scope:'online_unverified',source:'loblaw-product-page'};
+}
+
 async function getProductPagePrice(raw){
   const url=permittedProductUrl(raw);
   if(!url)return {priceCents:null,reason:'Unapproved or unsafe product URL'};
+  const target=new URL(url);
+  // Unlike retailer HTML that may not include client-rendered prices, Shopify
+  // exposes its own public product data endpoint for the same product handle.
+  // This is a GET to the already-allowlisted retailer, not a proxy to other hosts.
+  if(['www.gianttiger.com','gianttiger.com'].includes(target.hostname.toLowerCase())&&
+     /^\/products\/[a-z0-9%._-]+\/?$/i.test(target.pathname)){
+    const productApi=new URL(target.pathname.replace(/\/$/,'')+'.js',target.origin);
+    try{
+      const response=await fetch(productApi.href,{
+        headers:{Accept:'application/json'},redirect:'manual',signal:AbortSignal.timeout(8000)
+      });
+      if(response.ok&&(response.headers.get('content-type')||'').toLowerCase().includes('json')){
+        const product=JSON.parse(await readHtml(response,650000));
+        return extractShopifyProductPrice(product,url);
+      }
+    }catch{
+      // Some stores or pages do not support the Ajax endpoint. Try the
+      // unmodified published product URL below, without evading any blocks.
+    }
+  }
   try{
     const response=await fetch(url,{headers:{Accept:'text/html,application/xhtml+xml'},redirect:'manual',signal:AbortSignal.timeout(10000)});
     if(!response.ok)return {priceCents:null,reason:'Product request returned HTTP '+response.status};
     const contentType=(response.headers.get('content-type')||'').toLowerCase();
     if(contentType&&!contentType.includes('text/html'))return {priceCents:null,reason:'Product URL did not return HTML'};
-    return extractProductPrice(await readHtml(response));
+    const html=await readHtml(response);
+    const structured=extractProductPrice(html);
+    if(structured.priceCents!==null)return structured;
+    const visible=extractLoblawVisiblePrice(html,url);
+    return visible.priceCents!==null?visible:structured;
   }catch(ex){return {priceCents:null,reason:String(ex?.message||'Product fetch failed').slice(0,125)};}
 }
 async function readBody(request,bytes=16000){
@@ -229,6 +319,53 @@ async function refresh(db,env,request){
   }
   return json({results,source:'saved_product_urls',notes:'Generic product-page prices are not verified at a selected branch.'});
 }
+
+/**
+ * Public, READ-ONLY quotes for existing allowlisted catalogue product URLs.
+ * No user-supplied URL is fetched; no DB mutations, auth secrets, or upstream
+ * credentials are exposed. Cache each listing to avoid repeated retailer hits.
+ * These prices are online_unverified and NEVER count as local shelf prices.
+ */
+export async function quoteSavedUrls(db,request){
+  if(request.method!=='POST')return error('POST required',405);
+  const body=await readBody(request);
+  if(!body||!Array.isArray(body.keys)||body.keys.length>8)
+    return error('Provide up to 8 catalogue listing keys.');
+  const keys=[...new Set(body.keys.map(x=>str(x,220)).filter(Boolean))];
+  const results=[];
+  // Bound concurrent connections and upstream load on a public route.
+  for(let offset=0;offset<keys.length;offset+=2){
+    const pair=await Promise.all(keys.slice(offset,offset+2).map(async key=>{
+      const row=await db.prepare('SELECT * FROM catalogue_listings WHERE listing_key=?').bind(key).first();
+      if(!row)return {key,status:'missing'};
+      if(row.price_scope==='selected_branch')
+        return {key,status:'skipped',reason:'Verified local price is not replaced'};
+      const cache=new URL('/api/catalogue/quote-cache/'+encodeURIComponent(key),request.url);
+      const cacheRequest=new Request(cache.href);
+      try{
+        const saved=await globalThis.caches?.default?.match(cacheRequest);
+        if(saved)return {key,...await saved.json(),cached:true};
+      }catch{
+        // Cache is optional in local tests and unsupported preview runtimes.
+      }
+      const price=await getProductPagePrice(row.product_url);
+      const output=price.priceCents===null?
+        {status:'unavailable',reason:price.reason||'Price unavailable'}:
+        {status:'priced',priceCents:price.priceCents,source:price.source,
+          observedAt:nowIso(),scope:'online_unverified'};
+      try{
+        const ttl=output.status==='priced'?7200:900;
+        await globalThis.caches?.default?.put(cacheRequest,new Response(JSON.stringify(output),{
+          headers:{'cache-control':'public, max-age='+ttl,'content-type':'application/json'}
+        }));
+      }catch{}
+      return {key,...output};
+    }));
+    results.push(...pair);
+  }
+  return json({results,scope:'online_unverified',source:'saved_product_urls'});
+}
+
 async function importExistingUrlBatch(db,env,request){
   if(request.method!=='POST')return error('POST required',405);
   if(!env.CATALOGUE_WRITE_KEY)return error('Owner import key has not been configured.',503,'import_not_configured');
@@ -304,6 +441,7 @@ export async function handleCatalogueApi(request,env){
   if(path==='/api/catalogue/import-freshco')return importHammerUrlBatch(db,env,request,'freshco');
   if(path==='/api/catalogue/import-gt-grocery')return importHammerUrlBatch(db,env,request,'gtgrocery');
   if(path==='/api/catalogue/compare')return compare(db,request);
+  if(path==='/api/catalogue/quote')return quoteSavedUrls(db,request);
   if(path==='/api/catalogue/refresh')return refresh(db,env,request);
   return error('Unknown catalogue endpoint',404,'not_found');
 }
