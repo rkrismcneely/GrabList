@@ -8,6 +8,7 @@ tests/
 .assetsignore
 
 catalogue-api.mjs
+catalogue-link-index.mjs
 migrations/
 catalogue-bootstrap.mjs
 scripts/
