@@ -20,13 +20,18 @@
   function productMatch(item,listing){
     if(!item||!listing||!listing.productName)return false;
     if(item.barcode&&(!listing.barcode||item.barcode!==listing.barcode))return false;
-    if(item.size&&measure(item.size)!==measure(listing.size))return false;
+    // "1 loaf" is a requested unit count, not a demand for a gram weight.
+    // Keep exact measured package sizes (4 L, 675 g, 12 ct, etc.) strict.
+    const unitOnly=/^\s*\d+\s*(?:loaf|loaves|item|items|each)\s*$/i.test(String(item.size||''));
+    if(item.size&&!unitOnly&&measure(item.size)!==measure(listing.size))return false;
     const q=normalized(item.name),p=normalized(listing.productName+' '+(listing.masterName||''));
     const brand=normalized(item.brand);
     if(brand&&!p.includes(brand)&&normalized(listing.brand)!==brand)return false;
     // Words supplied by the user are product constraints, not hints to ignore.
     const tokens=q.split(' ').filter(t=>t.length>1||/^[0-9]$/.test(t));
-    if(!tokens.length||!tokens.every(t=>p.split(' ').includes(t)))return false;
+    const words=p.split(' ');
+    const singular=t=>t.endsWith('ies')?t.slice(0,-3)+'y':t.endsWith('s')?t.slice(0,-1):t;
+    if(!tokens.length||!tokens.every(t=>words.includes(t)||words.includes(singular(t))))return false;
     const cases=[
       [/(^| )oat milk($| )/,/(^| )oat milk($| )/],
       [/(^| )almond milk($| )/,/(^| )almond milk($| )/],
@@ -36,6 +41,9 @@
     ];
     for(const [request,product] of cases)if(request.test(q)&&!product.test(p))return false;
     if(q==='milk'&&/(oat|almond|soy|soya|chocolate|coconut|condensed|evaporated) milk/.test(p))return false;
+    if(q==='bread'&&/\b(flour|crumbs|crumb|maker|knives|knife|sticks|mix)\b/.test(p))return false;
+    if((q==='eggs'||q==='egg')&&/\b(chocolate|candy|noodles|salad|rolls|tarts|waffles|muffins|easter)\b/.test(p))return false;
+    if((q==='marshmallows'||q==='marshmallow')&&/\b(fluff|spread|creme|cream|candy)\b/.test(p))return false;
     if(q==='coffee'&&/(instant|pods|capsules|k cups|beans|whole bean|decaf)/.test(p))return false;
     if(q==='butter'&&/(peanut|almond|cashew) butter/.test(p))return false;
     if(q==='tomato'||q==='tomatoes')if(/(sauce|paste|soup|juice)/.test(p))return false;
