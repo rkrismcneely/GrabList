@@ -10,6 +10,7 @@ tests/
 catalogue-api.mjs
 catalogue-link-index.mjs
 catalogue-nofrills.mjs
+catalogue-price-fallback.mjs
 migrations/
 catalogue-bootstrap.mjs
 scripts/
