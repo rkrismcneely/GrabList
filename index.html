@@ -1128,6 +1128,7 @@ $('edit-refresh-price').addEventListener('click',async()=>{
     await quoteCataloguePrices([saved.item.id],state.enabledStoreIds,{
       output:$('edit-price-status'),refresh:true
     });
+    await fallbackReferencePrices([saved.item.id],$('edit-price-status'));
   }finally{
     button.disabled=false;
     renderEditCataloguePrices();
@@ -1146,6 +1147,7 @@ $('edit-form').addEventListener('submit',event=>{
         await quoteCataloguePrices([saved.item.id],state.enabledStoreIds,{
           output:$('auto-price-status')
         });
+      await fallbackReferencePrices([saved.item.id],$('auto-price-status'));
     })();
   }
 });
@@ -1740,6 +1742,69 @@ async function quoteCataloguePrices(itemIds=null,stores=state.enabledStoreIds,op
     if(priceRefreshController===controller)priceRefreshController=null;
   }
 }
+async function fallbackReferencePrices(itemIds=null,output=$('auto-price-status')){
+  // Enabled only after the owner puts VYNN_API_KEY in the Worker environment.
+  // The browser never sees the key. No provider observations go to shared
+  // caches or localStorage. This is not a local shelf-price service.
+  if(!referencePriceFallbackConfigured)return {skipped:true};
+  const needed=state.items.filter(i=>!i.complete&&
+    (!itemIds||itemIds.includes(i.id))).map(item=>{
+    const offers=(catalogueRows.get(item.id)||[]).filter(o=>
+      o.status==='current'&&Number.isInteger(o.priceCents)&&
+      quoteInSelectedStoreContext(o)&&
+      GrabListCatalogueComparison.productMatch(item,o));
+    return {item,storeCount:new Set(offers.map(o=>o.retailer)).size};
+  }).filter(x=>x.storeCount<2).sort((a,b)=>a.storeCount-b.storeCount).slice(0,6);
+  if(!needed.length)return {skipped:true};
+  let applied=0,coverage=null,reason='';
+  for(let offset=0;offset<needed.length;offset+=3){
+    const group=needed.slice(offset,offset+3);
+    priceStatus(output,'Checking optional dated Canadian reference prices · '+
+      (offset+1)+'–'+Math.min(offset+3,needed.length)+' of '+needed.length);
+    try{
+      const response=await fetch('/api/catalogue/reference-prices',{
+        method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({stores:state.enabledStoreIds,
+          items:group.map(({item})=>({
+            id:item.id,name:item.name,size:item.size,brand:item.brand,barcode:item.barcode
+          }))})
+      });
+      if(!response.ok)throw Error('Provider reference lookup unavailable');
+      const data=await response.json();
+      if(!data.configured){referencePriceFallbackConfigured=false;return {skipped:true};}
+      reason=data.reason||'';
+      coverage=data.coverage||coverage;
+      for(const entry of data.results||[]){
+        const item=state.items.find(x=>x.id===entry.id);
+        if(!item)continue;
+        const existing=catalogueRows.get(item.id)||[];
+        const keys=new Set(existing.map(o=>o.key));
+        for(const offer of entry.offers||[]){
+          // Product identity, explicitly requested brand, units and variety are
+          // ALWAYS checked by the same matcher as retailer URLs.
+          if(!state.enabledStoreIds.includes(offer.retailer)||
+            !['province_reference','city_reference'].includes(offer.scope)||
+            !Number.isInteger(offer.priceCents)||offer.priceCents<=0||
+            !GrabListCatalogueComparison.productMatch(item,offer))continue;
+          if(keys.has(offer.key))continue;
+          existing.push(offer);keys.add(offer.key);applied++;
+        }
+        catalogueRows.set(item.id,existing);
+      }
+      renderCatalogueComparison();
+      if(currentSheet==='item')renderEditCataloguePrices();
+      if(reason==='free_budget_exhausted'||reason==='provider_quota_exhausted')break;
+    }catch(e){reason='reference_source_unavailable';break;}
+  }
+  const locality=coverage?.hasPeterboroughCoverage?
+    'Peterborough reference observations may be available.':
+    'No confirmed Peterborough reference-store coverage; Ontario observations are not local prices.';
+  referenceCoverageMessage=locality;
+  if(applied)priceStatus(output,'Added '+applied+' dated reference quotes. '+locality);
+  else if(reason)priceStatus(output,
+    'Reference fallback: '+reason.replaceAll('_',' ')+'. Existing retailer quotes remain.');
+  return {applied,reason,coverage};
+}
 async function refreshAllCataloguePrices(){
   if(priceRefreshBusy)return;
   priceRefreshBusy=true;
@@ -1751,6 +1816,7 @@ async function refreshAllCataloguePrices(){
       return;
     }
     await quoteCataloguePrices(null,state.enabledStoreIds,{output:$('auto-price-status')});
+    await fallbackReferencePrices(null,$('auto-price-status'));
   }finally{
     priceRefreshBusy=false;
     render();
