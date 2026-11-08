@@ -544,6 +544,39 @@ function sanitizeState(raw){
 function loadState(){try{return sanitizeState(JSON.parse(localStorage.getItem(STORAGE_KEY)))}catch{return blankState()}}
 let state=loadState();
 let catalogueRows=new Map(),catalogueFlyerRows=new Map(),catalogueCandidateRows=new Map(),catalogueReady=false,catalogueRefreshReady=false,catalogueListingCount=0,catalogueProductCount=0,catalogueCurrentFlyerCount=0;
+const PRICE_CACHE_KEY='grablist-online-quotes-v1';
+const PRICE_CACHE_MAX_AGE=4*3600000;
+let priceCache={};
+try{
+  const loaded=JSON.parse(localStorage.getItem(PRICE_CACHE_KEY)||'{}');
+  if(loaded&&typeof loaded==='object'&&!Array.isArray(loaded))priceCache=loaded;
+}catch{}
+function keepQuote(offer){
+  // Cached prices belong to the exact retailer URL and product identity, not
+  // a generic name. They're always unverified online quotes, never local prices.
+  if(offer.scope!=='online_unverified'||!Number.isInteger(offer.priceCents)||
+     !offer.key||!offer.url||!offer.observedAt)return;
+  priceCache[offer.key]={
+    priceCents:offer.priceCents,observedAt:offer.observedAt,source:offer.source,
+    url:offer.url,productName:offer.productName,size:offer.size
+  };
+  const cutoff=Date.now()-PRICE_CACHE_MAX_AGE;
+  const entries=Object.entries(priceCache)
+    .filter(([,v])=>v&&Date.parse(v.observedAt)>=cutoff)
+    .sort((a,b)=>Date.parse(b[1].observedAt)-Date.parse(a[1].observedAt)).slice(0,400);
+  priceCache=Object.fromEntries(entries);
+  try{localStorage.setItem(PRICE_CACHE_KEY,JSON.stringify(priceCache));}catch{}
+}
+function restoreQuote(offer){
+  if(offer.scope!=='online_unverified')return offer;
+  const saved=priceCache[offer.key];
+  if(!saved||saved.url!==offer.url||saved.productName!==offer.productName||
+    saved.size!==offer.size||!Number.isInteger(saved.priceCents)||
+    Date.now()-Date.parse(saved.observedAt)>PRICE_CACHE_MAX_AGE)return offer;
+  if(offer.observedAt&&Date.parse(offer.observedAt)>Date.parse(saved.observedAt))return offer;
+  return {...offer,priceCents:saved.priceCents,observedAt:saved.observedAt,
+    source:saved.source,status:'current',lastError:null};
+}
 function reconcileKnownPackageSizes(){
  let changed=false;
  for(const item of state.items){
