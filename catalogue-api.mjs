@@ -82,6 +82,7 @@ export function extractProductPrice(html,expectedName=''){
       return {priceCents:null,reason:'Retailer product title differs from saved catalogue item'};
   }
   const candidates=[];
+  let onlyOutOfStock=false;
   const scripts=html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script\s*>/gi);
   for(const match of scripts){
     if(!/\btype\s*=\s*["']application\/ld\+json["']/i.test(match[1]))continue;
@@ -89,11 +90,16 @@ export function extractProductPrice(html,expectedName=''){
     for(const product of findStructuredProducts(data)){
       if(typeof product.name==='string'&&!productTitleCompatible(expectedName,product.name))continue;
       if(/OutOfStock|SoldOut|Discontinued/i.test(String(product.availability||'')))continue;
+      const offers=Array.isArray(product.offers)?product.offers:[product.offers];
+      if(offers.length&&offers.every(o=>o&&/OutOfStock|SoldOut|Discontinued/i.test(String(o.availability||''))))
+        onlyOutOfStock=true;
       candidates.push(...offerPrices(product.offers));
     }
   }
-  // Product metadata fallback. This intentionally does not search for the first '$'
-  // on the page (which could be a different product or unrelated advertisement).
+  if(onlyOutOfStock&&!candidates.length)
+    return {priceCents:null,reason:'Product marked out of stock on retailer page'};
+  // Product metadata fallback never scans an arbitrary price from the page.
+  // Unrelated promotions and recommendations are not product prices.
   if(!candidates.length){
     const metadata=html.matchAll(/<meta\b[^>]*>/gi);
     for(const [tag] of metadata){
@@ -249,7 +255,7 @@ async function getProductPagePrice(raw,expectedName=''){
     if(contentType&&!contentType.includes('text/html'))return {priceCents:null,reason:'Product URL did not return HTML'};
     const html=await readHtml(response);
     const structured=extractProductPrice(html,expectedName);
-    if(structured.priceCents!==null)return structured;
+    if(structured.priceCents!==null||/marked out of stock/i.test(structured.reason||''))return structured;
     const visible=extractLoblawVisiblePrice(html,url);
     return visible.priceCents!==null?visible:structured;
   }catch(ex){return {priceCents:null,reason:String(ex?.message||'Product fetch failed').slice(0,125)};}
@@ -414,6 +420,9 @@ export async function quoteSavedUrls(db,request,assets){
   if(!body||!Array.isArray(body.keys)||body.keys.length>8)
     return error('Provide up to 8 catalogue listing keys.');
   const keys=[...new Set(body.keys.map(x=>str(x,220)).filter(Boolean))];
+  // Explicit per-item refresh may bypass older cache entries, never one
+  // checked within the previous five minutes.
+  const explicitRefresh=body.refresh===true;
   const results=[];
   // Bound concurrent connections and upstream load on a public route.
   for(let offset=0;offset<keys.length;offset+=2){
@@ -431,15 +440,21 @@ export async function quoteSavedUrls(db,request,assets){
       const cacheRequest=new Request(cache.href);
       try{
         const saved=await globalThis.caches?.default?.match(cacheRequest);
-        if(saved)return {key,...await saved.json(),cached:true};
+        if(saved){
+          const quote=await saved.json();
+          const checkedAt=Date.parse(quote.checkedAt||quote.observedAt||'');
+          const recent=Number.isFinite(checkedAt)&&Date.now()-checkedAt<5*60*1000;
+          if(!explicitRefresh||recent)return {key,...quote,cached:true};
+        }
       }catch{
         // Cache is optional in local tests and unsupported preview runtimes.
       }
       const price=await getProductPagePrice(row.product_url,row.product_name);
+      const checkedAt=nowIso();
       const output=price.priceCents===null?
-        {status:'unavailable',reason:price.reason||'Price unavailable'}:
+        {status:'unavailable',reason:price.reason||'Price unavailable',checkedAt}:
         {status:'priced',priceCents:price.priceCents,source:price.source,
-          observedAt:nowIso(),scope:'online_unverified'};
+          observedAt:checkedAt,checkedAt,scope:'online_unverified'};
       try{
         const ttl=output.status==='priced'?1800:300;
         await globalThis.caches?.default?.put(cacheRequest,new Response(JSON.stringify(output),{

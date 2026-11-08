@@ -69,6 +69,26 @@ button:focus-visible, input:focus-visible, select:focus-visible, .item-row:focus
 .empty-state button {border:1px solid #d9b29d;color:#aa4c34;background:white;padding:10px 18px;border-radius:20px;font-weight:680;margin-top:7px}
 .auto-price-status-unused {display:none}
 #auto-price-status:not([hidden]) {background:#f8efe6;color:#8c503e;font-size:12px;padding:7px 14px;text-align:center;flex:0 0 auto;border-top:1px solid #ead7c9}
+#auto-price-status:not([hidden]) {display:block!important}
+.edit-catalogue-prices {display:flex;flex-direction:column;gap:10px;border-top:1px solid #ead7c9;padding-top:12px}
+.edit-price-heading {display:flex;align-items:center;justify-content:space-between;gap:8px}
+.edit-price-heading strong {font-size:15px}
+#edit-refresh-price {border:0;border-radius:10px;background:#c94c35;color:white;font-weight:760;padding:10px 12px;font-size:13px}
+#edit-refresh-price:disabled {opacity:.58}
+.edit-price-status {font-size:12px;color:#715b4e;min-height:18px}
+.edit-price-option {display:flex;align-items:flex-start;justify-content:space-between;gap:8px;padding:10px 0;border-bottom:1px solid #eadbd0}
+.edit-price-option .edit-product-name {font-size:13px;font-weight:700;line-height:1.35}
+.edit-price-option small {display:block;font-size:11px;color:#76695f;margin-top:2px;line-height:1.35}
+.edit-price-option button {flex:0 0 auto;border:1px solid #d8ad99;background:#fff6ee;border-radius:9px;padding:8px 9px;color:#904333;font-size:12px;font-weight:750}
+.edit-price-option button[aria-pressed="true"] {background:#d34b35;color:white;border-color:#d34b35}
+.edit-other-stores {font-size:12px;color:#6d5850;line-height:1.5}
+.edit-other-store-button {margin:3px 4px 3px 0;border:1px solid #e5c6b7;border-radius:8px;
+ background:#fff6ef;padding:7px 8px;font-size:12px;color:#7b4135}
+.edit-price-option a {color:#a34436}
+.item-product-match {display:block;font-size:11px;line-height:1.3;opacity:.82;margin-top:3px;
+ max-width:245px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+
 #auto-price-status button {border:0;background:transparent;color:#a34436;text-decoration:underline;font-weight:750;padding:4px 6px}
 .list-footer {flex:0 0 auto;background:#f6ede5;border-top:1px solid #ead7c9;padding:9px 16px calc(9px + var(--safe-bottom));text-align:center;z-index:2}
 .list-footer button {border:none;background:transparent;color:#9a5d47;font-weight:700;padding:7px 10px;font-size:12px}
@@ -267,6 +287,12 @@ body.sheet-open {overflow:hidden}
         <label>Department<select id="edit-department"></select></label>
       </div>
       <label class="legacy-price-field">Price (CAD) <span class="label-extra">Archived legacy price</span><input id="edit-price" inputmode="decimal" type="number" min="0" step="0.01" placeholder="Unknown" /></label>
+      <section class="edit-catalogue-prices" aria-label="Product prices">
+        <div class="edit-price-heading"><strong>Matching product prices</strong><button type="button" id="edit-refresh-price">Refresh this item</button></div>
+        <p class="sheet-help">Update the product, size or store above, then refresh. Tap a product to use that exact item for this store, or compare any equivalent.</p>
+        <div id="edit-price-status" class="edit-price-status" role="status" aria-live="polite"></div>
+        <div id="edit-price-options"></div>
+      </section>
       <p id="edit-source-note" class="sheet-help">Prices entered here are manual, not live quotes.</p>
       <button type="button" id="look-up-item-price">Search public prices</button>
       <details id="delivery-price-tools" class="delivery-price-tools">
@@ -450,6 +476,12 @@ function sanitizeItem(raw,index){
     name:raw.name.trim().slice(0,110),barcode:/^\d{8,14}$/.test(String(raw.barcode||''))?String(raw.barcode):'',
     catalogueSize:/^\d{8,14}$/.test(String(raw.barcode||''))?String(raw.catalogueSize||'').slice(0,45):'',quantity:String(raw.quantity||'1').slice(0,16),
     size:String(raw.size||'').slice(0,40), brand:String(raw.brand||'').slice(0,75),
+    preferredListingByStore:Object.fromEntries(
+      Object.entries(raw.preferredListingByStore&&typeof raw.preferredListingByStore==='object'?
+        raw.preferredListingByStore:{}).filter(([id,key])=>
+        STORES.some(store=>store.id===id)&&typeof key==='string'&&
+        key.startsWith(id+'|')&&key.length<=220)
+    ),
     department:normalizeDepartment(raw.department)||detectDepartment(raw.name),
 
     offers:Array.isArray(raw.offers)?raw.offers.slice(0,24).filter(o=>o&&STORES.some(store=>store.id===o.storeId)&&o.source==='manual'&&Number.isFinite(Number(o.price))&&Number(o.price)>=0&&Number(o.price)<=99999&&Number.isFinite(Number(o.observedAt))&&Number(o.observedAt)>0).map(o=>({
@@ -518,6 +550,39 @@ function sanitizeState(raw){
 function loadState(){try{return sanitizeState(JSON.parse(localStorage.getItem(STORAGE_KEY)))}catch{return blankState()}}
 let state=loadState();
 let catalogueRows=new Map(),catalogueFlyerRows=new Map(),catalogueCandidateRows=new Map(),catalogueReady=false,catalogueRefreshReady=false,catalogueListingCount=0,catalogueProductCount=0,catalogueCurrentFlyerCount=0;
+const PRICE_CACHE_KEY='grablist-online-quotes-v1';
+const PRICE_CACHE_MAX_AGE=45*60000;
+let priceCache={};
+try{
+  const loaded=JSON.parse(localStorage.getItem(PRICE_CACHE_KEY)||'{}');
+  if(loaded&&typeof loaded==='object'&&!Array.isArray(loaded))priceCache=loaded;
+}catch{}
+function keepQuote(offer){
+  // Cached prices belong to the exact retailer URL and product identity, not
+  // a generic name. They're always unverified online quotes, never local prices.
+  if(offer.scope!=='online_unverified'||!Number.isInteger(offer.priceCents)||
+     !offer.key||!offer.url||!offer.observedAt)return;
+  priceCache[offer.key]={
+    priceCents:offer.priceCents,observedAt:offer.observedAt,source:offer.source,
+    url:offer.url,productName:offer.productName,size:offer.size
+  };
+  const cutoff=Date.now()-PRICE_CACHE_MAX_AGE;
+  const entries=Object.entries(priceCache)
+    .filter(([,v])=>v&&Date.parse(v.observedAt)>=cutoff)
+    .sort((a,b)=>Date.parse(b[1].observedAt)-Date.parse(a[1].observedAt)).slice(0,400);
+  priceCache=Object.fromEntries(entries);
+  try{localStorage.setItem(PRICE_CACHE_KEY,JSON.stringify(priceCache));}catch{}
+}
+function restoreQuote(offer){
+  if(offer.scope!=='online_unverified')return offer;
+  const saved=priceCache[offer.key];
+  if(!saved||saved.url!==offer.url||saved.productName!==offer.productName||
+    saved.size!==offer.size||!Number.isInteger(saved.priceCents)||
+    Date.now()-Date.parse(saved.observedAt)>PRICE_CACHE_MAX_AGE)return offer;
+  if(offer.observedAt&&Date.parse(offer.observedAt)>Date.parse(saved.observedAt))return offer;
+  return {...offer,priceCents:saved.priceCents,observedAt:saved.observedAt,
+    source:saved.source,status:'current',lastError:null};
+}
 function reconcileKnownPackageSizes(){
  let changed=false;
  for(const item of state.items){
@@ -559,6 +624,7 @@ function verifiedCataloguePrice(item){
   const branch=state.catalogueBranches[item.storeId];
   const offers=catalogueRows.get(item.id)||[];
   return offers.filter(o=>o.retailer===item.storeId&&o.branchId===branch&&
+    (!item.preferredListingByStore?.[item.storeId]||o.key===item.preferredListingByStore[item.storeId])&&
     GrabListCatalogueComparison.eligibleOffer(item,o,state.catalogueBranches))
     .sort((a,b)=>a.priceCents-b.priceCents)[0]||null;
 }
@@ -568,6 +634,7 @@ function onlineCataloguePrice(item){
  if(!item.storeId)return null;
  return (catalogueRows.get(item.id)||[]).filter(o=>
    o.retailer===item.storeId&&o.scope==='online_unverified'&&o.status==='current'&&
+   (!item.preferredListingByStore?.[item.storeId]||o.key===item.preferredListingByStore[item.storeId])&&
    Number.isInteger(o.priceCents)&&o.priceCents>0&&
    GrabListCatalogueComparison.productMatch(item,o)
  ).sort((a,b)=>a.priceCents-b.priceCents)[0]||null;
@@ -609,7 +676,7 @@ function detectDepartment(value){
 function newItem(raw){
   const parsed=parseEntry(raw);
   const profile=state.profiles[normalizedKey(parsed.name)]||{};
-  const item={id:uid(),name:parsed.name,barcode:'',catalogueSize:'',quantity:'1',size:parsed.size||inferredSize(parsed.name,profile),brand:parsed.brand||'',department:profile.department||detectDepartment(parsed.name),storeId:null,storeAutoAssigned:false,storeManuallyCleared:false,offers:[],price:null,priceSource:null,priceEvidence:null,complete:false,order:state.nextOrder++,createdAt:Date.now()};
+  const item={id:uid(),name:parsed.name,barcode:'',catalogueSize:'',quantity:'1',size:parsed.size||inferredSize(parsed.name,profile),brand:parsed.brand||'',preferredListingByStore:{},department:profile.department||detectDepartment(parsed.name),storeId:null,storeAutoAssigned:false,storeManuallyCleared:false,offers:[],price:null,priceSource:null,priceEvidence:null,complete:false,order:state.nextOrder++,createdAt:Date.now()};
   state.items.unshift(item);
   update();
   if(mode==='shopping')void loadCatalogueComparison(); // D1 read, never external price search.
@@ -638,12 +705,15 @@ function itemRow(item,index,total,colors,departmentLabel='',completed=false){
   const rowBg=completed?'#e5ddd4':atGradient(colors,palettePosition);
   const ink=completed?'#6f665f':textColor(rowBg);
   const detail=[item.quantity&&item.quantity!=='1'?`${item.quantity} ×`:null,item.size||null,item.brand?`· ${item.brand}`:null].filter(Boolean).join(' ');
+  const matchedOffer=displayedCataloguePrice(item);
+  const matchDescription=matchedOffer?
+    matchedOffer.productName+(matchedOffer.scope==='selected_branch'?' · local price':' · online estimate'):'';
   const text=[item.name,detail,displayedCataloguePrice(item)?`${formatPrice(item)} (${verifiedCataloguePrice(item)?'verified local price':'unverified online estimate'})`:'Price unavailable'].filter(Boolean).join(', ');
   return `<div class="swipe-shell">
     <span class="swipe-action complete" aria-hidden="true"><svg viewBox="0 0 32 32"><path d="M6 17l7 7L27 9"/></svg></span>
     <span class="swipe-action delete" aria-hidden="true"><svg viewBox="0 0 32 32"><path d="M7 7l18 18M25 7L7 25"/></svg></span>
     <div class="item-row" role="button" tabindex="0" data-item-id="${escapeHTML(item.id)}" aria-label="${escapeHTML(text)}. Tap to edit; swipe right to mark ${completed?'not bought':'bought'}; swipe left to delete." style="--row-bg:${rowBg};--row-text:${ink}">
-    <div class="item-info">${departmentLabel?`<span class="item-department">${escapeHTML(departmentLabel)}</span>`:''}<span class="item-name">${escapeHTML(item.name)}</span>${detail?`<span class="item-detail">${escapeHTML(detail)}</span>`:''}</div>
+    <div class="item-info">${departmentLabel?`<span class="item-department">${escapeHTML(departmentLabel)}</span>`:''}<span class="item-name">${escapeHTML(item.name)}</span>${detail?`<span class="item-detail">${escapeHTML(detail)}</span>`:''}${matchDescription?`<span class="item-product-match">${escapeHTML(matchDescription)}</span>`:''}</div>
     <div class="item-right"><span class="item-price ${displayedCataloguePrice(item)?'':'unknown'}">${escapeHTML(formatPrice(item))}</span><span class="row-chevron" aria-hidden="true">›</span></div>
     </div>
   </div>`;
@@ -690,7 +760,7 @@ function render(){
   if(showCompleted&&completed.length){markup+=`<section class="completed-section"><div class="store-header"><div class="store-title">Completed · ${completed.length}</div></div>${[...completed].sort((a,b)=>b.order-a.order).map((i,j)=>itemRow(i,j,completed.length,UNASSIGNED.gradient,'',true)).join('')}</section>`;}
   $('list-root').innerHTML=markup;
   $('list-footer').hidden=!(completed.length||mode==='shopping');
-  $('list-footer').innerHTML=(completed.length?`<button type="button" id="toggle-completed">${showCompleted?'Hide':'Show'} bought items (${completed.length})</button><button type="button" id="clear-completed">Clear bought</button>`:'')+(mode==='shopping'?'<button type="button" id="compare-price-button" class="compare-action">Compare store prices</button>':'');
+  $('list-footer').innerHTML=(completed.length?`<button type="button" id="toggle-completed">${showCompleted?'Hide':'Show'} bought items (${completed.length})</button><button type="button" id="clear-completed">Clear bought</button>`:'')+(mode==='shopping'?'<button type="button" id="compare-price-button" class="compare-action" '+(priceRefreshBusy?'disabled':'')+'>'+(priceRefreshBusy?'Checking prices…':'Compare store prices')+'</button>':'');
 }
 
 function saveDraft(){
@@ -802,31 +872,178 @@ function openItemSheet(id){
     }
   }
   // Archived manual offers and delivery-provider UI are intentionally not initialized.
+  renderEditCataloguePrices();
+}
+function draftEditedItem(){
+  const original=state.items.find(i=>i.id===$('edit-id').value);
+  if(!original)return null;
+  const barcode=$('edit-barcode').value.trim();
+  return {...original,
+    name:$('edit-name').value.trim(),
+    barcode:/^\d{8,14}$/.test(barcode)?barcode:'',
+    size:$('edit-size').value.trim(),
+    brand:$('edit-brand').value.trim(),
+    storeId:$('edit-store').value||null
+  };
+}
+function renderEditCataloguePrices(){
+  if(currentSheet!=='item')return;
+  const draft=draftEditedItem();
+  const target=$('edit-price-options');
+  if(!draft||!draft.name){target.textContent='Enter a product name to find matching prices.';return}
+  const store=draft.storeId;
+  if(!store){target.textContent='Choose a store above to view matching products.';return}
+  const offers=(catalogueRows.get(draft.id)||[]).filter(o=>
+    o.retailer===store&&GrabListCatalogueComparison.productMatch(draft,o));
+  const preferred=draft.preferredListingByStore?.[store];
+  const rows=offers.sort((a,b)=>
+    Number(b.key===preferred)-Number(a.key===preferred)||
+    Number(Number.isInteger(b.priceCents))-Number(Number.isInteger(a.priceCents))||
+    GrabListCatalogueComparison.productRank(draft,b)-GrabListCatalogueComparison.productRank(draft,a)||
+    (a.priceCents??Infinity)-(b.priceCents??Infinity)
+  ).slice(0,8);
+  let markup='<div class="edit-price-option"><div><span class="edit-product-name">Any equivalent product</span>'+
+    '<small>Automatically choose the least expensive matching item available from this retailer.</small></div>'+
+    '<button type="button" data-clear-product="1" aria-pressed="'+String(!preferred)+'">Any brand</button></div>';
+  if(!rows.length){
+    markup+='<p class="sheet-help">No matching retailer links loaded for this store. Press Refresh this item to search again.</p>';
+  }else{
+    markup+=rows.map(offer=>{
+      const selected=preferred===offer.key;
+      const price=Number.isInteger(offer.priceCents)&&offer.status==='current'?
+        (offer.scope==='selected_branch'?'':'≈ ')+currency.format(offer.priceCents/100):
+        'Price unavailable';
+      const date=offer.observedAt?new Date(offer.observedAt).toLocaleDateString('en-CA'):'not checked';
+      const scope=offer.scope==='selected_branch'?'Store-specific price':'Online estimate · local stock and price unconfirmed';
+      const reason=offer.lastError?' · '+offer.lastError:'';
+      const href=offer.url&&/^https:\/\//.test(offer.url)?
+        ' · <a href="'+escapeHTML(offer.url)+'" target="_blank" rel="noopener noreferrer">Product page</a>':'';
+      return '<div class="edit-price-option"><div><div class="edit-product-name">'+
+        escapeHTML(offer.productName)+'</div><small>'+escapeHTML((offer.size?offer.size+' · ':'')+
+        price+' · '+scope+' · '+date+reason)+href+'</small></div>'+
+        '<button type="button" data-select-product="'+escapeHTML(encodeURIComponent(offer.key))+
+        '" aria-pressed="'+String(selected)+'">'+(selected?'Selected':'Use')+'</button></div>';
+    }).join('');
+  }
+  const other=state.enabledStoreIds.filter(id=>id!==store).map(id=>{
+    const found=(catalogueRows.get(draft.id)||[]).filter(o=>o.retailer===id&&
+      o.status==='current'&&Number.isInteger(o.priceCents)&&
+      GrabListCatalogueComparison.productMatch(draft,o))
+      .sort((a,b)=>a.priceCents-b.priceCents)[0];
+    return '<button type="button" data-edit-switch-store="'+escapeHTML(id)+
+      '" class="edit-other-store-button">'+escapeHTML(storeById(id)?.name||id)+
+      ': '+(found?'≈ '+currency.format(found.priceCents/100):'no quote')+'</button>';
+  });
+  markup+='<p class="sheet-help">Other stores (tap to switch)</p><div class="edit-other-stores">'+other.join('')+'</div>';
+  target.innerHTML=markup;
+}
+function commitEditedItem(closeAfter=false){
+  const item=state.items.find(i=>i.id===$('edit-id').value);
+  const draft=draftEditedItem();
+  if(!item||!draft||!draft.name)return null;
+  const identityChanged=item.name!==draft.name||item.size!==draft.size||
+    item.brand!==draft.brand||item.barcode!==draft.barcode;
+  const selectionChanged=item.storeId!==draft.storeId;
+  const previousSize=item.size;
+  item.name=draft.name;
+  item.barcode=draft.barcode;
+  item.quantity=$('edit-quantity').value.trim()||'1';
+  item.size=draft.size;
+  item.brand=draft.brand;
+  item.storeId=draft.storeId;
+  item.storeAutoAssigned=false;
+  item.storeManuallyCleared=!draft.storeId;
+  item.department=$('edit-department').value;
+  if(identityChanged){
+    item.preferredListingByStore={};
+    if(item.catalogueSize&&GrabListIntelligence.measure(item.catalogueSize)!==GrabListIntelligence.measure(item.size))
+      item.catalogueSize='';
+  }
+  state.profiles[normalizedKey(item.name)]={department:item.department,size:item.size};
+  if(closeAfter)closeSheet();
+  update();
+  return {item,changed:identityChanged||selectionChanged};
 }
 $('edit-store').addEventListener('change',()=>{
-  captureSelectedOffer();
-  editingStoreId=$('edit-store').value||null;
-  const recorded=editingStoreId&&editingOffers?.get(editingStoreId);
-  $('edit-price').value=recorded?recorded.price.toFixed(2):'';
-  $('edit-source-note').textContent=recorded?'Showing your previously recorded price for this store.':'No recorded price for this store. Other store prices are kept separately.';
-  renderOfferInputs();
+  $('edit-price-status').textContent='Store changed. Press Refresh this item for its current price.';
+  renderEditCataloguePrices();
 });
-$('edit-form').addEventListener('submit',e=>{
-  e.preventDefault();const item=state.items.find(i=>i.id===$('edit-id').value);if(!item)return;
-  const name=$('edit-name').value.trim(),quantity=$('edit-quantity').value.trim()||'1';
-  if(!name)return;
-  const previousStore=item.storeId,previousPrice=item.price,previousSize=item.size,previousBrand=item.brand,
-    previousBarcode=item.barcode,previousName=item.name;
-  const storeId=$('edit-store').value||null;
-  item.name=name;item.barcode=/^\d{8,14}$/.test($('edit-barcode').value.trim())?$('edit-barcode').value.trim():'';item.quantity=quantity;item.size=$('edit-size').value.trim();item.brand=$('edit-brand').value.trim();item.storeId=storeId;item.storeAutoAssigned=false;item.storeManuallyCleared=!storeId;item.department=$('edit-department').value;
-  // A barcode is bound to a particular selected product. Editing its identity
-  // invalidates the previous catalogue association instead of silently reusing it.
-  if(item.barcode!==previousBarcode||normalizedKey(item.name)!==normalizedKey(previousName)||
-     (item.catalogueSize&&GrabListIntelligence.measure(item.catalogueSize)!==GrabListIntelligence.measure(item.size)))
-    item.catalogueSize='';
-  // Price and offer fields from previous versions remain archived, never updated here.
-  state.profiles[normalizedKey(item.name)]={department:item.department,size:item.size};
-  closeSheet();update();showToast(`${item.name} updated`);
+for(const id of ['edit-name','edit-size','edit-brand','edit-barcode']){
+  $(id).addEventListener('input',()=>{
+    $('edit-price-status').textContent='Product details changed. Refresh to look up matching prices.';
+    renderEditCataloguePrices();
+  });
+}
+$('edit-price-options').addEventListener('click',event=>{
+  const switchStore=event.target.closest('[data-edit-switch-store]');
+  if(switchStore){
+    $('edit-store').value=switchStore.dataset.editSwitchStore;
+    $('edit-store').dispatchEvent(new Event('change'));
+    return;
+  }
+  const choose=event.target.closest('[data-select-product],[data-clear-product]');
+  if(!choose)return;
+  const saved=commitEditedItem(false);
+  if(!saved||!saved.item.storeId)return;
+  const item=saved.item,store=item.storeId;
+  if(choose.hasAttribute('data-clear-product')){
+    delete item.preferredListingByStore[store];
+  }else{
+    const key=decodeURIComponent(choose.dataset.selectProduct||'');
+    const valid=(catalogueRows.get(item.id)||[]).some(o=>
+      o.key===key&&o.retailer===store&&GrabListCatalogueComparison.productMatch(item,o));
+    if(!valid)return;
+    const chosenOffer=(catalogueRows.get(item.id)||[]).find(o=>o.key===key&&o.retailer===store);
+    if(chosenOffer&&chosenOffer.size&&
+       (!item.size||/^\s*\d+\s*(?:loaf|loaves|items?|each)\s*$/i.test(item.size))){
+      // Learn the desired package size across stores without requiring the
+      // selected brand on future purchases.
+      item.size=chosenOffer.size;
+      item.preferredListingByStore={};
+      $('edit-size').value=item.size;
+      state.profiles[normalizedKey(item.name)]={department:item.department,size:item.size};
+    }
+    item.preferredListingByStore[store]=key;
+  }
+  update();
+  renderEditCataloguePrices();
+  $('edit-price-status').textContent='Product choice saved for '+(storeById(store)?.name||store)+'.';
+});
+$('edit-refresh-price').addEventListener('click',async()=>{
+  const saved=commitEditedItem(false);
+  if(!saved)return;
+  const button=$('edit-refresh-price');
+  button.disabled=true;
+  $('edit-price-status').textContent='Finding matching products for '+saved.item.name+'…';
+  try{
+    if(!await loadCatalogueComparison([saved.item.id])){
+      $('edit-price-status').textContent='Could not load matching retailer products.';
+      return;
+    }
+    renderEditCataloguePrices();
+    await quoteCataloguePrices([saved.item.id],state.enabledStoreIds,{
+      output:$('edit-price-status'),refresh:true
+    });
+  }finally{
+    button.disabled=false;
+    renderEditCataloguePrices();
+  }
+});
+$('edit-form').addEventListener('submit',event=>{
+  event.preventDefault();
+  const saved=commitEditedItem(true);
+  if(!saved)return;
+  showToast(saved.item.name+' updated');
+  if(saved.changed){
+    // Saving a changed product or store also updates its list price, with
+    // no second popup or manual step.
+    void (async()=>{
+      if(await loadCatalogueComparison([saved.item.id]))
+        await quoteCataloguePrices([saved.item.id],state.enabledStoreIds,{
+          output:$('auto-price-status')
+        });
+    })();
+  }
 });
 $('delete-item').addEventListener('click',()=>{const id=$('edit-id').value;closeSheet();deleteItem(id);});
 
@@ -1195,9 +1412,9 @@ function renderCatalogueComparison(){
   $('apply-price-comparison').disabled=!plan.changes.length;
   render();
 }
-async function loadCatalogueComparison(){
+async function loadCatalogueComparison(itemIds=null){
   const root=$('comparison-summary');
-  root.textContent='Loading saved catalogue prices…';
+  if(currentSheet==='compare')root.textContent='Loading catalogue prices…';
   try{
     const statusResponse=await fetch('/api/catalogue/status',{cache:'no-store'});
     const status=await statusResponse.json();
@@ -1209,105 +1426,158 @@ async function loadCatalogueComparison(){
     if(!catalogueReady){
       comparisonPlan=null;
       $('apply-price-comparison').disabled=true;
-      root.innerHTML='<div class="compare-card"><strong>Product catalogue needs database setup</strong><p>'+
-        escapeHTML(status.reason||'The D1 catalogue has not been configured.')+
-        '</p><p>Your existing shopping list is safe. No other pricing methods are running.</p></div>';
-      return;
+      if(currentSheet==='compare')root.textContent=status.reason||'Catalogue database not configured';
+      return false;
     }
-    const items=state.items.filter(item=>!item.complete);
+    const relevant=state.items.filter(item=>!item.complete&&(!itemIds||itemIds.includes(item.id)));
     const gathered=[];
-    for(let i=0;i<items.length;i+=40){
+    for(let i=0;i<relevant.length;i+=40){
       const response=await fetch('/api/catalogue/compare',{
         method:'POST',headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({items:items.slice(i,i+40).map(({id,name,size,brand,barcode})=>({id,name,size,brand,barcode})),stores:state.enabledStoreIds})
+        body:JSON.stringify({
+          items:relevant.slice(i,i+40).map(({id,name,size,brand,barcode})=>({id,name,size,brand,barcode})),
+          stores:state.enabledStoreIds
+        })
       });
       const data=await response.json();
-      if(!response.ok)throw Error(data.error||'Catalogue query failed');
+      if(!response.ok)throw Error(typeof data.error==='string'?data.error:'Catalogue query failed');
       gathered.push(...(data.results||[]));
     }
-    catalogueRows=new Map(gathered.map(entry=>[entry.id,entry.offers||[]]));
-    catalogueFlyerRows=new Map(gathered.map(entry=>[entry.id,entry.flyerMatches||[]]));
-    catalogueCandidateRows=new Map(gathered.map(entry=>[entry.id,entry.productCandidates||[]]));
+    if(!itemIds){
+      catalogueRows=new Map();
+      catalogueFlyerRows=new Map();
+      catalogueCandidateRows=new Map();
+    }
+    for(const entry of gathered){
+      catalogueRows.set(entry.id,(entry.offers||[]).map(restoreQuote));
+      catalogueFlyerRows.set(entry.id,entry.flyerMatches||[]);
+      catalogueCandidateRows.set(entry.id,entry.productCandidates||[]);
+    }
     renderCatalogueComparison();
+    return true;
   }catch(err){
-    comparisonPlan=null;
-    $('apply-price-comparison').disabled=true;
-    root.innerHTML='<div class="compare-card"><strong>Catalogue unavailable</strong><p>'+escapeHTML(err.message||'Could not query catalogue')+
-      '</p><p>No legacy price lookup was attempted.</p></div>';
+    if(currentSheet==='compare')root.textContent='Catalogue unavailable: '+String(err.message||'Could not query catalogue');
+    return false;
   }
 }
-function matchingCataloguePriceKeys(){
-  // Validate type and variant before requesting retailer prices; choose up to
-  // three ranked candidates per item and store to cover standard alternatives.
-  return [...new Set(state.items.filter(item=>!item.complete).flatMap(item=>{
+let priceRefreshBusy=false,priceRefreshController=null,priceRefreshVersion=0;
+function matchingCataloguePriceKeys(itemIds=null,stores=state.enabledStoreIds){
+  // Fetch the explicit product for a store if the shopper selected one.
+  // Otherwise, rank up to three compatible listings per store and item.
+  return [...new Set(state.items.filter(item=>!item.complete&&
+    (!itemIds||itemIds.includes(item.id))).flatMap(item=>{
     const matches=(catalogueRows.get(item.id)||[]).filter(offer=>
       offer.key&&offer.url&&offer.scope!=='selected_branch'&&
       GrabListCatalogueComparison.productMatch(item,offer));
-    return state.enabledStoreIds.flatMap(store=>matches.filter(offer=>offer.retailer===store)
-      .sort((a,b)=>
+    return stores.flatMap(store=>{
+      const perStore=matches.filter(offer=>offer.retailer===store);
+      const preferred=item.preferredListingByStore?.[store];
+      if(preferred){
+        const selected=perStore.find(o=>o.key===preferred);
+        if(selected)return [selected.key];
+      }
+      return perStore.sort((a,b)=>
         GrabListCatalogueComparison.productRank(item,b)-GrabListCatalogueComparison.productRank(item,a)||
         Number(Boolean(a.lastError))-Number(Boolean(b.lastError))||
         Number(!Number.isInteger(a.priceCents))-Number(!Number.isInteger(b.priceCents))||
-        a.productName.length-b.productName.length)
-      .slice(0,3).map(offer=>offer.key));
+        a.productName.length-b.productName.length
+      ).slice(0,3).map(offer=>offer.key);
+    });
   }))];
 }
-async function quoteCataloguePrices(){
-  const output=$('compare-auto-results'),progress=$('compare-progress');
-  if(!catalogueReady)return;
-  const keys=matchingCataloguePriceKeys();
+function priceStatus(target,message){
+  if(!target)return;
+  target.hidden=false;
+  target.textContent=message;
+}
+async function quoteCataloguePrices(itemIds=null,stores=state.enabledStoreIds,options={}){
+  const output=options.output||$('auto-price-status');
+  const keys=matchingCataloguePriceKeys(itemIds,stores);
   if(!keys.length){
-    output.textContent='No matching retailer product URLs were found in the bundled catalogue. Items without usable matches remain unpriced.';
-    return;
+    priceStatus(output,'No matching product links for this selection. Edit the item name, variety or size to refine it.');
+    return {found:0,checked:0};
   }
-  let found=0,unavailable=0;
-  progress.hidden=false;progress.max=keys.length;progress.value=0;
-  output.textContent='Checking online prices · 0 of '+keys.length+' links…';
+  const controller=new AbortController();
+  if(priceRefreshController)priceRefreshController.abort();
+  priceRefreshController=controller;
+  const version=++priceRefreshVersion;
+  let found=0,unavailable=0,checked=0;
+  const scope=itemIds?'item':'list';
+  priceStatus(output,'Checking '+scope+' prices · 0 / '+keys.length+' product links');
   try{
     for(let i=0;i<keys.length;i+=8){
       const batch=keys.slice(i,i+8);
       const response=await fetch('/api/catalogue/quote',{
         method:'POST',headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({keys:batch})
+        body:JSON.stringify({keys:batch,refresh:Boolean(options.refresh&&itemIds)}),
+        signal:controller.signal
       });
       const data=await response.json();
-      if(!response.ok)throw Error(data.error||'Online prices could not be checked');
+      if(!response.ok)throw Error(typeof data.error==='string'?data.error:'Retailer price request failed');
+      if(version!==priceRefreshVersion)return {found,checked};
       for(const result of data.results||[]){
-        if(result.status==='priced'){
-          found++;
-          for(const offers of catalogueRows.values()){
-            const offer=offers.find(o=>o.key===result.key);
-            if(offer&&offer.scope!=='selected_branch'){
-              offer.priceCents=result.priceCents;
-              offer.source=result.source;
-              offer.scope='online_unverified';
-              offer.status='current';
-              offer.observedAt=result.observedAt;
-              offer.lastError=null;
+        for(const offers of catalogueRows.values()){
+          const offer=offers.find(o=>o.key===result.key&&o.scope!=='selected_branch');
+          if(!offer)continue;
+          if(result.status==='priced'&&Number.isInteger(result.priceCents)&&result.priceCents>0){
+            found++;
+            offer.priceCents=result.priceCents;
+            offer.source=result.source;
+            offer.status='current';
+            offer.observedAt=result.observedAt;
+            offer.lastError=null;
+            keepQuote(offer);
+          }else if(result.status==='unavailable'){
+            unavailable++;
+            offer.lastError=String(result.reason||'Retailer did not return a price').slice(0,110);
+            // A fresh failed check supersedes an older online quote.
+            // Never continue to display a price if the retailer now reports
+            // unavailable, a mismatch, or blocked access.
+            offer.status='unavailable';
+            offer.priceCents=null;
+            if(priceCache[result.key]){
+              delete priceCache[result.key];
+              try{localStorage.setItem(PRICE_CACHE_KEY,JSON.stringify(priceCache));}catch{}
             }
-          }
-        }else if(result.status==='unavailable'){
-          unavailable++;
-          for(const offers of catalogueRows.values()){
-            for(const offer of offers)if(offer.key===result.key&&offer.scope!=='selected_branch')
-              offer.lastError=String(result.reason||'Source did not supply a price').slice(0,100);
           }
         }
       }
-      progress.value=Math.min(i+batch.length,keys.length);
+      checked+=batch.length;
       renderCatalogueComparison();
-      render();
-      output.textContent='Online prices found: '+found+' · Checked '+
-        progress.value+' of '+keys.length+' URLs';
+      if(currentSheet==='item'&&typeof renderEditCataloguePrices==='function')
+        renderEditCataloguePrices();
+      priceStatus(output,'Checking '+scope+' prices · '+checked+' / '+keys.length+
+        ' links · '+found+' quotes found');
     }
-    output.textContent='Found '+found+' online product prices · '+unavailable+
-      ' unavailable. Online prices may differ at your selected store.';
+    priceStatus(output,found?
+      'Updated '+found+' online product quotes. Prices marked ≈ may differ at the selected store.':
+      'No readable prices yet. Try a different product or store in Edit; blocked retailer pages remain unavailable.');
+    return {found,checked,unavailable};
   }catch(error){
-    output.textContent='Some online price checks failed: '+String(error.message||error)+
-      '. Prices already found remain visible.';
-  }finally{progress.hidden=true;}
+    if(controller.signal.aborted)return {found,checked,aborted:true};
+    priceStatus(output,'Price check incomplete: '+String(error.message||error)+
+      '. Any results already found are retained.');
+    return {found,checked,error:String(error.message||error)};
+  }finally{
+    if(priceRefreshController===controller)priceRefreshController=null;
+  }
 }
-
+async function refreshAllCataloguePrices(){
+  if(priceRefreshBusy)return;
+  priceRefreshBusy=true;
+  render();
+  priceStatus($('auto-price-status'),'Finding matching products across your stores…');
+  try{
+    if(!await loadCatalogueComparison()){
+      priceStatus($('auto-price-status'),'Could not load the product catalogue. Existing prices remain unchanged.');
+      return;
+    }
+    await quoteCataloguePrices(null,state.enabledStoreIds,{output:$('auto-price-status')});
+  }finally{
+    priceRefreshBusy=false;
+    render();
+  }
+}
 async function refreshCataloguePrices(){
   const output=$('compare-maintenance-results'),button=$('compare-refresh-prices');
   if(!catalogueReady){await loadCatalogueComparison();if(!catalogueReady)return;}
@@ -1715,14 +1985,9 @@ async function refreshCataloguePrices(){
     $('compare-maintenance-progress').hidden=true;
   }
 }
-async function showPriceComparison(){
-  openSheet('compare');
-  $('compare-auto-results').textContent='';
-  await loadCatalogueComparison();
-  // Price retrieval is read-only and uses server-saved retailer URLs, so it
-  // never needs a user-supplied key. It updates the comparison as prices arrive.
-  if(catalogueReady)void quoteCataloguePrices();
-  // Owner-only catalogue maintenance is intentionally NOT run by Compare.
+function showPriceComparison(){
+  // The main action never opens a sheet. The list updates as prices arrive.
+  void refreshAllCataloguePrices();
 }
 $('list-footer').addEventListener('click',event=>{
   if(event.target.closest('#compare-price-button'))showPriceComparison();
