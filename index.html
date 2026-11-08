@@ -751,7 +751,7 @@ function render(){
   if(showCompleted&&completed.length){markup+=`<section class="completed-section"><div class="store-header"><div class="store-title">Completed · ${completed.length}</div></div>${[...completed].sort((a,b)=>b.order-a.order).map((i,j)=>itemRow(i,j,completed.length,UNASSIGNED.gradient,'',true)).join('')}</section>`;}
   $('list-root').innerHTML=markup;
   $('list-footer').hidden=!(completed.length||mode==='shopping');
-  $('list-footer').innerHTML=(completed.length?`<button type="button" id="toggle-completed">${showCompleted?'Hide':'Show'} bought items (${completed.length})</button><button type="button" id="clear-completed">Clear bought</button>`:'')+(mode==='shopping'?'<button type="button" id="compare-price-button" class="compare-action">Compare store prices</button>':'');
+  $('list-footer').innerHTML=(completed.length?`<button type="button" id="toggle-completed">${showCompleted?'Hide':'Show'} bought items (${completed.length})</button><button type="button" id="clear-completed">Clear bought</button>`:'')+(mode==='shopping'?'<button type="button" id="compare-price-button" class="compare-action" '+(priceRefreshBusy?'disabled':'')+'>'+(priceRefreshBusy?'Checking prices…':'Compare store prices')+'</button>':'');
 }
 
 function saveDraft(){
@@ -1304,78 +1304,115 @@ async function loadCatalogueComparison(itemIds=null){
     return false;
   }
 }
-function matchingCataloguePriceKeys(){
-  // Validate type and variant before requesting retailer prices; choose up to
-  // three ranked candidates per item and store to cover standard alternatives.
-  return [...new Set(state.items.filter(item=>!item.complete).flatMap(item=>{
+let priceRefreshBusy=false,priceRefreshController=null,priceRefreshVersion=0;
+function matchingCataloguePriceKeys(itemIds=null,stores=state.enabledStoreIds){
+  // Fetch the explicit product for a store if the shopper selected one.
+  // Otherwise, rank up to three compatible listings per store and item.
+  return [...new Set(state.items.filter(item=>!item.complete&&
+    (!itemIds||itemIds.includes(item.id))).flatMap(item=>{
     const matches=(catalogueRows.get(item.id)||[]).filter(offer=>
       offer.key&&offer.url&&offer.scope!=='selected_branch'&&
       GrabListCatalogueComparison.productMatch(item,offer));
-    return state.enabledStoreIds.flatMap(store=>matches.filter(offer=>offer.retailer===store)
-      .sort((a,b)=>
+    return stores.flatMap(store=>{
+      const perStore=matches.filter(offer=>offer.retailer===store);
+      const preferred=item.preferredListingByStore?.[store];
+      if(preferred){
+        const selected=perStore.find(o=>o.key===preferred);
+        if(selected)return [selected.key];
+      }
+      return perStore.sort((a,b)=>
         GrabListCatalogueComparison.productRank(item,b)-GrabListCatalogueComparison.productRank(item,a)||
         Number(Boolean(a.lastError))-Number(Boolean(b.lastError))||
         Number(!Number.isInteger(a.priceCents))-Number(!Number.isInteger(b.priceCents))||
-        a.productName.length-b.productName.length)
-      .slice(0,3).map(offer=>offer.key));
+        a.productName.length-b.productName.length
+      ).slice(0,3).map(offer=>offer.key);
+    });
   }))];
 }
-async function quoteCataloguePrices(){
-  const output=$('compare-auto-results'),progress=$('compare-progress');
-  if(!catalogueReady)return;
-  const keys=matchingCataloguePriceKeys();
+function priceStatus(target,message){
+  if(!target)return;
+  target.hidden=false;
+  target.textContent=message;
+}
+async function quoteCataloguePrices(itemIds=null,stores=state.enabledStoreIds,options={}){
+  const output=options.output||$('auto-price-status');
+  const keys=matchingCataloguePriceKeys(itemIds,stores);
   if(!keys.length){
-    output.textContent='No matching retailer product URLs were found in the bundled catalogue. Items without usable matches remain unpriced.';
-    return;
+    priceStatus(output,'No matching product links for this selection. Edit the item name, variety or size to refine it.');
+    return {found:0,checked:0};
   }
-  let found=0,unavailable=0;
-  progress.hidden=false;progress.max=keys.length;progress.value=0;
-  output.textContent='Checking online prices · 0 of '+keys.length+' links…';
+  const controller=new AbortController();
+  if(priceRefreshController)priceRefreshController.abort();
+  priceRefreshController=controller;
+  const version=++priceRefreshVersion;
+  let found=0,unavailable=0,checked=0;
+  const scope=itemIds?'item':'list';
+  priceStatus(output,'Checking '+scope+' prices · 0 / '+keys.length+' product links');
   try{
     for(let i=0;i<keys.length;i+=8){
       const batch=keys.slice(i,i+8);
       const response=await fetch('/api/catalogue/quote',{
         method:'POST',headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({keys:batch})
+        body:JSON.stringify({keys:batch,refresh:Boolean(options.refresh&&itemIds)}),
+        signal:controller.signal
       });
       const data=await response.json();
-      if(!response.ok)throw Error(data.error||'Online prices could not be checked');
+      if(!response.ok)throw Error(typeof data.error==='string'?data.error:'Retailer price request failed');
+      if(version!==priceRefreshVersion)return {found,checked};
       for(const result of data.results||[]){
-        if(result.status==='priced'){
-          found++;
-          for(const offers of catalogueRows.values()){
-            const offer=offers.find(o=>o.key===result.key);
-            if(offer&&offer.scope!=='selected_branch'){
-              offer.priceCents=result.priceCents;
-              offer.source=result.source;
-              offer.scope='online_unverified';
-              offer.status='current';
-              offer.observedAt=result.observedAt;
-              offer.lastError=null;
-            }
-          }
-        }else if(result.status==='unavailable'){
-          unavailable++;
-          for(const offers of catalogueRows.values()){
-            for(const offer of offers)if(offer.key===result.key&&offer.scope!=='selected_branch')
-              offer.lastError=String(result.reason||'Source did not supply a price').slice(0,100);
+        for(const offers of catalogueRows.values()){
+          const offer=offers.find(o=>o.key===result.key&&o.scope!=='selected_branch');
+          if(!offer)continue;
+          if(result.status==='priced'&&Number.isInteger(result.priceCents)&&result.priceCents>0){
+            found++;
+            offer.priceCents=result.priceCents;
+            offer.source=result.source;
+            offer.status='current';
+            offer.observedAt=result.observedAt;
+            offer.lastError=null;
+            keepQuote(offer);
+          }else if(result.status==='unavailable'){
+            unavailable++;
+            offer.lastError=String(result.reason||'Retailer did not return a price').slice(0,110);
           }
         }
       }
-      progress.value=Math.min(i+batch.length,keys.length);
+      checked+=batch.length;
       renderCatalogueComparison();
-      render();
-      output.textContent='Online prices found: '+found+' · Checked '+
-        progress.value+' of '+keys.length+' URLs';
+      if(currentSheet==='item'&&typeof renderEditCataloguePrices==='function')
+        renderEditCataloguePrices();
+      priceStatus(output,'Checking '+scope+' prices · '+checked+' / '+keys.length+
+        ' links · '+found+' quotes found');
     }
-    output.textContent='Found '+found+' online product prices · '+unavailable+
-      ' unavailable. Online prices may differ at your selected store.';
+    priceStatus(output,found?
+      'Updated '+found+' online product quotes. Prices marked ≈ may differ at the selected store.':
+      'No readable prices yet. Try a different product or store in Edit; blocked retailer pages remain unavailable.');
+    return {found,checked,unavailable};
   }catch(error){
-    output.textContent='Some online price checks failed: '+String(error.message||error)+
-      '. Prices already found remain visible.';
-  }finally{progress.hidden=true;}
+    if(controller.signal.aborted)return {found,checked,aborted:true};
+    priceStatus(output,'Price check incomplete: '+String(error.message||error)+
+      '. Any results already found are retained.');
+    return {found,checked,error:String(error.message||error)};
+  }finally{
+    if(priceRefreshController===controller)priceRefreshController=null;
+  }
 }
-
+async function refreshAllCataloguePrices(){
+  if(priceRefreshBusy)return;
+  priceRefreshBusy=true;
+  render();
+  priceStatus($('auto-price-status'),'Finding matching products across your stores…');
+  try{
+    if(!await loadCatalogueComparison()){
+      priceStatus($('auto-price-status'),'Could not load the product catalogue. Existing prices remain unchanged.');
+      return;
+    }
+    await quoteCataloguePrices(null,state.enabledStoreIds,{output:$('auto-price-status')});
+  }finally{
+    priceRefreshBusy=false;
+    render();
+  }
+}
 async function refreshCataloguePrices(){
   const output=$('compare-maintenance-results'),button=$('compare-refresh-prices');
   if(!catalogueReady){await loadCatalogueComparison();if(!catalogueReady)return;}
@@ -1783,14 +1820,9 @@ async function refreshCataloguePrices(){
     $('compare-maintenance-progress').hidden=true;
   }
 }
-async function showPriceComparison(){
-  openSheet('compare');
-  $('compare-auto-results').textContent='';
-  await loadCatalogueComparison();
-  // Price retrieval is read-only and uses server-saved retailer URLs, so it
-  // never needs a user-supplied key. It updates the comparison as prices arrive.
-  if(catalogueReady)void quoteCataloguePrices();
-  // Owner-only catalogue maintenance is intentionally NOT run by Compare.
+function showPriceComparison(){
+  // The main action never opens a sheet. The list updates as prices arrive.
+  void refreshAllCataloguePrices();
 }
 $('list-footer').addEventListener('click',event=>{
   if(event.target.closest('#compare-price-button'))showPriceComparison();
