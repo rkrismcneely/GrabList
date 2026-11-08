@@ -85,6 +85,8 @@ button:focus-visible, input:focus-visible, select:focus-visible, .item-row:focus
 .edit-other-store-button {margin:3px 4px 3px 0;border:1px solid #e5c6b7;border-radius:8px;
  background:#fff6ef;padding:7px 8px;font-size:12px;color:#7b4135}
 .edit-price-option a {color:#a34436}
+.item-product-match {display:block;font-size:11px;line-height:1.3;opacity:.82;margin-top:3px;
+ max-width:245px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 
 
 #auto-price-status button {border:0;background:transparent;color:#a34436;text-decoration:underline;font-weight:750;padding:4px 6px}
@@ -703,12 +705,15 @@ function itemRow(item,index,total,colors,departmentLabel='',completed=false){
   const rowBg=completed?'#e5ddd4':atGradient(colors,palettePosition);
   const ink=completed?'#6f665f':textColor(rowBg);
   const detail=[item.quantity&&item.quantity!=='1'?`${item.quantity} ×`:null,item.size||null,item.brand?`· ${item.brand}`:null].filter(Boolean).join(' ');
+  const matchedOffer=displayedCataloguePrice(item);
+  const matchDescription=matchedOffer?
+    matchedOffer.productName+(matchedOffer.scope==='selected_branch'?' · local price':' · online estimate'):'';
   const text=[item.name,detail,displayedCataloguePrice(item)?`${formatPrice(item)} (${verifiedCataloguePrice(item)?'verified local price':'unverified online estimate'})`:'Price unavailable'].filter(Boolean).join(', ');
   return `<div class="swipe-shell">
     <span class="swipe-action complete" aria-hidden="true"><svg viewBox="0 0 32 32"><path d="M6 17l7 7L27 9"/></svg></span>
     <span class="swipe-action delete" aria-hidden="true"><svg viewBox="0 0 32 32"><path d="M7 7l18 18M25 7L7 25"/></svg></span>
     <div class="item-row" role="button" tabindex="0" data-item-id="${escapeHTML(item.id)}" aria-label="${escapeHTML(text)}. Tap to edit; swipe right to mark ${completed?'not bought':'bought'}; swipe left to delete." style="--row-bg:${rowBg};--row-text:${ink}">
-    <div class="item-info">${departmentLabel?`<span class="item-department">${escapeHTML(departmentLabel)}</span>`:''}<span class="item-name">${escapeHTML(item.name)}</span>${detail?`<span class="item-detail">${escapeHTML(detail)}</span>`:''}</div>
+    <div class="item-info">${departmentLabel?`<span class="item-department">${escapeHTML(departmentLabel)}</span>`:''}<span class="item-name">${escapeHTML(item.name)}</span>${detail?`<span class="item-detail">${escapeHTML(detail)}</span>`:''}${matchDescription?`<span class="item-product-match">${escapeHTML(matchDescription)}</span>`:''}</div>
     <div class="item-right"><span class="item-price ${displayedCataloguePrice(item)?'':'unknown'}">${escapeHTML(formatPrice(item))}</span><span class="row-chevron" aria-hidden="true">›</span></div>
     </div>
   </div>`;
@@ -988,6 +993,16 @@ $('edit-price-options').addEventListener('click',event=>{
     const valid=(catalogueRows.get(item.id)||[]).some(o=>
       o.key===key&&o.retailer===store&&GrabListCatalogueComparison.productMatch(item,o));
     if(!valid)return;
+    const chosenOffer=(catalogueRows.get(item.id)||[]).find(o=>o.key===key&&o.retailer===store);
+    if(chosenOffer&&chosenOffer.size&&
+       (!item.size||/^\s*\d+\s*(?:loaf|loaves|items?|each)\s*$/i.test(item.size))){
+      // Learn the desired package size across stores without requiring the
+      // selected brand on future purchases.
+      item.size=chosenOffer.size;
+      item.preferredListingByStore={};
+      $('edit-size').value=item.size;
+      state.profiles[normalizedKey(item.name)]={department:item.department,size:item.size};
+    }
     item.preferredListingByStore[store]=key;
   }
   update();
