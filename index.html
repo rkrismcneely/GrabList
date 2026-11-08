@@ -69,6 +69,20 @@ button:focus-visible, input:focus-visible, select:focus-visible, .item-row:focus
 .empty-state button {border:1px solid #d9b29d;color:#aa4c34;background:white;padding:10px 18px;border-radius:20px;font-weight:680;margin-top:7px}
 .auto-price-status-unused {display:none}
 #auto-price-status:not([hidden]) {background:#f8efe6;color:#8c503e;font-size:12px;padding:7px 14px;text-align:center;flex:0 0 auto;border-top:1px solid #ead7c9}
+#auto-price-status:not([hidden]) {display:block!important}
+.edit-catalogue-prices {display:flex;flex-direction:column;gap:10px;border-top:1px solid #ead7c9;padding-top:12px}
+.edit-price-heading {display:flex;align-items:center;justify-content:space-between;gap:8px}
+.edit-price-heading strong {font-size:15px}
+#edit-refresh-price {border:0;border-radius:10px;background:#c94c35;color:white;font-weight:760;padding:10px 12px;font-size:13px}
+#edit-refresh-price:disabled {opacity:.58}
+.edit-price-status {font-size:12px;color:#715b4e;min-height:18px}
+.edit-price-option {display:flex;align-items:flex-start;justify-content:space-between;gap:8px;padding:10px 0;border-bottom:1px solid #eadbd0}
+.edit-price-option .edit-product-name {font-size:13px;font-weight:700;line-height:1.35}
+.edit-price-option small {display:block;font-size:11px;color:#76695f;margin-top:2px;line-height:1.35}
+.edit-price-option button {flex:0 0 auto;border:1px solid #d8ad99;background:#fff6ee;border-radius:9px;padding:8px 9px;color:#904333;font-size:12px;font-weight:750}
+.edit-price-option button[aria-pressed="true"] {background:#d34b35;color:white;border-color:#d34b35}
+.edit-other-stores {font-size:12px;color:#6d5850;line-height:1.5}
+
 #auto-price-status button {border:0;background:transparent;color:#a34436;text-decoration:underline;font-weight:750;padding:4px 6px}
 .list-footer {flex:0 0 auto;background:#f6ede5;border-top:1px solid #ead7c9;padding:9px 16px calc(9px + var(--safe-bottom));text-align:center;z-index:2}
 .list-footer button {border:none;background:transparent;color:#9a5d47;font-weight:700;padding:7px 10px;font-size:12px}
@@ -267,6 +281,12 @@ body.sheet-open {overflow:hidden}
         <label>Department<select id="edit-department"></select></label>
       </div>
       <label class="legacy-price-field">Price (CAD) <span class="label-extra">Archived legacy price</span><input id="edit-price" inputmode="decimal" type="number" min="0" step="0.01" placeholder="Unknown" /></label>
+      <section class="edit-catalogue-prices" aria-label="Product prices">
+        <div class="edit-price-heading"><strong>Matching product prices</strong><button type="button" id="edit-refresh-price">Refresh this item</button></div>
+        <p class="sheet-help">Update the product, size or store above, then refresh. Tap a product to use that exact item for this store, or compare any equivalent.</p>
+        <div id="edit-price-status" class="edit-price-status" role="status" aria-live="polite"></div>
+        <div id="edit-price-options"></div>
+      </section>
       <p id="edit-source-note" class="sheet-help">Prices entered here are manual, not live quotes.</p>
       <button type="button" id="look-up-item-price">Search public prices</button>
       <details id="delivery-price-tools" class="delivery-price-tools">
@@ -450,6 +470,12 @@ function sanitizeItem(raw,index){
     name:raw.name.trim().slice(0,110),barcode:/^\d{8,14}$/.test(String(raw.barcode||''))?String(raw.barcode):'',
     catalogueSize:/^\d{8,14}$/.test(String(raw.barcode||''))?String(raw.catalogueSize||'').slice(0,45):'',quantity:String(raw.quantity||'1').slice(0,16),
     size:String(raw.size||'').slice(0,40), brand:String(raw.brand||'').slice(0,75),
+    preferredListingByStore:Object.fromEntries(
+      Object.entries(raw.preferredListingByStore&&typeof raw.preferredListingByStore==='object'?
+        raw.preferredListingByStore:{}).filter(([id,key])=>
+        STORES.some(store=>store.id===id)&&typeof key==='string'&&
+        key.startsWith(id+'|')&&key.length<=220)
+    ),
     department:normalizeDepartment(raw.department)||detectDepartment(raw.name),
 
     offers:Array.isArray(raw.offers)?raw.offers.slice(0,24).filter(o=>o&&STORES.some(store=>store.id===o.storeId)&&o.source==='manual'&&Number.isFinite(Number(o.price))&&Number(o.price)>=0&&Number(o.price)<=99999&&Number.isFinite(Number(o.observedAt))&&Number(o.observedAt)>0).map(o=>({
@@ -559,6 +585,7 @@ function verifiedCataloguePrice(item){
   const branch=state.catalogueBranches[item.storeId];
   const offers=catalogueRows.get(item.id)||[];
   return offers.filter(o=>o.retailer===item.storeId&&o.branchId===branch&&
+    (!item.preferredListingByStore?.[item.storeId]||o.key===item.preferredListingByStore[item.storeId])&&
     GrabListCatalogueComparison.eligibleOffer(item,o,state.catalogueBranches))
     .sort((a,b)=>a.priceCents-b.priceCents)[0]||null;
 }
@@ -568,6 +595,7 @@ function onlineCataloguePrice(item){
  if(!item.storeId)return null;
  return (catalogueRows.get(item.id)||[]).filter(o=>
    o.retailer===item.storeId&&o.scope==='online_unverified'&&o.status==='current'&&
+   (!item.preferredListingByStore?.[item.storeId]||o.key===item.preferredListingByStore[item.storeId])&&
    Number.isInteger(o.priceCents)&&o.priceCents>0&&
    GrabListCatalogueComparison.productMatch(item,o)
  ).sort((a,b)=>a.priceCents-b.priceCents)[0]||null;
@@ -609,7 +637,7 @@ function detectDepartment(value){
 function newItem(raw){
   const parsed=parseEntry(raw);
   const profile=state.profiles[normalizedKey(parsed.name)]||{};
-  const item={id:uid(),name:parsed.name,barcode:'',catalogueSize:'',quantity:'1',size:parsed.size||inferredSize(parsed.name,profile),brand:parsed.brand||'',department:profile.department||detectDepartment(parsed.name),storeId:null,storeAutoAssigned:false,storeManuallyCleared:false,offers:[],price:null,priceSource:null,priceEvidence:null,complete:false,order:state.nextOrder++,createdAt:Date.now()};
+  const item={id:uid(),name:parsed.name,barcode:'',catalogueSize:'',quantity:'1',size:parsed.size||inferredSize(parsed.name,profile),brand:parsed.brand||'',preferredListingByStore:{},department:profile.department||detectDepartment(parsed.name),storeId:null,storeAutoAssigned:false,storeManuallyCleared:false,offers:[],price:null,priceSource:null,priceEvidence:null,complete:false,order:state.nextOrder++,createdAt:Date.now()};
   state.items.unshift(item);
   update();
   if(mode==='shopping')void loadCatalogueComparison(); // D1 read, never external price search.
