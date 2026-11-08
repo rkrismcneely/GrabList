@@ -179,6 +179,10 @@ test('generic eggs mean large dozen, and plain loaf means sandwich bread',()=>{
    {productName:'Compliments Sandwich Bread White 675 g',size:'675 g'}),true);
  assert.equal(compare.productMatch({name:'Bread',size:'1 loaf'},
    {productName:'Artisan Sourdough Bread 600 g',size:'600 g'}),false);
+ assert.equal(compare.productMatch({name:'Bread',size:'1 loaf'},
+   {productName:'Sandwich White Bread Club Size 1400 g',size:'1400 g'}),false);
+ assert.equal(compare.productMatch({name:'Bread',size:'1 loaf'},
+   {productName:'Sandwich White Bread 675 g',size:'675 g'}),true);
 });
 test('official page identity and availability must agree with the requested item',async()=>{
  const {extractProductPrice,extractShopifyProductPrice,productTitleCompatible}=await import('../catalogue-api.mjs');
