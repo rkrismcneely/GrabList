@@ -17,23 +17,50 @@
     const family={kg:'g',g:'g',l:'ml',ml:'ml',lb:'g',lbs:'g',oz:'g',ct:'ct',count:'ct',pk:'ct',pack:'ct'};
     return Math.round(n*multipliers[m[2]]*100)/100+family[m[2]];
   }
+  function itemKind(item){
+    const name=normalized(item?.name);
+    if(name==='milk'||name==='regular milk'||name==='dairy milk')return 'standard-milk';
+    if((name==='eggs'||name==='egg')&&!item?.size)return 'standard-eggs';
+    if(name==='bread'&&(!item?.size||/^\s*\d+\s*(?:loaf|loaves|items?|each)\s*$/i.test(item.size)))return 'standard-bread';
+    if(name==='marshmallows'||name==='marshmallow')return 'marshmallows';
+    return 'specified';
+  }
+  function standardMilk(name){
+    // A generic 4 L milk request means ordinary cow's milk, 1% or 2%.
+    // Never let a 6% specialty, cream, oat drink, or lactose-free premium
+    // win merely because it has "milk" and "4 L" in its product title.
+    if(/\b(?:oat|almond|soy|soya|coconut|rice|goat|sheep|chocolate|strawberry|vanilla|flavou?red|condensed|evaporated|powdered|buttermilk|coffee|protein|a2|lactose|organic|microfiltered|ultrafiltered|ultra|enriched|fortified|shelf stable|homo|homogenized|whole|skim)\b/.test(name))return false;
+    const percents=[...name.matchAll(/(?:^| )(\d+(?:\.\d+)?)\s*%/g)].map(m=>Number(m[1]));
+    return percents.length>0&&percents.every(p=>p===1||p===2);
+  }
+  function standardEggs(name,size){
+    if(/\b(?:medium|jumbo|small|extra large|extra-large|xl|liquid|whites|powdered|chocolate|easter|salad|noodles)\b/.test(name))return false;
+    const both=name+' '+normalized(size);
+    // No package size provided by the user: compare standard large dozens,
+    // not medium eggs, 18-packs, 30-packs, or egg-containing products.
+    return /\blarge\b/.test(name)&&/(?:^| )12\s*(?:ea|ct|pk|pack|count|eggs)?(?: |$)/.test(both);
+  }
+  function standardBread(name){
+    return !/\b(?:flour|crumbs|crumb|mix|sticks|buns|rolls|bagels|pita|naan|tortillas|garlic|keto|gluten free|low carb|sourdough|rye|artisan|focaccia|baguette|panettone|fruit|raisin|dessert|pudding)\b/.test(name);
+  }
   function productMatch(item,listing){
     if(!item||!listing||!listing.productName)return false;
     if(item.barcode&&(!listing.barcode||item.barcode!==listing.barcode))return false;
-    // "1 loaf" is a requested unit count, not a demand for a gram weight.
-    // Keep exact measured package sizes (4 L, 675 g, 12 ct, etc.) strict.
     const unitOnly=/^\s*\d+\s*(?:loaf|loaves|item|items|each)\s*$/i.test(String(item.size||''));
     if(item.size&&!unitOnly&&measure(item.size)!==measure(listing.size))return false;
-    const q=normalized(item.name),p=normalized(listing.productName+' '+(listing.masterName||''));
+    // The retailer's actual title is authoritative for product variants;
+    // an overly broad master category must never hide an incompatible SKU.
+    const q=normalized(item.name),p=normalized(listing.productName);
     const brand=normalized(item.brand);
     if(brand&&!p.includes(brand)&&normalized(listing.brand)!==brand)return false;
-    // Words supplied by the user are product constraints, not hints to ignore.
     const tokens=q.split(' ').filter(t=>t.length>1||/^[0-9]$/.test(t));
     const words=p.split(' ');
-    // Plural "eggs" should never resolve to an egg-based baked good.
-    if(q==='eggs'&&!words.includes('eggs'))return false;
     const singular=t=>t.endsWith('ies')?t.slice(0,-3)+'y':t.endsWith('s')?t.slice(0,-1):t;
     if(!tokens.length||!tokens.every(t=>words.includes(t)||words.includes(singular(t))))return false;
+    const kind=itemKind(item);
+    if(kind==='standard-milk'&&!standardMilk(p))return false;
+    if(kind==='standard-eggs'&&!standardEggs(p,listing.size))return false;
+    if(kind==='standard-bread'&&!standardBread(p))return false;
     const cases=[
       [/(^| )oat milk($| )/,/(^| )oat milk($| )/],
       [/(^| )almond milk($| )/,/(^| )almond milk($| )/],
@@ -42,14 +69,40 @@
       [/(^| )whole wheat($| )/,/(^| )whole wheat($| )/]
     ];
     for(const [request,product] of cases)if(request.test(q)&&!product.test(p))return false;
-    if(q==='milk'&&/(oat|almond|soy|soya|chocolate|coconut|condensed|evaporated) milk/.test(p))return false;
-    if(q==='bread'&&/\b(flour|crumbs|crumb|maker|knives|knife|sticks|mix)\b/.test(p))return false;
-    if((q==='eggs'||q==='egg')&&/\b(chocolate|candy|noodles|salad|rolls|tarts|waffles|muffins|easter)\b/.test(p))return false;
-    if((q==='marshmallows'||q==='marshmallow')&&/\b(fluff|spread|creme|cream|candy)\b/.test(p))return false;
+    // Explicit percentages, product types, and brands remain constraints.
+    if(/\bmilk\b/.test(q)&&q!=='milk'&&/\b(?:oat|almond|soy|soya)\b/.test(q)===false&&
+       /\b(?:oat|almond|soy|soya|chocolate|coconut|condensed|evaporated)\b/.test(p) &&
+       !/\b(?:oat|almond|soy|soya|chocolate|coconut|condensed|evaporated)\b/.test(q))return false;
     if(q==='coffee'&&/(instant|pods|capsules|k cups|beans|whole bean|decaf)/.test(p))return false;
     if(q==='butter'&&/(peanut|almond|cashew) butter/.test(p))return false;
-    if(q==='tomato'||q==='tomatoes')if(/(sauce|paste|soup|juice)/.test(p))return false;
+    if((q==='tomato'||q==='tomatoes')&&/(sauce|paste|soup|juice)/.test(p))return false;
+    if(kind==='marshmallows'&&/\b(?:candy|fluff|spread|creme|cream|chocolate|banana|strawberry|flavoured|flavored)\b/.test(p))return false;
     return true;
+  }
+  function productRank(item,listing){
+    if(!productMatch(item,listing))return -Infinity;
+    const p=normalized(listing.productName);
+    const kind=itemKind(item);
+    let rank=100;
+    if(item.size&&measure(item.size)===measure(listing.size))rank+=20;
+    if(kind==='standard-milk'){
+      if(/(?:^| )2\s*%/.test(p))rank+=12;
+      if(/(?:^| )1\s*%/.test(p))rank+=10;
+      if(/\b(?:partly skimmed|polybag|bag)\b/.test(p))rank+=4;
+    }
+    if(kind==='standard-eggs'){
+      if(/\b(?:organic|omega|free run|free range|enriched|specialty)\b/.test(p))rank-=18;
+      if(/\b(?:white|grade a)\b/.test(p))rank+=8;
+    }
+    if(kind==='standard-bread'){
+      if(/\b(?:sandwich|white|whole wheat)\b/.test(p))rank+=10;
+      if(/\b(?:thin|thick|multigrain|seeded)\b/.test(p))rank-=4;
+    }
+    if(kind==='marshmallows'){
+      if(/\b(?:regular|white|original)\b/.test(p))rank+=10;
+      if(/\bmini\b/.test(p))rank-=12;
+    }
+    return rank-Math.min(p.length,150)/100;
   }
   function eligibleOffer(item,listing,selectedBranches){
     return productMatch(item,listing)&&listing.status==='current'&&
@@ -114,5 +167,5 @@
     return {changes,totalSavings:Math.round(changes.reduce((n,c)=>n+Math.round(c.savings*100),0))/100,
       addedStores:[...route].filter(id=>!knownStores.has(id)),eligibleCount:planned.size,activeCount:list.length};
   }
-  return {measure,productMatch,eligibleOffer,evaluate};
+  return {measure,productMatch,productRank,eligibleOffer,evaluate};
 });

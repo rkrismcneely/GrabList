@@ -1127,73 +1127,74 @@ compareSheet.querySelectorAll('[data-compare-close]').forEach(btn=>btn.addEventL
 function renderCatalogueComparison(){
   const active=state.items.filter(item=>!item.complete);
   const results=active.map(item=>({id:item.id,offers:catalogueRows.get(item.id)||[]}));
-  // Only price records from the chosen branch can change shopping totals.
   comparisonPlan=GrabListCatalogueComparison.evaluate(active,results,state.enabledStoreIds,state.catalogueBranches,state.savingsThreshold);
   const plan=comparisonPlan;
-  let matchedCatalogue=0,matchedLinks=0,matchedFlyers=0;
+  let linked=0,pricedItems=0,localItems=0;
   const cards=active.map(item=>{
-    const offers=(catalogueRows.get(item.id)||[]).filter(offer=>GrabListCatalogueComparison.productMatch(item,offer))
-      .sort((a,b)=>(a.priceCents??Infinity)-(b.priceCents??Infinity));
-    const candidates=(catalogueCandidateRows.get(item.id)||[]).filter(p=>
-      GrabListCatalogueComparison.productMatch(item,{productName:p.productName,size:p.size,brand:p.brand}));
+    // The product name, exact pack and variant are what we're comparing.
+    // Price alone is NOT evidence that different milk fat percentages, egg
+    // grades or packages are interchangeable.
+    const offers=(catalogueRows.get(item.id)||[]).filter(o=>GrabListCatalogueComparison.productMatch(item,o));
+    if(offers.length)linked++;
+    const prices=offers.filter(o=>Number.isInteger(o.priceCents)&&o.priceCents>0&&o.status==='current');
+    if(prices.length)pricedItems++;
+    if(prices.some(o=>o.scope==='selected_branch'&&
+       o.branchId===state.catalogueBranches[o.retailer]))localItems++;
+    const byStore=new Map();
+    for(const retailer of state.enabledStoreIds){
+      const matches=prices.filter(o=>o.retailer===retailer).sort((a,b)=>
+        Number(b.scope==='selected_branch'&&b.branchId===state.catalogueBranches[retailer])-
+        Number(a.scope==='selected_branch'&&a.branchId===state.catalogueBranches[retailer])||
+        a.priceCents-b.priceCents);
+      if(matches.length)byStore.set(retailer,matches[0]);
+    }
+    const summaries=[...byStore].map(([retailer,offer])=>{
+      const store=storeById(retailer)?.name||retailer;
+      const local=offer.scope==='selected_branch'&&offer.branchId===state.catalogueBranches[retailer];
+      const date=offer.observedAt?new Date(offer.observedAt).toLocaleString('en-CA',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}):'unknown date';
+      const link=offer.url&&/^https:\/\//.test(offer.url)?
+        ' <a href="'+escapeHTML(offer.url)+'" target="_blank" rel="noopener noreferrer">Product page</a>':'';
+      return '<p><strong>'+escapeHTML(store)+'</strong> · <b>'+(local?'':'≈ ')+
+        currency.format(offer.priceCents/100)+'</b>'+
+        '<span class="compare-product-name"> · '+escapeHTML(offer.productName)+'</span>'+
+        '<span class="compare-quote-note"> · '+escapeHTML(local?'Verified at selected store':'Online quote · branch price and stock not confirmed')+
+        ' · '+escapeHTML(date)+'</span>'+link+'</p>';
+    }).join('');
+    const noPrices=state.enabledStoreIds.filter(store=>!byStore.has(store));
+    const diagnostic=noPrices.length?'<details class="price-compare-details"><summary>'+
+      escapeHTML(noPrices.length+' stores without a usable quote')+'</summary>'+
+      noPrices.map(id=>{
+        const name=storeById(id)?.name||id;
+        const attempted=offers.filter(o=>o.retailer===id&&o.lastError);
+        const reason=attempted.length?String(attempted[0].lastError).slice(0,110):
+          offers.some(o=>o.retailer===id)?'No matching product price returned':'No matching retailer URL';
+        return '<p>'+escapeHTML(name)+' · '+escapeHTML(reason)+'</p>';
+      }).join('')+'</details>':'';
+    const names=offers.filter(o=>!byStore.has(o.retailer)).slice(0,3);
+    const refs=!prices.length&&names.length?'<p class="compare-summary">Matching URLs found; awaiting readable retailer prices.</p>':'';
     const flyers=(catalogueFlyerRows.get(item.id)||[]).filter(p=>
       GrabListCatalogueComparison.productMatch(item,{productName:p.productName,size:p.size,brand:p.brand}));
-    if(candidates.length||offers.length)matchedCatalogue++;
-    if(offers.length)matchedLinks++;
-    if(flyers.length)matchedFlyers++;
-    // Show useful priced matches first, then a representative selection from
-    // each enabled retailer instead of 12 near-identical unpriced URLs.
-    const pricedOffers=offers.filter(o=>Number.isInteger(o.priceCents)).slice(0,12);
-    const shown=new Set(pricedOffers.map(o=>o.key));
-    const previewOffers=[...pricedOffers];
-    for(const id of state.enabledStoreIds){
-      for(const offer of offers.filter(o=>o.retailer===id&&!shown.has(o.key)).slice(0,2)){
-        if(previewOffers.length>=12)break;
-        previewOffers.push(offer);shown.add(offer.key);
-      }
-    }
-    let detail=offers.length?previewOffers.map(offer=>{
-      const name=storeById(offer.retailer)?.name||offer.retailer;
-      const price=Number.isInteger(offer.priceCents)?currency.format(offer.priceCents/100):'Price not available';
-      const scope=offer.key?.startsWith('independent|online|loblaw-')?
-        'Shared Loblaw SKU candidate · Independent page and stock unverified':
-        offer.key?.startsWith('freshco|online|indexed-')?
-        'Indexed FreshCo product page · local stock unverified':
-        offer.scope==='selected_branch'?'Store-specific':'Online · store unverified';
-      const date=offer.observedAt?new Date(offer.observedAt).toLocaleDateString('en-CA'):'not checked';
-      const freshness=offer.status==='stale'?' · stale':offer.status==='current'?'':'';
-      const link=offer.url&&/^https:\/\//.test(offer.url)?' <a href="'+escapeHTML(offer.url)+'" target="_blank" rel="noopener noreferrer">Product page</a>':'';
-      const failure=!Number.isInteger(offer.priceCents)&&offer.lastError?' · '+offer.lastError:'';
-      return '<p>'+escapeHTML(name)+' · <b>'+escapeHTML(price)+'</b> · '+escapeHTML(scope+freshness+' · '+date+failure)+link+'</p>';
-    }).join(''):(candidates.length?'<p>Product known in catalogue; no matching retailer product links found.</p>':'<p>No matching product or saved retailer URL yet.</p>');
-    // Flyer discovery is not a product-page URL or verified local price.
-    if(flyers.length){
-      const byStore=[...new Map(flyers.map(row=>[row.retailer,row])).values()];
-      detail+='<p><strong>Regional flyer mentions (not verified at your branch):</strong></p>'+
-        byStore.slice(0,8).map(row=>{
-          const store=storeById(row.retailer)?.name||row.retailer;
-          const ref=row.sourceUrl&&/^https:\/\//.test(row.sourceUrl)?
-            ' · <a href="'+escapeHTML(row.sourceUrl)+'" target="_blank" rel="noopener noreferrer">Flyer source</a>':'';
-          return '<p>'+escapeHTML(store)+' · advertised through '+escapeHTML(row.validTo||'unknown')+ref+'</p>';
-        }).join('');
-    }
-    return '<div class="compare-card"><strong>'+escapeHTML(item.name+(item.size?' · '+item.size:''))+'</strong>'+detail+'</div>';
+    const flyerNote=flyers.length?'<details class="price-compare-details"><summary>Regional flyer references ('+
+      flyers.length+')</summary>'+[...new Map(flyers.map(f=>[f.retailer,f])).values()].slice(0,6).map(f=>{
+        const source=f.sourceUrl&&/^https:\/\//.test(f.sourceUrl)?' · <a href="'+escapeHTML(f.sourceUrl)+'" target="_blank" rel="noopener noreferrer">Flyer</a>':'';
+        return '<p>'+escapeHTML(storeById(f.retailer)?.name||f.retailer)+' · expires '+escapeHTML(f.validTo||'unknown')+source+'</p>';
+      }).join('')+'</details>':'';
+    const message=!offers.length?'<p>No equivalent retailer product is indexed.</p>':'';
+    return '<div class="compare-card"><strong>'+escapeHTML(item.name+(item.size?' · '+item.size:''))+
+      '</strong>'+(summaries||message||refs)+diagnostic+flyerNote+'</div>';
   }).join('');
   const root=$('comparison-summary');
-  root.innerHTML='<p class="compare-summary">Catalogue: '+catalogueProductCount+' product descriptions; '+
-    catalogueCurrentFlyerCount+' current regional flyer references. For your '+active.length+' list items, '+
-    matchedCatalogue+' match a known product, '+matchedLinks+' have available retailer links, and '+
-    matchedFlyers+' appear in a current regional flyer. '+plan.eligibleCount+
-    ' have verified local-store prices for comparison. Flyer mentions and online prices cannot change your shopping totals.</p>'+
-    (plan.changes.length?'<h3 style="font-size:16px">Potential verified savings: '+currency.format(plan.totalSavings)+'</h3>'+
-    plan.changes.map(change=>'<div class="compare-card"><strong>'+escapeHTML(change.name)+'</strong><p>'+
-      escapeHTML(storeById(change.from)?.name||change.from)+' → '+escapeHTML(storeById(change.to)?.name||change.to)+
-      ' · Save '+currency.format(change.savings)+'</p></div>').join(''):'')+
+  root.innerHTML='<p class="compare-summary">'+active.length+' items · '+linked+
+    ' with retailer product matches · '+pricedItems+' with readable online prices · '+
+    localItems+' with any branch-specific prices. Online quotes are estimates, and an out-of-stock product may still show a price.</p>'+
+    (plan.changes.length?'<h3 style="font-size:16px">Verified potential savings: '+currency.format(plan.totalSavings)+'</h3>'+
+      plan.changes.map(change=>'<p>'+escapeHTML(change.name)+' · '+
+      escapeHTML(storeById(change.from)?.name||change.from)+' → '+
+      escapeHTML(storeById(change.to)?.name||change.to)+' · Save '+currency.format(change.savings)+'</p>').join(''):'')+
     (cards||'<p class="compare-summary">Add groceries to your list to compare prices.</p>');
   $('apply-price-comparison').disabled=!plan.changes.length;
   render();
 }
-
 async function loadCatalogueComparison(){
   const root=$('comparison-summary');
   root.textContent='Loading saved catalogue prices…';
@@ -1236,18 +1237,19 @@ async function loadCatalogueComparison(){
   }
 }
 function matchingCataloguePriceKeys(){
-  // Strict match before hitting a retailer, and at most two URL candidates per
-  // item and store. This prevents thousands of unrelated queries for e.g. milk.
+  // Validate type and variant before requesting retailer prices; choose up to
+  // three ranked candidates per item and store to cover standard alternatives.
   return [...new Set(state.items.filter(item=>!item.complete).flatMap(item=>{
     const matches=(catalogueRows.get(item.id)||[]).filter(offer=>
       offer.key&&offer.url&&offer.scope!=='selected_branch'&&
       GrabListCatalogueComparison.productMatch(item,offer));
     return state.enabledStoreIds.flatMap(store=>matches.filter(offer=>offer.retailer===store)
       .sort((a,b)=>
+        GrabListCatalogueComparison.productRank(item,b)-GrabListCatalogueComparison.productRank(item,a)||
         Number(Boolean(a.lastError))-Number(Boolean(b.lastError))||
         Number(!Number.isInteger(a.priceCents))-Number(!Number.isInteger(b.priceCents))||
         a.productName.length-b.productName.length)
-      .slice(0,2).map(offer=>offer.key));
+      .slice(0,3).map(offer=>offer.key));
   }))];
 }
 async function quoteCataloguePrices(){

@@ -148,3 +148,81 @@ test('Loblaw direct product pages expose a price without relying on JSON-LD',asy
    'https://www.nofrills.ca/en/search?q=peanut').priceCents,null);
  assert.equal(extractLoblawVisiblePrice('<h1>Smooth Peanut Butter</h1><p>was $5.99</p>',url).priceCents,null);
 });
+
+
+test('generic 4 L milk only compares ordinary 1% or 2% varieties',()=>{
+ const item={name:'Milk',size:'4 L'};
+ const product=(productName,size='4 L',masterName='2% Milk')=>({productName,size,masterName});
+ assert.equal(compare.productMatch(item,product('Dairyland 2% Milk Partly Skimmed 4 L')),true);
+ assert.equal(compare.productMatch(item,product('Farmers 1% Milk Polybag Partly Skimmed 4 L')),true);
+ assert.equal(compare.productMatch(item,product('Dairyland 6% Milk 4 L')),false);
+ assert.equal(compare.productMatch(item,product('Dairyland 3.25% Homogenized Milk 4 L')),false);
+ assert.equal(compare.productMatch(item,product('Walker Farms Protein A2 1% Milk 4 L')),false);
+ assert.equal(compare.productMatch(item,product('1% Microfiltered Milk 4 L')),false);
+ assert.equal(compare.productMatch(item,product('2% Chocolate Milk 4 L')),false);
+ assert.equal(compare.productMatch(item,product('2% Milk 2 L','2 L')),false);
+ assert.equal(compare.productMatch({name:'6% Milk',size:'4 L'},product('Dairyland 6% Milk 4 L')),true);
+ assert.equal(compare.productMatch({name:'2% Milk',size:'4 L'},product('Dairyland 2% Milk 4 L')),true);
+ assert.ok(compare.productRank(item,product('Dairyland 2% Milk 4 L'))>
+   compare.productRank(item,product('Dairyland 1% Milk 4 L')));
+});
+test('generic eggs mean large dozen, and plain loaf means sandwich bread',()=>{
+ const egg={name:'Eggs'};
+ assert.equal(compare.productMatch(egg,{productName:'Compliments White Eggs Large 12 Count',size:'12 ct'}),true);
+ assert.equal(compare.productMatch(egg,{productName:'Compliments White Eggs Medium 12 Count',size:'12 ct'}),false);
+ assert.equal(compare.productMatch(egg,{productName:'Compliments White Eggs Extra Large 12 Count',size:'12 ct'}),false);
+ assert.equal(compare.productMatch(egg,{productName:'Large Eggs 18 Count',size:'18 ct'}),false);
+ assert.equal(compare.productMatch(egg,{productName:'Egg Bread Homemade 525 g',size:'525 g'}),false);
+ assert.equal(compare.productMatch({name:'Medium Eggs',size:'12 ct'},
+   {productName:'Compliments White Medium Eggs 12 Count',size:'12 ct'}),true);
+ assert.equal(compare.productMatch({name:'Bread',size:'1 loaf'},
+   {productName:'Compliments Sandwich Bread White 675 g',size:'675 g'}),true);
+ assert.equal(compare.productMatch({name:'Bread',size:'1 loaf'},
+   {productName:'Artisan Sourdough Bread 600 g',size:'600 g'}),false);
+});
+test('official page identity and availability must agree with the requested item',async()=>{
+ const {extractProductPrice,extractShopifyProductPrice,productTitleCompatible}=await import('../catalogue-api.mjs');
+ assert.equal(productTitleCompatible('Candy Mallow 150 g','Candy Mallow 170 g'),false);
+ assert.equal(productTitleCompatible('Compliments White Eggs Medium 12 Count',
+  'Compliments White Eggs Medium 12 EA'),true);
+ assert.equal(extractShopifyProductPrice({title:'Candy Mallow 170 g',
+   variants:[{id:11111,price:199,available:true}]},
+   'https://www.gianttiger.com/products/mallow','Candy Mallow 150 g').priceCents,null);
+ const json=offers=>'<script type="application/ld+json">'+
+  JSON.stringify({'@type':'Product',name:'Dairyland 2% Milk 4 L',offers})+'</script>';
+ const out=json({price:'6.49',priceCurrency:'CAD',availability:'https://schema.org/OutOfStock'});
+ assert.equal(extractProductPrice(out,'Dairyland 2% Milk 4 L').priceCents,null);
+ assert.equal(extractProductPrice(json({price:'6.49',priceCurrency:'CAD'}),
+  'Dairyland 6% Milk 4 L').priceCents,null);
+ assert.equal(extractProductPrice('<h1>Dairyland 6% Milk 4 L</h1>'+
+   json({price:'6.49',priceCurrency:'CAD'}),'Dairyland 2% Milk 4 L').priceCents,null);
+});
+test('same-retailer 307 redirect stays within a product URL and returns online quote',async()=>{
+ const {quoteSavedUrls}=await import('../catalogue-api.mjs');
+ const oldFetch=globalThis.fetch;
+ let hits=0;
+ globalThis.fetch=async url=>{
+  hits++;
+  if(hits===1){
+   assert.equal(String(url),'https://www.walmart.ca/en/ip/2-milk/600000001');
+   return new Response(null,{status:307,headers:{location:'/en/ip/milk-2-percent/600000001'}});
+  }
+  assert.equal(String(url),'https://www.walmart.ca/en/ip/milk-2-percent/600000001');
+  return new Response('<script type="application/ld+json">'+
+    JSON.stringify({'@type':'Product',name:'Dairyland 2% Milk 4 L',offers:{price:'6.49',priceCurrency:'CAD'}})+
+    '</script>',{headers:{'Content-Type':'text/html'}});
+ };
+ const db={prepare:()=>({bind:()=>({first:async()=>({
+   price_scope:'online_unverified',product_url:'https://www.walmart.ca/en/ip/2-milk/600000001',
+   product_name:'Dairyland 2% Milk 4 L'
+ })})})};
+ try{
+  const response=await quoteSavedUrls(db,new Request('https://grablist.example/api/catalogue/quote',{
+   method:'POST',body:JSON.stringify({keys:['walmart|online|milk-2']})
+  }));
+  const data=await response.json();
+  assert.equal(hits,2);
+  assert.equal(data.results[0].priceCents,649);
+  assert.equal(data.results[0].scope,'online_unverified');
+ }finally{globalThis.fetch=oldFetch;}
+});

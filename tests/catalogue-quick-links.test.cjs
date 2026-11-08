@@ -83,3 +83,23 @@ test('shop displays online price estimates but does not promote them to local qu
  const show=html.slice(html.indexOf('async function showPriceComparison()'),html.indexOf("\$('list-footer').addEventListener",html.indexOf('async function showPriceComparison()')));
  assert.doesNotMatch(show,/void refreshCataloguePrices\(\)/);
 });
+
+
+test('bundled FreshCo data excludes specialty milk and finds standard grocery equivalents',()=>{
+ const fs=require('node:fs');
+ const rows=Array.from({length:8},(_,i)=>
+   JSON.parse(fs.readFileSync('data/quick-links/'+String(i).padStart(2,'0')+'.json','utf8')).records)
+   .flat().filter(row=>row[2]==='freshco');
+ const matching=(item)=>rows.filter(row=>matcher.productMatch(item,{
+   productName:row[3],brand:row[4],size:row[5]
+ }));
+ const milk=matching({name:'Milk',size:'4 L'});
+ assert.ok(milk.some(row=>/\b[12]\s*%\s*milk/i.test(row[3])),JSON.stringify(milk));
+ assert.ok(milk.every(row=>!/(?:^|\s)6\s*%/i.test(row[3])));
+ assert.ok(!milk.some(row=>/\b(?:protein|a2|microfiltered|lactose)\b/i.test(row[3])));
+ const eggs=matching({name:'Eggs'});
+ assert.ok(eggs.some(row=>/\blarge\b/i.test(row[3])));
+ assert.ok(eggs.every(row=>!/\bmedium\b/i.test(row[3])));
+ const bread=matching({name:'Bread',size:'1 loaf'});
+ assert.ok(bread.some(row=>/\bsandwich\b/i.test(row[3])));
+});

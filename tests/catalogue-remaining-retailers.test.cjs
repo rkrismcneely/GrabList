@@ -74,7 +74,7 @@ test('remaining retailer imports are owner-key protected and UI warns about cand
   assert.equal(hits,0);
   const html=fs.readFileSync('index.html','utf8');
   assert.match(html,/fetch\('\/api\/catalogue\/import-'\+source.id/);
-  assert.match(html,/Independent page and stock unverified/);
-  assert.match(html,/Indexed FreshCo product page/);
+  assert.match(html,/Online quote · branch price and stock not confirmed/);
+  assert.match(html,/GrabListCatalogueComparison\.productRank/);
   assert.doesNotMatch(html,/<script[^>]+src=["']\.\/pricing-ui\.js/);
 });
