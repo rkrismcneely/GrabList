@@ -1,3 +1,4 @@
+import { loadQuickLinks, quickLinkMatches } from "./catalogue-link-index.mjs";
 import { ensureCatalogueSchema } from "./catalogue-bootstrap.mjs";
 import { importCuratedBatch } from "./catalogue-sources.mjs";
 import { importHammerPart, importGiantTigerPart, importCostcoPart, importIndependentPart, importFreshcoPart } from "./catalogue-hammer.mjs";
@@ -203,7 +204,7 @@ function asListing(row){
     status:!Number.isInteger(row.last_price_cents)?'unavailable':age>=0&&age<=36*3600000?'current':'stale'
   };
 }
-async function compare(db,request){
+async function compare(db,assets,request){
   if(request.method!=='POST')return error('POST required',405);
   const body=await readBody(request);
   if(!body||!Array.isArray(body.items)||body.items.length>40||!Array.isArray(body.stores))return error('Provide up to 40 list items and selected stores.');
@@ -268,13 +269,27 @@ async function compare(db,request){
       discoveryQueries.length?db.batch(discoveryQueries):Promise.resolve([]),
       candidateQueries.length?db.batch(candidateQueries):Promise.resolve([])
     ]);
+    // All existing approved retailer URLs ship as static, read-only data.
+    // No owner refresh secret, D1 writes, or manual import is needed here.
+    const index=await loadQuickLinks(assets,request.url);
     return json({stores,results:items.map((item,i)=>({
       id:item.id,
-      offers:(batches[i]?.results||[]).map(asListing),
+      offers:(()=>{
+        const saved=(batches[i]?.results||[]).map(asListing);
+        const keys=new Set(saved.map(row=>row.key));
+        return saved.concat(quickLinkMatches(index,item,stores).filter(row=>!keys.has(row.key)));
+      })(),
       flyerMatches:flyers[i]?.results||[],
       productCandidates:candidates[i]?.results||[]
     })),scope:'catalogue_only'});
-  }catch{return error('Catalogue query failed. Check that D1 migrations were applied.',503,'catalogue_schema_missing');}
+  }catch(cause){
+    const msg=String(cause?.message||'');
+    if(/Retailer link index|Catalogue link assets/.test(msg)){
+      console.error('Catalogue link index unavailable',cause);
+      return error('Retailer product links have not been deployed correctly.',503,'link_index_unavailable');
+    }
+    return error('Catalogue query failed. Check that D1 migrations were applied.',503,'catalogue_schema_missing');
+  }
 }
 async function refresh(db,env,request){
   if(request.method!=='POST')return error('POST required',405);
@@ -326,7 +341,7 @@ async function refresh(db,env,request){
  * credentials are exposed. Cache each listing to avoid repeated retailer hits.
  * These prices are online_unverified and NEVER count as local shelf prices.
  */
-export async function quoteSavedUrls(db,request){
+export async function quoteSavedUrls(db,request,assets){
   if(request.method!=='POST')return error('POST required',405);
   const body=await readBody(request);
   if(!body||!Array.isArray(body.keys)||body.keys.length>8)
@@ -336,7 +351,12 @@ export async function quoteSavedUrls(db,request){
   // Bound concurrent connections and upstream load on a public route.
   for(let offset=0;offset<keys.length;offset+=2){
     const pair=await Promise.all(keys.slice(offset,offset+2).map(async key=>{
-      const row=await db.prepare('SELECT * FROM catalogue_listings WHERE listing_key=?').bind(key).first();
+      let row=await db.prepare('SELECT * FROM catalogue_listings WHERE listing_key=?').bind(key).first();
+      if(!row&&assets){
+        const index=await loadQuickLinks(assets,request.url);
+        const indexed=index.byKey.get(key);
+        if(indexed)row={price_scope:'online_unverified',product_url:indexed.url};
+      }
       if(!row)return {key,status:'missing'};
       if(row.price_scope==='selected_branch')
         return {key,status:'skipped',reason:'Verified local price is not replaced'};
@@ -440,8 +460,8 @@ export async function handleCatalogueApi(request,env){
   if(path==='/api/catalogue/import-independent')return importHammerUrlBatch(db,env,request,'independent');
   if(path==='/api/catalogue/import-freshco')return importHammerUrlBatch(db,env,request,'freshco');
   if(path==='/api/catalogue/import-gt-grocery')return importHammerUrlBatch(db,env,request,'gtgrocery');
-  if(path==='/api/catalogue/compare')return compare(db,request);
-  if(path==='/api/catalogue/quote')return quoteSavedUrls(db,request);
+  if(path==='/api/catalogue/compare')return compare(db,env.ASSETS,request);
+  if(path==='/api/catalogue/quote')return quoteSavedUrls(db,request,env.ASSETS);
   if(path==='/api/catalogue/refresh')return refresh(db,env,request);
   return error('Unknown catalogue endpoint',404,'not_found');
 }
