@@ -1,3 +1,4 @@
+import { canonicalNofrillsUrl } from "./catalogue-nofrills.mjs";
 // Import pre-matched historical DIRECT product URL metadata from Project Hammer.
 // No retailer pages are scraped here. No historical prices, local availability,
 // shelf-price claims, or inferred links are imported.
@@ -26,6 +27,7 @@ function safeProductUrl(raw,retailer){
          /\/[a-z0-9%\-]+\.product\.\d{5,14}\.html$/i.test(u.pathname)))||
       (retailer==='independent'&&!/^\/en\/[a-z0-9_%.-]+\/p\/\d{6,14}_(?:EA|KG)\/?$/i.test(u.pathname))||
       (retailer==='freshco'&&!/^\/products\/[a-z0-9%()._-]+\/?$/i.test(u.pathname)))return null;
+    if(retailer==='nofrills')return canonicalNofrillsUrl(u.href);
     if(retailer!=='gianttiger')u.search='';
     else if(u.search&&!/^\?variant=\d{5,20}$/.test(u.search))return null;
     u.hash='';
