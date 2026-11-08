@@ -169,7 +169,7 @@ test('generic 4 L milk only compares ordinary 1% or 2% varieties',()=>{
 test('generic eggs mean large dozen, and plain loaf means sandwich bread',()=>{
  const egg={name:'Eggs'};
  assert.equal(compare.productMatch(egg,{productName:'Compliments White Eggs Large 12 Count',size:'12 ct'}),true);
- assert.equal(compare.productMatch(egg,{productName:'Compliments White Eggs Medium 12 Count',size:'12 ct'}),false);
+ assert.equal(compare.productMatch(egg,{productName:'Compliments White Eggs Medium 12 Count',size:'12 ct'}),true);
  assert.equal(compare.productMatch(egg,{productName:'Compliments White Eggs Extra Large 12 Count',size:'12 ct'}),false);
  assert.equal(compare.productMatch(egg,{productName:'Large Eggs 18 Count',size:'18 ct'}),false);
  assert.equal(compare.productMatch(egg,{productName:'Egg Bread Homemade 525 g',size:'525 g'}),false);
@@ -283,4 +283,40 @@ test('out of stock structured product does not fall back to old metadata price',
  const result=extractProductPrice(html,'Compliments White Bread 675 g');
  assert.equal(result.priceCents,null);
  assert.match(result.reason,/out of stock/i);
+});
+
+test('cheapest acceptable products are discovered across brands and milk variants',()=>{
+  const item={name:'Milk',size:'4 L'};
+  const offer=(key,name,brand,priceCents=null)=>({key,retailer:'nofrills',
+    productName:name,brand,size:'4 L',url:'https://www.nofrills.ca/en/milk/p/12345678_EA',
+    priceCents,status:priceCents?'current':'unavailable',scope:'online_unverified'});
+  const offers=[
+    offer('a','Brand A 2% Milk 4 L','Brand A',699),
+    offer('b','Brand A 2% Milk 4 L','Brand A'),
+    offer('c','Brand B 2% Milk 4 L','Brand B',659),
+    offer('d','Brand C 2% Milk 4 L','Brand C'),
+    offer('e','Brand D 2% Milk 4 L','Brand D'),
+    offer('f','Brand E 1% Milk 4 L','Brand E',629),
+    offer('g','Brand F 1% Milk 4 L','Brand F'),
+    offer('wrong','Brand G 6% Milk 4 L','Brand G',100)
+  ];
+  const chosen=compare.choosePriceCandidates(item,offers,'nofrills','',6);
+  assert.equal(chosen.length,6);
+  assert.ok(chosen.some(x=>x.key==='f'),'cheaper 1% variety should not be crowded out by 2%');
+  assert.ok(chosen.every(x=>x.key!=='wrong'),'reject cheap but unsuitable specialty');
+  assert.equal(chosen[0].key,'f','known cheapest current equivalent should be first');
+  const specified=compare.choosePriceCandidates({...item,brand:'Brand A'},offers,'nofrills','',6);
+  assert.ok(specified.every(x=>x.brand==='Brand A'));
+  assert.deepEqual(compare.choosePriceCandidates(item,offers,'nofrills','e',1).map(o=>o.key),['e'],
+    'an explicitly pinned SKU overrides automatic cheap-substitute selection for that store');
+});
+test('generic dozen eggs accept medium to find lower-cost equivalent but explicit large remains strict',()=>{
+ const medium={productName:'Compliments Medium Eggs 12 Count',size:'12 ct',retailer:'freshco'};
+ const large={productName:'Compliments Large Eggs 12 Count',size:'12 ct',retailer:'freshco'};
+ const extra={productName:'Compliments Extra Large Eggs 12 Count',size:'12 ct',retailer:'freshco'};
+ assert.equal(compare.productMatch({name:'Eggs'},medium),true);
+ assert.equal(compare.productMatch({name:'Eggs'},large),true);
+ assert.equal(compare.productMatch({name:'Eggs'},extra),false);
+ assert.equal(compare.productMatch({name:'Large Eggs'},medium),false);
+ assert.equal(compare.productMatch({name:'Large Eggs'},large),true);
 });
