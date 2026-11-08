@@ -132,3 +132,88 @@ test('refreshing a changed item updates its selected store without saving unwant
  assert.match(block,/refresh:Boolean\(options.refresh&&itemIds\)/);
  assert.match(html,/item.preferredListingByStore\[store\]=key/);
 });
+
+
+test('No Frills product URL from user retains SKU but drops cart and search tracking',async()=>{
+ const {canonicalNofrillsUrl,withNofrillsStore,nofrillsSku}=await import('../catalogue-nofrills.mjs');
+ const raw='https://www.nofrills.ca/en/1-milk/p/20047439_EA?source=nspt&search-bar=1%25+Milk&storeId=3142&cartId=redacted';
+ const clean='https://www.nofrills.ca/en/1-milk/p/20047439_EA';
+ assert.equal(canonicalNofrillsUrl(raw),clean);
+ assert.equal(nofrillsSku(raw),'20047439_EA');
+ assert.equal(withNofrillsStore(raw,'3142'),clean+'?storeId=3142');
+ assert.equal(withNofrillsStore(raw,'3634'),clean+'?storeId=3634');
+ assert.equal(withNofrillsStore(raw,''),clean);
+ assert.equal(withNofrillsStore(raw,'3142&cartId=bad'),null);
+ assert.equal(canonicalNofrillsUrl('https://nofrills.ca.evil.example/en/1-milk/p/20047439_EA'),null);
+ assert.equal(canonicalNofrillsUrl('https://www.nofrills.ca/en/search?search-bar=milk'),null);
+ assert.equal(canonicalNofrillsUrl('https://www.nofrills.ca/en/soda/p/21653480_C12'),
+   'https://www.nofrills.ca/en/soda/p/21653480_C12');
+ assert.equal(canonicalNofrillsUrl('https://www.nofrills.ca/cocoa-pebbles-cereal/p/21576432_EA'),
+   'https://www.nofrills.ca/en/cocoa-pebbles-cereal/p/21576432_EA');
+});
+test('all published No Frills product links can be read canonically without changing their SKUs',async()=>{
+ const {canonicalNofrillsUrl,nofrillsSku}=await import('../catalogue-nofrills.mjs');
+ const records=Array.from({length:8},(_,i)=>
+  JSON.parse(fs.readFileSync('data/quick-links/'+String(i).padStart(2,'0')+'.json','utf8')).records)
+   .flat().filter(r=>r[2]==='nofrills');
+ assert.ok(records.length>1000);
+ let corrected=0,casePacks=0;
+ for(const r of records){
+   const canon=canonicalNofrillsUrl(r[6]);
+   assert.ok(canon,'Unsupported No Frills product link: '+r[6]);
+   if(canon!==r[6])corrected++;
+   if(/_C\d{2}$/.test(nofrillsSku(r[6])))casePacks++;
+   assert.equal(nofrillsSku(canon),nofrillsSku(r[6]));
+ }
+ assert.ok(corrected>=10,'Legacy paths should be normalized at read time');
+ assert.ok(casePacks>=10,'Case pack suffixes must remain distinct');
+ const exact=records.find(r=>r[6].endsWith('/p/20047439_EA'));
+ assert.ok(exact,'Known real 1% 4L milk product should already be indexed');
+});
+test('No Frills price quote requests carry store context and use separate edge caches',async()=>{
+ const {quoteSavedUrls}=await import('../catalogue-api.mjs');
+ const oldFetch=globalThis.fetch,oldCaches=globalThis.caches;
+ let hits=[],cached=new Map();
+ globalThis.caches={default:{
+   match:async req=>cached.get(req.url)?.clone(),
+   put:async(req,res)=>{cached.set(req.url,res.clone());}
+ }};
+ globalThis.fetch=async url=>{
+   hits.push(String(url));
+   return new Response('<script type="application/ld+json">'+
+     JSON.stringify({'@type':'Product',name:'1% Milk',offers:{price:'6.44',priceCurrency:'CAD'}})+
+     '</script>',{headers:{'content-type':'text/html'}});
+ };
+ const db={prepare:()=>({bind:()=>({first:async()=>({
+   product_url:'https://www.nofrills.ca/en/1-milk/p/20047439_EA',
+   product_name:'1% Milk',price_scope:'online_unverified'
+ })})})};
+ const req=store=>new Request('https://grablist.example/api/catalogue/quote',{
+   method:'POST',body:JSON.stringify({keys:['nofrills|online|milk-1pct'],nofrillsStoreId:store})
+ });
+ try{
+   const one=(await (await quoteSavedUrls(db,req('3142'))).json()).results[0];
+   const two=(await (await quoteSavedUrls(db,req('3634'))).json()).results[0];
+   const again=(await (await quoteSavedUrls(db,req('3142'))).json()).results[0];
+   assert.equal(one.priceCents,644);
+   assert.equal(one.storeContext,'3142');
+   assert.equal(two.storeContext,'3634');
+   assert.equal(one.scope,'online_unverified');
+   assert.equal(hits.length,2,'each branch needs a separate cache lookup');
+   assert.ok(hits[0].endsWith('?storeId=3142'));
+   assert.ok(hits[1].endsWith('?storeId=3634'));
+   assert.equal(again.cached,true);
+   assert.ok(!hits.join('').includes('cartId'));
+ }finally{globalThis.fetch=oldFetch;globalThis.caches=oldCaches;}
+});
+test('settings and Edit links use correct No Frills branch without promoting online price',()=>{
+ const html=fs.readFileSync('index.html','utf8');
+ assert.match(html,/id="nofrills-branch"/);
+ assert.match(html,/3142">George Street/);
+ assert.match(html,/3634">Lansdowne Street/);
+ assert.match(html,/function nofrillsBrowserLink\(/);
+ assert.match(html,/function productPageHref\(/);
+ assert.match(html,/nofrillsStoreId:state\.catalogueBranches\?\.nofrills/);
+ assert.match(html,/storeContext:offer\.storeContext/);
+ assert.match(html,/o\.storeContext\|\|''/);
+});
