@@ -69,6 +69,14 @@ export function productTitleCompatible(expected,actual){
 
 export function extractProductPrice(html,expectedName=''){
   if(typeof html!=='string'||!html)return {priceCents:null,reason:'Empty product page'};
+  // The heading identifies the page. Never attach a generic price tag from
+  // a different product, size or redirected page to a saved catalogue SKU.
+  if(expectedName){
+    const heading=html.match(/<h1\b[^>]*>([\s\S]{0,1500}?)<\/h1\s*>/i);
+    const title=heading?.[1]?.replace(/<[^>]*>/g,' ').replace(/&amp;/gi,'&').trim();
+    if(title&&!productTitleCompatible(expectedName,title))
+      return {priceCents:null,reason:'Retailer product title differs from saved catalogue item'};
+  }
   const candidates=[];
   const scripts=html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script\s*>/gi);
   for(const match of scripts){
@@ -207,7 +215,31 @@ async function getProductPagePrice(raw,expectedName=''){
     }
   }
   try{
-    const response=await fetch(url,{headers:{Accept:'text/html,application/xhtml+xml'},redirect:'manual',signal:AbortSignal.timeout(10000)});
+    // Follow only a short chain of canonical product redirects at the SAME
+    // retailer. Never turn this into an arbitrary HTTP proxy or follow a
+    // login/search/third-party redirect.
+    let target=url,response;
+    const original=new URL(url);
+    for(let hop=0;hop<3;hop++){
+      response=await fetch(target,{headers:{Accept:'text/html,application/xhtml+xml'},
+        redirect:'manual',signal:AbortSignal.timeout(10000)});
+      if(![301,302,303,307,308].includes(response.status))break;
+      const location=response.headers.get('location');
+      if(!location)return {priceCents:null,reason:'Retailer redirected without a destination'};
+      const next=new URL(location,target);
+      const allowed=permittedProductUrl(next.href);
+      const sameRetailer=next.hostname.replace(/^www\./,'')===original.hostname.replace(/^www\./,'');
+      const sourcePath=original.pathname.toLowerCase();
+      const nextPath=next.pathname.toLowerCase();
+      const directProduct=(sourcePath.includes('/ip/')&&nextPath.includes('/ip/'))||
+        (sourcePath.includes('/p/')&&nextPath.includes('/p/'))||
+        (sourcePath.includes('/products/')&&nextPath.includes('/products/'))||
+        (sourcePath.includes('.product.')&&nextPath.includes('.product.'));
+      if(!allowed||!sameRetailer||!directProduct)
+        return {priceCents:null,reason:'Retailer redirected away from the product page'};
+      target=allowed;
+      if(hop===2)return {priceCents:null,reason:'Too many retailer redirects'};
+    }
     if(!response.ok)return {priceCents:null,reason:'Product request returned HTTP '+response.status};
     const contentType=(response.headers.get('content-type')||'').toLowerCase();
     if(contentType&&!contentType.includes('text/html'))return {priceCents:null,reason:'Product URL did not return HTML'};
