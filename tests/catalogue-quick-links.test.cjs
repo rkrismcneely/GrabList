@@ -215,7 +215,7 @@ test('settings and Edit links use correct No Frills branch without promoting onl
  assert.match(html,/function productPageHref\(/);
  assert.match(html,/nofrillsStoreId:state\.catalogueBranches\?\.nofrills/);
  assert.match(html,/storeContext:offer\.storeContext/);
- assert.match(html,/o\.storeContext\|\|''/);
+ assert.match(html,/allowedNofrillsQuoteContext\(/);
 });
 
 test('Shop pricing still has no modal and preserves user local store preferences',()=>{
