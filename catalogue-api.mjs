@@ -33,16 +33,18 @@ function offerPrices(offer,depth=0){
   if(depth>3||!offer||typeof offer!=='object')return [];
   if(Array.isArray(offer))return offer.flatMap(v=>offerPrices(v,depth+1));
   if(offer.priceCurrency&&String(offer.priceCurrency).toUpperCase()!=='CAD')return [];
-  const price=validPriceCents(offer.price??offer.lowPrice);
+  const raw=offer.price ?? (offer.lowPrice===offer.highPrice?offer.lowPrice:null);
+  const price=validPriceCents(raw);
   const specs=offer.priceSpecification?offerPrices(offer.priceSpecification,depth+1):[];
   return [...(price===null?[]:[price]),...specs];
 }
 export function extractProductPrice(html){
   if(typeof html!=='string'||!html)return {priceCents:null,reason:'Empty product page'};
   const candidates=[];
-  const scripts=html.matchAll(/<script\b[^>]*type\s*=\s*["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script\s*>/gi);
+  const scripts=html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script\s*>/gi);
   for(const match of scripts){
-    let data;try{data=JSON.parse(match[1].trim());}catch{continue;}
+    if(!/\btype\s*=\s*["']application\/ld\+json["']/i.test(match[1]))continue;
+    let data;try{data=JSON.parse(match[2].trim());}catch{continue;}
     for(const product of findStructuredProducts(data)){
       candidates.push(...offerPrices(product.offers));
     }
@@ -85,9 +87,62 @@ async function readHtml(response,limit=1500000){
     return out+decoder.decode();
   }finally{reader.releaseLock();}
 }
+
+/**
+ * Giant Tiger's public Shopify Ajax product endpoint reports the merchant's
+ * online price in cents. Never assume an online price is a local shelf price.
+ * A variant query parameter must resolve to the SAME variant: silently taking
+ * a default variant could show the price of the wrong size/package.
+ */
+export function extractShopifyProductPrice(product, rawProductUrl){
+  if(!product||typeof product!=='object'||!Array.isArray(product.variants)||!product.variants.length)
+    return {priceCents:null,reason:'Product feed has no variants'};
+  let variantId;
+  try{variantId=new URL(rawProductUrl).searchParams.get('variant');}catch{
+    return {priceCents:null,reason:'Invalid product URL'};
+  }
+  let variants=product.variants;
+  if(variantId){
+    if(!/^\d{5,24}$/.test(variantId))return {priceCents:null,reason:'Invalid selected variant'};
+    const variant=variants.find(v=>String(v.id)===variantId);
+    if(!variant)return {priceCents:null,reason:'Selected variant missing from product feed'};
+    variants=[variant];
+  }
+  const prices=[];
+  for(const variant of variants){
+    if(variant.available===false)continue;
+    const cents=Number(variant.price);
+    if(!Number.isSafeInteger(cents)||cents<=0||cents>999999)
+      return {priceCents:null,reason:'Variant price unavailable'};
+    prices.push(cents);
+  }
+  const unique=[...new Set(prices)];
+  if(unique.length!==1)return {priceCents:null,reason:unique.length?'Different variant prices; select a variant':'Product currently unavailable'};
+  return {priceCents:unique[0],scope:'online_unverified',source:'gianttiger-shopify-product'};
+}
 async function getProductPagePrice(raw){
   const url=permittedProductUrl(raw);
   if(!url)return {priceCents:null,reason:'Unapproved or unsafe product URL'};
+  const target=new URL(url);
+  // Unlike retailer HTML that may not include client-rendered prices, Shopify
+  // exposes its own public product data endpoint for the same product handle.
+  // This is a GET to the already-allowlisted retailer, not a proxy to other hosts.
+  if(['www.gianttiger.com','gianttiger.com'].includes(target.hostname.toLowerCase())&&
+     /^\/products\/[a-z0-9%._-]+\/?$/i.test(target.pathname)){
+    const productApi=new URL(target.pathname.replace(/\/$/,'')+'.js',target.origin);
+    try{
+      const response=await fetch(productApi.href,{
+        headers:{Accept:'application/json'},redirect:'manual',signal:AbortSignal.timeout(8000)
+      });
+      if(response.ok&&(response.headers.get('content-type')||'').toLowerCase().includes('json')){
+        const product=JSON.parse(await readHtml(response,650000));
+        return extractShopifyProductPrice(product,url);
+      }
+    }catch{
+      // Some stores or pages do not support the Ajax endpoint. Try the
+      // unmodified published product URL below, without evading any blocks.
+    }
+  }
   try{
     const response=await fetch(url,{headers:{Accept:'text/html,application/xhtml+xml'},redirect:'manual',signal:AbortSignal.timeout(10000)});
     if(!response.ok)return {priceCents:null,reason:'Product request returned HTTP '+response.status};
