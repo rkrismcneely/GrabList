@@ -34,11 +34,11 @@
     return percents.length>0&&percents.every(p=>p===1||p===2);
   }
   function standardEggs(name,size){
-    if(/\b(?:medium|jumbo|small|extra large|extra-large|xl|liquid|whites|powdered|chocolate|easter|salad|noodles)\b/.test(name))return false;
+    if(/\b(?:jumbo|small|extra large|extra-large|xl|liquid|whites|powdered|chocolate|easter|salad|noodles)\b/.test(name))return false;
     const both=name+' '+normalized(size);
-    // No package size provided by the user: compare standard large dozens,
-    // not medium eggs, 18-packs, 30-packs, or egg-containing products.
-    return /\blarge\b/.test(name)&&/(?:^| )12\s*(?:ea|ct|pk|pack|count|eggs)?(?: |$)/.test(both);
+    // An unspecified dozen permits standard medium OR large. "Large Eggs"
+    // remains strict because it is a specifically named item, not generic.
+    return /\b(?:large|medium)\b/.test(name)&&/(?:^| )12\s*(?:ea|ct|pk|pack|count|eggs)?(?: |$)/.test(both);
   }
   function standardBread(name){
     return !/\b(?:flour|crumbs|crumb|mix|sticks|buns|rolls|bagels|pita|naan|tortillas|garlic|keto|gluten free|low carb|sourdough|rye|artisan|focaccia|baguette|panettone|fruit|raisin|dessert|pudding)\b/.test(name);
@@ -101,6 +101,7 @@
     }
     if(kind==='standard-eggs'){
       if(/\b(?:organic|omega|free run|free range|enriched|specialty)\b/.test(p))rank-=18;
+      if(/\bmedium\b/.test(p))rank-=2;
       if(/\b(?:white|grade a)\b/.test(p))rank+=8;
     }
     if(kind==='standard-bread'){
@@ -112,6 +113,57 @@
       if(/\bmini\b/.test(p))rank-=12;
     }
     return rank-Math.min(p.length,150)/100;
+  }
+  // Choose diverse, equivalent SKUs BEFORE hitting retailer pages.
+  // A fixed top-three list previously spent all fetches on the same brand or
+  // 2% milk and missed cheaper 1%/other-brand alternatives.
+  function choosePriceCandidates(item,offers,retailer,preferredKey='',limit=6){
+    const take=Math.min(12,Math.max(1,Math.floor(Number(limit)||6)));
+    const products=(offers||[]).filter(o=>
+      o&&o.retailer===retailer&&o.key&&o.url&&
+      o.scope!=='selected_branch'&&productMatch(item,o));
+    const kind=itemKind(item);
+    const variation=o=>{
+      const name=normalized(o.productName);
+      let type='standard';
+      if(kind==='standard-milk')type=/(?:^| )1\s*%/.test(name)?'1pct':'2pct';
+      else if(kind==='standard-eggs')type=/\bmedium\b/.test(name)?'medium':'large';
+      else if(kind==='standard-bread')type=/\bwhole wheat\b/.test(name)?'wheat':'white';
+      else if(kind==='marshmallows')type=/\bmini\b/.test(name)?'mini':'regular';
+      const brand=normalized(o.brand||'')||normalized(o.productName).split(' ')[0]||'generic';
+      return type+'|'+brand;
+    };
+    products.sort((a,b)=>
+      Number(b.key===preferredKey)-Number(a.key===preferredKey)||
+      Number(b.status==='current'&&Number.isInteger(b.priceCents))-
+        Number(a.status==='current'&&Number.isInteger(a.priceCents))||
+      ((a.status==='current'&&Number.isInteger(a.priceCents))?a.priceCents:Infinity)-
+        ((b.status==='current'&&Number.isInteger(b.priceCents))?b.priceCents:Infinity)||
+      Number(Boolean(a.lastError))-Number(Boolean(b.lastError))||
+      productRank(item,b)-productRank(item,a)||a.productName.length-b.productName.length);
+    const groups=new Map();
+    for(const o of products){
+      const key=variation(o),arr=groups.get(key)||[];
+      arr.push(o);groups.set(key,arr);
+    }
+    const selected=[],used=new Set(),preferred=products.find(o=>o.key===preferredKey);
+    if(preferred){selected.push(preferred);used.add(preferred.key);}
+    // One per distinct brand and acceptable variant first, then next-best.
+    // Preserve the highest-ranked variants on the first pass but include
+    // alternative standards rather than brand-locking from past purchases.
+    while(selected.length<take&&[...groups.values()].some(arr=>arr.length)){
+      let changed=false;
+      for(const arr of groups.values()){
+        while(arr.length&&used.has(arr[0].key))arr.shift();
+        if(!arr.length)continue;
+        const candidate=arr.shift();
+        selected.push(candidate);
+        used.add(candidate.key);changed=true;
+        if(selected.length===take)break;
+      }
+      if(!changed)break;
+    }
+    return selected;
   }
   function eligibleOffer(item,listing,selectedBranches){
     return productMatch(item,listing)&&listing.status==='current'&&
@@ -176,5 +228,5 @@
     return {changes,totalSavings:Math.round(changes.reduce((n,c)=>n+Math.round(c.savings*100),0))/100,
       addedStores:[...route].filter(id=>!knownStores.has(id)),eligibleCount:planned.size,activeCount:list.length};
   }
-  return {measure,productMatch,productRank,eligibleOffer,evaluate};
+  return {measure,productMatch,productRank,choosePriceCandidates,eligibleOffer,evaluate};
 });

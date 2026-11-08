@@ -99,7 +99,7 @@ test('bundled FreshCo data excludes specialty milk and finds standard grocery eq
  assert.ok(!milk.some(row=>/\b(?:protein|a2|microfiltered|lactose)\b/i.test(row[3])));
  const eggs=matching({name:'Eggs'});
  assert.ok(eggs.some(row=>/\blarge\b/i.test(row[3])));
- assert.ok(eggs.every(row=>!/\bmedium\b/i.test(row[3])));
+ assert.ok(eggs.every(row=>!/\b(?:jumbo|extra.large)\b/i.test(row[3])));
  const bread=matching({name:'Bread',size:'1 loaf'});
  assert.ok(bread.some(row=>/\bsandwich\b/i.test(row[3])));
 });
@@ -215,5 +215,20 @@ test('settings and Edit links use correct No Frills branch without promoting onl
  assert.match(html,/function productPageHref\(/);
  assert.match(html,/nofrillsStoreId:state\.catalogueBranches\?\.nofrills/);
  assert.match(html,/storeContext:offer\.storeContext/);
- assert.match(html,/o\.storeContext\|\|''/);
+ assert.match(html,/allowedNofrillsQuoteContext\(/);
+});
+
+test('Shop pricing still has no modal and preserves user local store preferences',()=>{
+ const html=fs.readFileSync('index.html','utf8');
+ assert.match(html,/function showPriceComparison\(\)\{\s*\/\/ The main action never opens a sheet/);
+ assert.match(html,/walmartPreferredLocation:'lansdowne'/);
+ assert.match(html,/compareAlternateNofrills:true/);
+ assert.match(html,/id="walmart-preferred-location"/);
+ assert.match(html,/id="nofrills-alt-store"/);
+ assert.match(html,/choosePriceCandidates\(/);
+ assert.match(html,/function cheaperOnlineSuggestion\(/);
+ assert.match(html,/\(matchedOffer\?'Possible cheaper':'Lowest found'\)/);
+ assert.match(html,/nofrillsStoreId:alternative/);
+ assert.match(html,/allowedNofrillsQuoteContext\(/);
+ assert.match(html,/HTTP \(403\|429\)/);
 });
