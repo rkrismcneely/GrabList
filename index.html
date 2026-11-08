@@ -708,7 +708,9 @@ function cheaperOnlineSuggestion(item){
     o.scope==='online_unverified'&&o.status==='current'&&
     quoteInSelectedStoreContext(o)&&
     Number.isInteger(o.priceCents)&&o.priceCents>0&&
-    GrabListCatalogueComparison.productMatch(item,o));
+    GrabListCatalogueComparison.productMatch(item,o)&&
+    (!item.preferredListingByStore?.[o.retailer]||
+      item.preferredListingByStore[o.retailer]===o.key));
   if(!options.length)return null;
   options.sort((a,b)=>a.priceCents-b.priceCents||
     state.storeOrderIds.indexOf(a.retailer)-state.storeOrderIds.indexOf(b.retailer));
@@ -787,7 +789,8 @@ function itemRow(item,index,total,colors,departmentLabel='',completed=false){
   const matchedOffer=displayedCataloguePrice(item);
   const alternative=!completed?cheaperOnlineSuggestion(item):null;
   const altText=alternative?
-    'Possible cheaper: ≈ '+currency.format(alternative.offer.priceCents/100)+
+    (matchedOffer?'Possible cheaper':'Lowest found')+': ≈ '+
+      currency.format(alternative.offer.priceCents/100)+
       ' at '+alternative.store+' (online estimate)':'';
   const matchDescription=matchedOffer?
     matchedOffer.productName+
