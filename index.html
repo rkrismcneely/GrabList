@@ -86,6 +86,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, .item-row:focus
 .edit-other-store-button {margin:3px 4px 3px 0;border:1px solid #e5c6b7;border-radius:8px;
  background:#fff6ef;padding:7px 8px;font-size:12px;color:#7b4135}
 .edit-price-option a {color:#a34436}
+.item-cheaper-option {display:block;font-size:11px;font-weight:650;line-height:1.35;margin-top:3px;opacity:.9}
 .item-product-match {display:block;font-size:11px;line-height:1.3;opacity:.82;margin-top:3px;
  max-width:245px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 
@@ -700,6 +701,23 @@ function onlineCataloguePrice(item){
    GrabListCatalogueComparison.productMatch(item,o)
  ).sort((a,b)=>a.priceCents-b.priceCents)[0]||null;
 }
+function cheaperOnlineSuggestion(item){
+  const baseline=displayedCataloguePrice(item);
+  const options=(catalogueRows.get(item.id)||[]).filter(o=>
+    o.retailer!==item.storeId&&state.enabledStoreIds.includes(o.retailer)&&
+    o.scope==='online_unverified'&&o.status==='current'&&
+    quoteInSelectedStoreContext(o)&&
+    Number.isInteger(o.priceCents)&&o.priceCents>0&&
+    GrabListCatalogueComparison.productMatch(item,o));
+  if(!options.length)return null;
+  options.sort((a,b)=>a.priceCents-b.priceCents||
+    state.storeOrderIds.indexOf(a.retailer)-state.storeOrderIds.indexOf(b.retailer));
+  const cheaper=options[0];
+  // Never pretend an unseen price saves money. A threshold avoids distracting
+  // users with negligible unverified differences.
+  if(baseline&&cheaper.priceCents>=baseline.priceCents-50)return null;
+  return {offer:cheaper,store:storeById(cheaper.retailer)?.name||cheaper.retailer};
+}
 function displayedCataloguePrice(item){return verifiedCataloguePrice(item)||onlineCataloguePrice(item);}
 function displayedTotal(items){return items.reduce((sum,item)=>sum+
  (displayedCataloguePrice(item)?.priceCents||0)*itemQty(item)/100,0);}
@@ -767,6 +785,10 @@ function itemRow(item,index,total,colors,departmentLabel='',completed=false){
   const ink=completed?'#6f665f':textColor(rowBg);
   const detail=[item.quantity&&item.quantity!=='1'?`${item.quantity} ×`:null,item.size||null,item.brand?`· ${item.brand}`:null].filter(Boolean).join(' ');
   const matchedOffer=displayedCataloguePrice(item);
+  const alternative=!completed?cheaperOnlineSuggestion(item):null;
+  const altText=alternative?
+    'Possible cheaper: ≈ '+currency.format(alternative.offer.priceCents/100)+
+      ' at '+alternative.store+' (online estimate)':'';
   const matchDescription=matchedOffer?
     matchedOffer.productName+
       (matchedOffer.retailer==='nofrills'&&matchedOffer.storeContext?
@@ -777,7 +799,7 @@ function itemRow(item,index,total,colors,departmentLabel='',completed=false){
     <span class="swipe-action complete" aria-hidden="true"><svg viewBox="0 0 32 32"><path d="M6 17l7 7L27 9"/></svg></span>
     <span class="swipe-action delete" aria-hidden="true"><svg viewBox="0 0 32 32"><path d="M7 7l18 18M25 7L7 25"/></svg></span>
     <div class="item-row" role="button" tabindex="0" data-item-id="${escapeHTML(item.id)}" aria-label="${escapeHTML(text)}. Tap to edit; swipe right to mark ${completed?'not bought':'bought'}; swipe left to delete." style="--row-bg:${rowBg};--row-text:${ink}">
-    <div class="item-info">${departmentLabel?`<span class="item-department">${escapeHTML(departmentLabel)}</span>`:''}<span class="item-name">${escapeHTML(item.name)}</span>${detail?`<span class="item-detail">${escapeHTML(detail)}</span>`:''}${matchDescription?`<span class="item-product-match">${escapeHTML(matchDescription)}</span>`:''}</div>
+    <div class="item-info">${departmentLabel?`<span class="item-department">${escapeHTML(departmentLabel)}</span>`:''}<span class="item-name">${escapeHTML(item.name)}</span>${detail?`<span class="item-detail">${escapeHTML(detail)}</span>`:''}${matchDescription?`<span class="item-product-match">${escapeHTML(matchDescription)}</span>`:''}${altText?`<span class="item-cheaper-option">${escapeHTML(altText)}</span>`:''}</div>
     <div class="item-right"><span class="item-price ${displayedCataloguePrice(item)?'':'unknown'}">${escapeHTML(formatPrice(item))}</span><span class="row-chevron" aria-hidden="true">›</span></div>
     </div>
   </div>`;
