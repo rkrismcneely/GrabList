@@ -291,7 +291,7 @@ async function refresh(db,env,request){
  * credentials are exposed. Cache each listing to avoid repeated retailer hits.
  * These prices are online_unverified and NEVER count as local shelf prices.
  */
-async function quoteSavedUrls(db,request){
+export async function quoteSavedUrls(db,request){
   if(request.method!=='POST')return error('POST required',405);
   const body=await readBody(request);
   if(!body||!Array.isArray(body.keys)||body.keys.length>8)
@@ -308,7 +308,7 @@ async function quoteSavedUrls(db,request){
       const cache=new URL('/api/catalogue/quote-cache/'+encodeURIComponent(key),request.url);
       const cacheRequest=new Request(cache.href);
       try{
-        const saved=await caches?.default?.match(cacheRequest);
+        const saved=await globalThis.caches?.default?.match(cacheRequest);
         if(saved)return {key,...await saved.json(),cached:true};
       }catch{
         // Cache is optional in local tests and unsupported preview runtimes.
@@ -320,7 +320,7 @@ async function quoteSavedUrls(db,request){
           observedAt:nowIso(),scope:'online_unverified'};
       try{
         const ttl=output.status==='priced'?7200:900;
-        await caches?.default?.put(cacheRequest,new Response(JSON.stringify(output),{
+        await globalThis.caches?.default?.put(cacheRequest,new Response(JSON.stringify(output),{
           headers:{'cache-control':'public, max-age='+ttl,'content-type':'application/json'}
         }));
       }catch{}
