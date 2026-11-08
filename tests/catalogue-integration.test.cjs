@@ -82,3 +82,53 @@ test('JSON-LD is found when HTML script attributes appear in a different order',
  const range=JSON.stringify({'@type':'Product',offers:{lowPrice:10,highPrice:19}});
  assert.equal(extractProductPrice('<script type="application/ld+json">'+range+'</script>').priceCents,null);
 });
+
+
+test('read-only catalogue quotes use saved product URL without an owner key',async()=>{
+ const {quoteSavedUrls}=await import('../catalogue-api.mjs');
+ const oldFetch=globalThis.fetch;
+ const urls=[];
+ globalThis.fetch=async url=>{
+   urls.push(String(url));
+   assert.equal(String(url),'https://www.gianttiger.com/products/oat-drink.js');
+   return new Response(JSON.stringify({title:'Oat Drink',variants:[
+     {id:12345678901234,price:399,available:true},
+     {id:12345678901235,price:549,available:true}
+   ]}),{headers:{'Content-Type':'application/json'}});
+ };
+ const db={prepare(sql){
+   assert.match(sql,/SELECT \* FROM catalogue_listings WHERE listing_key/);
+   return {bind(key){
+     assert.equal(key,'gianttiger|online|oat-drink');
+     return {first:async()=>({
+       price_scope:'online_unverified',
+       product_url:'https://www.gianttiger.com/products/oat-drink?variant=12345678901235'
+     })};
+   }};
+ }};
+ try{
+   const request=new Request('https://grablist.example/api/catalogue/quote',{
+     method:'POST',headers:{'Content-Type':'application/json'},
+     body:JSON.stringify({keys:['gianttiger|online|oat-drink']})
+   });
+   const response=await quoteSavedUrls(db,request);
+   assert.equal(response.status,200);
+   const data=await response.json();
+   assert.equal(data.results[0].priceCents,549);
+   assert.equal(data.results[0].status,'priced');
+   assert.equal(data.results[0].scope,'online_unverified');
+   assert.equal(urls.length,1);
+ }finally{globalThis.fetch=oldFetch;}
+});
+test('public quote is bounded and never accepts caller-supplied URLs',async()=>{
+ const {quoteSavedUrls}=await import('../catalogue-api.mjs');
+ const db={prepare(){throw Error('No DB access expected');}};
+ const response=await quoteSavedUrls(db,new Request('https://grablist.example/api/catalogue/quote',{
+   method:'POST',body:JSON.stringify({keys:Array.from({length:9},(_,i)=>'key-'+i)})
+ }));
+ assert.equal(response.status,400);
+ const noUrl=await quoteSavedUrls(db,new Request('https://grablist.example/api/catalogue/quote',{
+   method:'POST',body:JSON.stringify({url:'https://attacker.example/secret'})
+ }));
+ assert.equal(noUrl.status,400);
+});
