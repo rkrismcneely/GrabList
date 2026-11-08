@@ -57,3 +57,28 @@ test('API extracts only unambiguous structured product page prices',async()=>{
  const status=await handleCatalogueApi(new Request('https://example.com/api/catalogue/status'),{});
  assert.deepEqual((await status.json()).ready,false);
 });
+
+
+test('Shopify product URLs can supply exact Giant Tiger online variant prices',async()=>{
+ const {extractShopifyProductPrice}=await import('../catalogue-api.mjs');
+ const data={variants:[
+   {id:12345678901234,price:399,available:true},
+   {id:12345678901235,price:549,available:true}
+ ]};
+ const url='https://www.gianttiger.com/products/oat-drink?variant=12345678901235';
+ assert.deepEqual(extractShopifyProductPrice(data,url),
+   {priceCents:549,scope:'online_unverified',source:'gianttiger-shopify-product'});
+ assert.equal(extractShopifyProductPrice(data,'https://www.gianttiger.com/products/oat-drink').priceCents,null);
+ assert.equal(extractShopifyProductPrice(data,url.replace('12345678901235','99999999999999')).priceCents,null);
+ assert.equal(extractShopifyProductPrice({...data,variants:[{id:1,price:399,available:false}]},url).priceCents,null);
+ assert.equal(extractShopifyProductPrice({variants:[{id:1,price:299,available:true}]},
+   'https://www.gianttiger.com/products/cereal').priceCents,299);
+});
+test('JSON-LD is found when HTML script attributes appear in a different order',async()=>{
+ const {extractProductPrice}=await import('../catalogue-api.mjs');
+ const p=JSON.stringify({'@graph':[{'@type':'Product',name:'Milk',offers:{price:'5.99',priceCurrency:'CAD'}}]});
+ const html='<script nonce="xyz" id="structured" type="application/ld+json">'+p+'</script>';
+ assert.equal(extractProductPrice(html).priceCents,599);
+ const range=JSON.stringify({'@type':'Product',offers:{lowPrice:10,highPrice:19}});
+ assert.equal(extractProductPrice('<script type="application/ld+json">'+range+'</script>').priceCents,null);
+});
