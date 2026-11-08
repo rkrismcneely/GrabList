@@ -549,7 +549,7 @@ function loadState(){try{return sanitizeState(JSON.parse(localStorage.getItem(ST
 let state=loadState();
 let catalogueRows=new Map(),catalogueFlyerRows=new Map(),catalogueCandidateRows=new Map(),catalogueReady=false,catalogueRefreshReady=false,catalogueListingCount=0,catalogueProductCount=0,catalogueCurrentFlyerCount=0;
 const PRICE_CACHE_KEY='grablist-online-quotes-v1';
-const PRICE_CACHE_MAX_AGE=4*3600000;
+const PRICE_CACHE_MAX_AGE=45*60000;
 let priceCache={};
 try{
   const loaded=JSON.parse(localStorage.getItem(PRICE_CACHE_KEY)||'{}');
@@ -1515,6 +1515,15 @@ async function quoteCataloguePrices(itemIds=null,stores=state.enabledStoreIds,op
           }else if(result.status==='unavailable'){
             unavailable++;
             offer.lastError=String(result.reason||'Retailer did not return a price').slice(0,110);
+            // A fresh failed check supersedes an older online quote.
+            // Never continue to display a price if the retailer now reports
+            // unavailable, a mismatch, or blocked access.
+            offer.status='unavailable';
+            offer.priceCents=null;
+            if(priceCache[result.key]){
+              delete priceCache[result.key];
+              try{localStorage.setItem(PRICE_CACHE_KEY,JSON.stringify(priceCache));}catch{}
+            }
           }
         }
       }
