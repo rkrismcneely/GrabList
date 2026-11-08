@@ -42,7 +42,8 @@ export async function loadQuickLinks(assets,origin){
      if(!response.ok)throw Error('Retailer link index part '+i+' is not deployed');
      const text=await response.text();
      if(text.length>MAX_BYTES)throw Error('Retailer link index part too large');
-     const data=JSON.parse(text);
+     let data;
+     try{data=JSON.parse(text);}catch{throw Error('Retailer link index invalid JSON part '+i)}
      if(data?.version!==VERSION||data.scope!=='online_unverified'||!Array.isArray(data.records)||data.records.length>1600)
        throw Error('Retailer link index invalid');
      return data.records;
