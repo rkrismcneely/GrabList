@@ -86,6 +86,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, .item-row:focus
 .edit-other-store-button {margin:3px 4px 3px 0;border:1px solid #e5c6b7;border-radius:8px;
  background:#fff6ef;padding:7px 8px;font-size:12px;color:#7b4135}
 .edit-price-option a {color:#a34436}
+.reference-only-note {font-size:11px;color:#795e4d;white-space:nowrap}
 .item-cheaper-option {display:block;font-size:11px;font-weight:650;line-height:1.35;margin-top:3px;opacity:.9}
 .item-product-match {display:block;font-size:11px;line-height:1.3;opacity:.82;margin-top:3px;
  max-width:245px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -373,6 +374,11 @@ body.sheet-open {overflow:hidden}
         <option value="chemong">Chemong Road</option>
       </select>
       <p class="sheet-help">Both Walmarts are acceptable. Product-page quotes remain online estimates until an individual location can be verified.</p>
+      <h3>Optional reference prices</h3>
+      <p id="reference-fallback-status" class="sheet-help" role="status">
+        Checking reference-price provider…
+      </p>
+      <p class="sheet-help">VynnAI can supplement missing retailer prices using recent Ontario reference observations. It requires an API key saved privately as a Cloudflare Worker secret named <code>VYNN_API_KEY</code>; prices and local coverage may still be incomplete. The Compare button remains one click.</p>
       <div id="store-options" class="store-options"></div>
       <h3 class="legacy-price-heading">Delivery app preferences</h3>
       <p class="sheet-help legacy-price-heading">Delivery app shortcuts are temporarily hidden.</p>
@@ -805,7 +811,10 @@ function itemRow(item,index,total,colors,departmentLabel='',completed=false){
        matchedOffer.retailer==='nofrills'&&matchedOffer.storeContext?
         ' · No Frills '+(matchedOffer.storeContext==='3142'?'George St':'Lansdowne'):
         matchedOffer.scope==='selected_branch'?' · local price':' · online estimate'):'';
-  const text=[item.name,detail,displayedCataloguePrice(item)?`${formatPrice(item)} (${verifiedCataloguePrice(item)?'verified local price':'unverified online estimate'})`:'Price unavailable'].filter(Boolean).join(', ');
+  const text=[item.name,detail,displayedCataloguePrice(item)?`${formatPrice(item)} (${verifiedCataloguePrice(item)?'verified local price':
+    matchedOffer?.scope==='city_reference'?'Peterborough reference estimate':
+    matchedOffer?.scope==='province_reference'?'Ontario reference estimate':
+    'unverified retailer online estimate'})`:'Price unavailable'].filter(Boolean).join(', ');
   return `<div class="swipe-shell">
     <span class="swipe-action complete" aria-hidden="true"><svg viewBox="0 0 32 32"><path d="M6 17l7 7L27 9"/></svg></span>
     <span class="swipe-action delete" aria-hidden="true"><svg viewBox="0 0 32 32"><path d="M7 7l18 18M25 7L7 25"/></svg></span>
@@ -1025,8 +1034,10 @@ function renderEditCataloguePrices(){
       return '<div class="edit-price-option"><div><div class="edit-product-name">'+
         escapeHTML(offer.productName)+'</div><small>'+escapeHTML((offer.size?offer.size+' · ':'')+
         price+' · '+scope+' · '+date+reason)+href+'</small></div>'+
+        (offer.isProviderReference?
+        '<span class="reference-only-note">Reference only</span>':
         '<button type="button" data-select-product="'+escapeHTML(encodeURIComponent(offer.key))+
-        '" aria-pressed="'+String(selected)+'">'+(selected?'Selected':'Use')+'</button></div>';
+        '" aria-pressed="'+String(selected)+'">'+(selected?'Selected':'Use')+'</button>')+'</div>';
     }).join('');
   }
   const other=state.enabledStoreIds.filter(id=>id!==store).map(id=>{
@@ -1154,6 +1165,16 @@ $('edit-form').addEventListener('submit',event=>{
 $('delete-item').addEventListener('click',()=>{const id=$('edit-id').value;closeSheet();deleteItem(id);});
 
 function renderSettings(){
+  $('reference-fallback-status').textContent=referencePriceFallbackConfigured?
+    'Optional reference source connected. Prices are reference observations, not guaranteed local.':
+    'Optional reference source not yet connected. Retailer URL prices still work.';
+  void fetch('/api/catalogue/status',{cache:'no-store'}).then(r=>r.json()).then(status=>{
+    referencePriceFallbackConfigured=Boolean(status.referencePriceFallbackConfigured);
+    if(currentSheet==='settings')$('reference-fallback-status').textContent=
+      referencePriceFallbackConfigured?
+        'VynnAI secret configured; a live provider request and Peterborough coverage are not yet verified.':
+        'VynnAI is not connected; the one-click retailer price search still works.';
+  }).catch(()=>{});
   $('store-options').innerHTML=state.storeOrderIds.map((id,index)=>{
     const s=storeById(id);
     return `<div class="store-option">
