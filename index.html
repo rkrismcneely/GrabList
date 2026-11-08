@@ -86,6 +86,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, .item-row:focus
 .edit-other-store-button {margin:3px 4px 3px 0;border:1px solid #e5c6b7;border-radius:8px;
  background:#fff6ef;padding:7px 8px;font-size:12px;color:#7b4135}
 .edit-price-option a {color:#a34436}
+.reference-only-note {font-size:11px;color:#795e4d;white-space:nowrap}
 .item-cheaper-option {display:block;font-size:11px;font-weight:650;line-height:1.35;margin-top:3px;opacity:.9}
 .item-product-match {display:block;font-size:11px;line-height:1.3;opacity:.82;margin-top:3px;
  max-width:245px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -373,6 +374,11 @@ body.sheet-open {overflow:hidden}
         <option value="chemong">Chemong Road</option>
       </select>
       <p class="sheet-help">Both Walmarts are acceptable. Product-page quotes remain online estimates until an individual location can be verified.</p>
+      <h3>Optional reference prices</h3>
+      <p id="reference-fallback-status" class="sheet-help" role="status">
+        Checking reference-price provider…
+      </p>
+      <p class="sheet-help">VynnAI can supplement missing retailer prices using recent Ontario reference observations. It requires an API key saved privately as a Cloudflare Worker secret named <code>VYNN_API_KEY</code>; prices and local coverage may still be incomplete. The Compare button remains one click.</p>
       <div id="store-options" class="store-options"></div>
       <h3 class="legacy-price-heading">Delivery app preferences</h3>
       <p class="sheet-help legacy-price-heading">Delivery app shortcuts are temporarily hidden.</p>
@@ -582,6 +588,7 @@ try{
   }
 }catch{}
 let catalogueRows=new Map(),catalogueFlyerRows=new Map(),catalogueCandidateRows=new Map(),catalogueReady=false,catalogueRefreshReady=false,catalogueListingCount=0,catalogueProductCount=0,catalogueCurrentFlyerCount=0;
+let referencePriceFallbackConfigured=false,referenceCoverageMessage='';
 const PRICE_CACHE_KEY='grablist-online-quotes-v1';
 const PRICE_CACHE_MAX_AGE=45*60000;
 let priceCache={};
@@ -608,6 +615,7 @@ function allowedNofrillsQuoteContext(context){
     String(context||'')===(preferred==='3142'?'3634':'3142');
 }
 function quoteInSelectedStoreContext(offer){
+  if(offer?.scope==='province_reference'||offer?.scope==='city_reference')return true;
   return offer?.retailer!=='nofrills'||allowedNofrillsQuoteContext(offer.storeContext);
 }
 function productPageHref(offer){
@@ -693,13 +701,17 @@ function knownTotal(items){return items.reduce((sum,i)=>sum+(verifiedCataloguePr
 function knownCount(items){return items.filter(i=>verifiedCataloguePrice(i)!==null).length}
 function onlineCataloguePrice(item){
  if(!item.storeId)return null;
+ const priority=o=>
+   o.scope==='city_reference'?0:o.scope==='online_unverified'?1:
+   o.scope==='province_reference'?2:3;
  return (catalogueRows.get(item.id)||[]).filter(o=>
-   o.retailer===item.storeId&&o.scope==='online_unverified'&&o.status==='current'&&
+   o.retailer===item.storeId&&
+   ['online_unverified','city_reference','province_reference'].includes(o.scope)&&o.status==='current'&&
    quoteInSelectedStoreContext(o)&&
    (!item.preferredListingByStore?.[item.storeId]||o.key===item.preferredListingByStore[item.storeId])&&
    Number.isInteger(o.priceCents)&&o.priceCents>0&&
    GrabListCatalogueComparison.productMatch(item,o)
- ).sort((a,b)=>a.priceCents-b.priceCents)[0]||null;
+ ).sort((a,b)=>priority(a)-priority(b)||a.priceCents-b.priceCents)[0]||null;
 }
 function cheaperOnlineSuggestion(item){
   const baseline=displayedCataloguePrice(item);
@@ -794,10 +806,15 @@ function itemRow(item,index,total,colors,departmentLabel='',completed=false){
       ' at '+alternative.store+' (online estimate)':'';
   const matchDescription=matchedOffer?
     matchedOffer.productName+
-      (matchedOffer.retailer==='nofrills'&&matchedOffer.storeContext?
+      (matchedOffer.scope==='province_reference'?' · Ontario reference':
+       matchedOffer.scope==='city_reference'?' · Peterborough reference':
+       matchedOffer.retailer==='nofrills'&&matchedOffer.storeContext?
         ' · No Frills '+(matchedOffer.storeContext==='3142'?'George St':'Lansdowne'):
-        (matchedOffer.scope==='selected_branch'?' · local price':' · online estimate')):'';
-  const text=[item.name,detail,displayedCataloguePrice(item)?`${formatPrice(item)} (${verifiedCataloguePrice(item)?'verified local price':'unverified online estimate'})`:'Price unavailable'].filter(Boolean).join(', ');
+        matchedOffer.scope==='selected_branch'?' · local price':' · online estimate'):'';
+  const text=[item.name,detail,displayedCataloguePrice(item)?`${formatPrice(item)} (${verifiedCataloguePrice(item)?'verified local price':
+    matchedOffer?.scope==='city_reference'?'Peterborough reference estimate':
+    matchedOffer?.scope==='province_reference'?'Ontario reference estimate':
+    'unverified retailer online estimate'})`:'Price unavailable'].filter(Boolean).join(', ');
   return `<div class="swipe-shell">
     <span class="swipe-action complete" aria-hidden="true"><svg viewBox="0 0 32 32"><path d="M6 17l7 7L27 9"/></svg></span>
     <span class="swipe-action delete" aria-hidden="true"><svg viewBox="0 0 32 32"><path d="M7 7l18 18M25 7L7 25"/></svg></span>
@@ -1006,6 +1023,8 @@ function renderEditCataloguePrices(){
         'Price unavailable';
       const date=offer.observedAt?new Date(offer.observedAt).toLocaleDateString('en-CA'):'not checked';
       const scope=offer.scope==='selected_branch'?'Store-specific price':
+        offer.scope==='city_reference'?'Peterborough reference observation · not your branch':
+        offer.scope==='province_reference'?'Ontario reference price · not Peterborough':
         'Online estimate'+(offer.retailer==='nofrills'&&offer.storeContext?
          ' · '+(offer.storeContext==='3142'?'George Street':'Lansdowne Street')+' requested':'')+
          ' · local stock and price unconfirmed';
@@ -1015,8 +1034,10 @@ function renderEditCataloguePrices(){
       return '<div class="edit-price-option"><div><div class="edit-product-name">'+
         escapeHTML(offer.productName)+'</div><small>'+escapeHTML((offer.size?offer.size+' · ':'')+
         price+' · '+scope+' · '+date+reason)+href+'</small></div>'+
+        (offer.isProviderReference?
+        '<span class="reference-only-note">Reference only</span>':
         '<button type="button" data-select-product="'+escapeHTML(encodeURIComponent(offer.key))+
-        '" aria-pressed="'+String(selected)+'">'+(selected?'Selected':'Use')+'</button></div>';
+        '" aria-pressed="'+String(selected)+'">'+(selected?'Selected':'Use')+'</button>')+'</div>';
     }).join('');
   }
   const other=state.enabledStoreIds.filter(id=>id!==store).map(id=>{
@@ -1118,6 +1139,7 @@ $('edit-refresh-price').addEventListener('click',async()=>{
     await quoteCataloguePrices([saved.item.id],state.enabledStoreIds,{
       output:$('edit-price-status'),refresh:true
     });
+    await fallbackReferencePrices([saved.item.id],$('edit-price-status'));
   }finally{
     button.disabled=false;
     renderEditCataloguePrices();
@@ -1136,12 +1158,23 @@ $('edit-form').addEventListener('submit',event=>{
         await quoteCataloguePrices([saved.item.id],state.enabledStoreIds,{
           output:$('auto-price-status')
         });
+      await fallbackReferencePrices([saved.item.id],$('auto-price-status'));
     })();
   }
 });
 $('delete-item').addEventListener('click',()=>{const id=$('edit-id').value;closeSheet();deleteItem(id);});
 
 function renderSettings(){
+  $('reference-fallback-status').textContent=referencePriceFallbackConfigured?
+    'Optional reference source connected. Prices are reference observations, not guaranteed local.':
+    'Optional reference source not yet connected. Retailer URL prices still work.';
+  void fetch('/api/catalogue/status',{cache:'no-store'}).then(r=>r.json()).then(status=>{
+    referencePriceFallbackConfigured=Boolean(status.referencePriceFallbackConfigured);
+    if(currentSheet==='settings')$('reference-fallback-status').textContent=
+      referencePriceFallbackConfigured?
+        'VynnAI secret configured; a live provider request and Peterborough coverage are not yet verified.':
+        'VynnAI is not connected; the one-click retailer price search still works.';
+  }).catch(()=>{});
   $('store-options').innerHTML=state.storeOrderIds.map((id,index)=>{
     const s=storeById(id);
     return `<div class="store-option">
@@ -1513,7 +1546,10 @@ function renderCatalogueComparison(){
       return '<p><strong>'+escapeHTML(store)+'</strong> · <b>'+(local?'':'≈ ')+
         currency.format(offer.priceCents/100)+'</b>'+
         '<span class="compare-product-name"> · '+escapeHTML(offer.productName)+'</span>'+
-        '<span class="compare-quote-note"> · '+escapeHTML(local?'Verified at selected store':'Online quote · branch price and stock not confirmed')+
+        '<span class="compare-quote-note"> · '+escapeHTML(local?'Verified at selected store':
+        offer.scope==='city_reference'?'Peterborough reference · branch not confirmed':
+        offer.scope==='province_reference'?'Ontario reference · not local':
+        'Online quote · branch price and stock not confirmed')+
         ' · '+escapeHTML(date)+'</span>'+link+'</p>';
     }).join('');
     const noPrices=state.enabledStoreIds.filter(store=>!byStore.has(store));
@@ -1559,6 +1595,7 @@ async function loadCatalogueComparison(itemIds=null){
     const status=await statusResponse.json();
     catalogueReady=Boolean(status.ready);
     catalogueRefreshReady=Boolean(status.refreshReady);
+    referencePriceFallbackConfigured=Boolean(status.referencePriceFallbackConfigured);
     catalogueListingCount=Number(status.listings)||0;
     catalogueProductCount=Number(status.products)||0;
     catalogueCurrentFlyerCount=Number(status.currentFlyerDiscoveries)||0;
@@ -1726,6 +1763,69 @@ async function quoteCataloguePrices(itemIds=null,stores=state.enabledStoreIds,op
     if(priceRefreshController===controller)priceRefreshController=null;
   }
 }
+async function fallbackReferencePrices(itemIds=null,output=$('auto-price-status')){
+  // Enabled only after the owner puts VYNN_API_KEY in the Worker environment.
+  // The browser never sees the key. No provider observations go to shared
+  // caches or localStorage. This is not a local shelf-price service.
+  if(!referencePriceFallbackConfigured)return {skipped:true};
+  const needed=state.items.filter(i=>!i.complete&&
+    (!itemIds||itemIds.includes(i.id))).map(item=>{
+    const offers=(catalogueRows.get(item.id)||[]).filter(o=>
+      o.status==='current'&&Number.isInteger(o.priceCents)&&
+      quoteInSelectedStoreContext(o)&&
+      GrabListCatalogueComparison.productMatch(item,o));
+    return {item,storeCount:new Set(offers.map(o=>o.retailer)).size};
+  }).filter(x=>x.storeCount<2).sort((a,b)=>a.storeCount-b.storeCount).slice(0,6);
+  if(!needed.length)return {skipped:true};
+  let applied=0,coverage=null,reason='';
+  for(let offset=0;offset<needed.length;offset+=3){
+    const group=needed.slice(offset,offset+3);
+    priceStatus(output,'Checking optional dated Canadian reference prices · '+
+      (offset+1)+'–'+Math.min(offset+3,needed.length)+' of '+needed.length);
+    try{
+      const response=await fetch('/api/catalogue/reference-prices',{
+        method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({stores:state.enabledStoreIds,
+          items:group.map(({item})=>({
+            id:item.id,name:item.name,size:item.size,brand:item.brand,barcode:item.barcode
+          }))})
+      });
+      if(!response.ok)throw Error('Provider reference lookup unavailable');
+      const data=await response.json();
+      if(!data.configured){referencePriceFallbackConfigured=false;return {skipped:true};}
+      reason=data.reason||'';
+      coverage=data.coverage||coverage;
+      for(const entry of data.results||[]){
+        const item=state.items.find(x=>x.id===entry.id);
+        if(!item)continue;
+        const existing=catalogueRows.get(item.id)||[];
+        const keys=new Set(existing.map(o=>o.key));
+        for(const offer of entry.offers||[]){
+          // Product identity, explicitly requested brand, units and variety are
+          // ALWAYS checked by the same matcher as retailer URLs.
+          if(!state.enabledStoreIds.includes(offer.retailer)||
+            !['province_reference','city_reference'].includes(offer.scope)||
+            !Number.isInteger(offer.priceCents)||offer.priceCents<=0||
+            !GrabListCatalogueComparison.productMatch(item,offer))continue;
+          if(keys.has(offer.key))continue;
+          existing.push(offer);keys.add(offer.key);applied++;
+        }
+        catalogueRows.set(item.id,existing);
+      }
+      renderCatalogueComparison();
+      if(currentSheet==='item')renderEditCataloguePrices();
+      if(reason==='free_budget_exhausted'||reason==='provider_quota_exhausted')break;
+    }catch(e){reason='reference_source_unavailable';break;}
+  }
+  const locality=coverage?.hasPeterboroughCoverage?
+    'Peterborough reference observations may be available.':
+    'No confirmed Peterborough reference-store coverage; Ontario observations are not local prices.';
+  referenceCoverageMessage=locality;
+  if(applied)priceStatus(output,'Added '+applied+' dated reference quotes. '+locality);
+  else if(reason)priceStatus(output,
+    'Reference fallback: '+reason.replaceAll('_',' ')+'. Existing retailer quotes remain.');
+  return {applied,reason,coverage};
+}
 async function refreshAllCataloguePrices(){
   if(priceRefreshBusy)return;
   priceRefreshBusy=true;
@@ -1737,6 +1837,7 @@ async function refreshAllCataloguePrices(){
       return;
     }
     await quoteCataloguePrices(null,state.enabledStoreIds,{output:$('auto-price-status')});
+    await fallbackReferencePrices(null,$('auto-price-status'));
   }finally{
     priceRefreshBusy=false;
     render();

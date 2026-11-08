@@ -2,10 +2,28 @@
 
 *Grab what you need. Spend less.*
 
-> **Catalogue-only pricing rollout (in development):** Old public, manually recorded and optional API price lookups are disabled in the UI and Worker routes. The new D1-based catalogue is the sole active price source; it needs a real Cloudflare D1 binding, migration and owner refresh secret before it can retrieve prices. See [CATALOGUE_SETUP.md](CATALOGUE_SETUP.md). The Phase 2 descriptions below document retained legacy functionality, not features currently active on this branch.
+> **Current pricing (November 2026):** **Compare store prices** updates the shopping list directly, no popup. The Cloudflare D1 catalogue and saved retailer URLs are the default. Optional **VynnAI reference-price fallback** is available only after the owner configures a private Worker secret. Older provider routes and the Phase 2 features below are archived; see [CATALOGUE_SETUP.md](CATALOGUE_SETUP.md).
 
 
 A mobile-first, swipe-driven grocery shopping Progressive Web App. Hosted on Cloudflare Workers, deployed automatically from this independent GitHub repository.
+
+## Active one-button price checks
+
+- One click checks saved retailer product URLs, updating priced Shop rows as quotes return. Item Edit can change store, brand, or size and refresh one item.
+- Matching prioritizes the cheapest acceptable brand/variant while respecting explicit brand and package restrictions. No Frills George Street is preferred; Lansdowne is an acceptable fallback. Walmart Lansdowne is preferred, but local pricing isn't verified by the URL reader.
+- **Optional VynnAI reference fallback**: only runs for missing/under-covered items if the owner adds a private VYNN_API_KEY Cloudflare Worker secret. It checks the provider's documented Ontario store directory and product search/lookup endpoints and validates dates, identity and size.
+- Reference observations must be dated within eight days and are labelled Ontario reference or Peterborough reference, never verified selected store. They cannot automatically reassign items.
+- The provider Free tier advertises 500 calls/month in the API docs, while its general pricing page lists different terms. GrabList imposes its own budget of 12 calls per UTC day and 240 per UTC month through D1. Authenticated responses are not put in shared caches or browser storage.
+- This is an optional third-party service. It requires a free account, applicable licence permissions, and one private Cloudflare secret. Do not paste a key into GitHub or public chats. Without a key, the original retailer-link price checks still run.
+- GroceryPulse's separate free AI comparison does not cover Peterborough and is not used as a local GrabList price.
+- This integration has mock-data regression tests, not verified live Vynn account/store responses or Cloudflare production deployment.
+
+### Enable optional provider
+
+1. Review the [VynnAI API documentation](https://vynn.ai/developers/docs), account allowance and licence terms; create a key in your own account.
+2. In Cloudflare → GrabList Worker → Settings → Variables and Secrets, create an encrypted **Secret** named VYNN_API_KEY. Or run the Wrangler command: npx wrangler secret put VYNN_API_KEY. Do not store it in source.
+3. Check the referencePriceFallbackConfigured flag at /api/catalogue/status. If true, Compare store prices attempts the source on under-covered items without another dialog.
+4. Verify whether any actual Peterborough reference stores and matched products appear in Shop/Edit. Ontario references never prove a Peterborough shelf price.
 
 ## What works
 
