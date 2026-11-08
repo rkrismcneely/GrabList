@@ -95,7 +95,7 @@ test('bundled FreshCo data excludes specialty milk and finds standard grocery eq
  }));
  const milk=matching({name:'Milk',size:'4 L'});
  assert.ok(milk.some(row=>/\b[12]\s*%\s*milk/i.test(row[3])),JSON.stringify(milk));
- assert.ok(milk.every(row=>!/\b6\s*%\b/i.test(row[3])));
+ assert.ok(milk.every(row=>!/(?:^|\s)6\s*%/i.test(row[3])));
  assert.ok(!milk.some(row=>/\b(?:protein|a2|microfiltered|lactose)\b/i.test(row[3])));
  const eggs=matching({name:'Eggs'});
  assert.ok(eggs.some(row=>/\blarge\b/i.test(row[3])));
