@@ -132,3 +132,19 @@ test('public quote is bounded and never accepts caller-supplied URLs',async()=>{
  }));
  assert.equal(noUrl.status,400);
 });
+
+
+test('Loblaw direct product pages expose a price without relying on JSON-LD',async()=>{
+ const {extractLoblawVisiblePrice}=await import('../catalogue-api.mjs');
+ const url='https://www.nofrills.ca/en/smooth-peanut-butter/p/20132369001_EA';
+ const html='<div>Sponsored sale$2.00 was$9.00</div>'+
+  '<h1>Smooth Peanut Butter</h1><div>500 g</div><b>$3.75 ea</b>'+
+  '<s>$4.49</s><div>Product description</div><div>Other product $1.00 ea</div>';
+ assert.deepEqual(extractLoblawVisiblePrice(html,url),
+   {priceCents:375,scope:'online_unverified',source:'loblaw-product-page'});
+ assert.equal(extractLoblawVisiblePrice(html,
+   'https://www.nofrills.ca/en/different-item/p/20132369001_EA').priceCents,null);
+ assert.equal(extractLoblawVisiblePrice(html,
+   'https://www.nofrills.ca/en/search?q=peanut').priceCents,null);
+ assert.equal(extractLoblawVisiblePrice('<h1>Smooth Peanut Butter</h1><p>was $5.99</p>',url).priceCents,null);
+});
