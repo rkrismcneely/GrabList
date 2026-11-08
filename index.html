@@ -1218,7 +1218,7 @@ async function refreshCataloguePrices(){
     if(!key)return;
   }
   button.disabled=true;
-  let checked=0,saved=0,unavailable=0,imported=0,importError='';
+  let checked=0,saved=0,unavailable=0,throttled=0,imported=0,importError='';
   try{
     // Import pre-matched No Frills and Walmart product-page URLs. Each 80-link
     // shard is idempotent. Persist the page cursor so Safari can resume safely.
@@ -1569,7 +1569,21 @@ async function refreshCataloguePrices(){
         await loadCatalogueComparison();
       }
     }
-    const keys=[...new Set([...catalogueRows.values()].flatMap(offers=>offers.map(o=>o.key)))];
+    // Only fetch retailer URLs that actually match a requested product and size.
+    // The previous broad SQL search could return 180 links PER item, including
+    // unrelated brands/categories. Checking all of them made comparisons slow.
+    // Two candidates per store give a fallback when a listing is unavailable.
+    const keys=[...new Set(state.items.filter(item=>!item.complete).flatMap(item=>{
+      const matches=(catalogueRows.get(item.id)||[]).filter(offer=>
+        offer.key&&offer.url&&offer.scope!=='selected_branch'&&
+        GrabListCatalogueComparison.productMatch(item,offer));
+      return state.enabledStoreIds.flatMap(store=>matches.filter(offer=>offer.retailer===store)
+        .sort((a,b)=>
+          Number(Boolean(a.lastError))-Number(Boolean(b.lastError))||
+          Number(!Number.isInteger(a.priceCents))-Number(!Number.isInteger(b.priceCents))||
+          a.productName.length-b.productName.length)
+        .slice(0,2).map(offer=>offer.key));
+    }))];
     if(!keys.length){
       output.textContent=(imported?'Imported '+imported+' saved product links. ':'')+
         'No matching saved URLs for the items on your list yet. Missing links will stay unknown.';
@@ -1594,6 +1608,7 @@ async function refreshCataloguePrices(){
       for(const result of data.results||[]){
         if(result.status==='saved')saved++;
         if(result.status==='unavailable')unavailable++;
+        if(result.status==='throttled')throttled++;
       }
       checked+=batch.length;
       $('compare-progress').value=checked;
@@ -1601,8 +1616,8 @@ async function refreshCataloguePrices(){
     }
     await loadCatalogueComparison();
     output.textContent=(imported?imported+' retailer product links processed. ':'')+
-      'Checked '+checked+' links. '+saved+' prices updated; '+unavailable+
-      ' unavailable. Generic online prices remain unverified for local stores.'+
+      'Checked '+checked+' matching product links. '+saved+' prices updated; '+unavailable+
+      ' unavailable; '+throttled+' recently checked. Online prices are not verified at your local branch.'+
       (importError?' Some URL sources could not be imported: '+importError:'');
   }catch(error){
     output.textContent=String(error.message||'Price update failed')+'. Previously known prices are retained.';
