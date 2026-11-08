@@ -582,6 +582,7 @@ try{
   }
 }catch{}
 let catalogueRows=new Map(),catalogueFlyerRows=new Map(),catalogueCandidateRows=new Map(),catalogueReady=false,catalogueRefreshReady=false,catalogueListingCount=0,catalogueProductCount=0,catalogueCurrentFlyerCount=0;
+let referencePriceFallbackConfigured=false,referenceCoverageMessage='';
 const PRICE_CACHE_KEY='grablist-online-quotes-v1';
 const PRICE_CACHE_MAX_AGE=45*60000;
 let priceCache={};
@@ -608,6 +609,7 @@ function allowedNofrillsQuoteContext(context){
     String(context||'')===(preferred==='3142'?'3634':'3142');
 }
 function quoteInSelectedStoreContext(offer){
+  if(offer?.scope==='province_reference'||offer?.scope==='city_reference')return true;
   return offer?.retailer!=='nofrills'||allowedNofrillsQuoteContext(offer.storeContext);
 }
 function productPageHref(offer){
@@ -693,13 +695,17 @@ function knownTotal(items){return items.reduce((sum,i)=>sum+(verifiedCataloguePr
 function knownCount(items){return items.filter(i=>verifiedCataloguePrice(i)!==null).length}
 function onlineCataloguePrice(item){
  if(!item.storeId)return null;
+ const priority=o=>
+   o.scope==='city_reference'?0:o.scope==='online_unverified'?1:
+   o.scope==='province_reference'?2:3;
  return (catalogueRows.get(item.id)||[]).filter(o=>
-   o.retailer===item.storeId&&o.scope==='online_unverified'&&o.status==='current'&&
+   o.retailer===item.storeId&&
+   ['online_unverified','city_reference','province_reference'].includes(o.scope)&&o.status==='current'&&
    quoteInSelectedStoreContext(o)&&
    (!item.preferredListingByStore?.[item.storeId]||o.key===item.preferredListingByStore[item.storeId])&&
    Number.isInteger(o.priceCents)&&o.priceCents>0&&
    GrabListCatalogueComparison.productMatch(item,o)
- ).sort((a,b)=>a.priceCents-b.priceCents)[0]||null;
+ ).sort((a,b)=>priority(a)-priority(b)||a.priceCents-b.priceCents)[0]||null;
 }
 function cheaperOnlineSuggestion(item){
   const baseline=displayedCataloguePrice(item);
@@ -794,9 +800,11 @@ function itemRow(item,index,total,colors,departmentLabel='',completed=false){
       ' at '+alternative.store+' (online estimate)':'';
   const matchDescription=matchedOffer?
     matchedOffer.productName+
-      (matchedOffer.retailer==='nofrills'&&matchedOffer.storeContext?
+      (matchedOffer.scope==='province_reference'?' · Ontario reference':
+       matchedOffer.scope==='city_reference'?' · Peterborough reference':
+       matchedOffer.retailer==='nofrills'&&matchedOffer.storeContext?
         ' · No Frills '+(matchedOffer.storeContext==='3142'?'George St':'Lansdowne'):
-        (matchedOffer.scope==='selected_branch'?' · local price':' · online estimate')):'';
+        matchedOffer.scope==='selected_branch'?' · local price':' · online estimate'):'';
   const text=[item.name,detail,displayedCataloguePrice(item)?`${formatPrice(item)} (${verifiedCataloguePrice(item)?'verified local price':'unverified online estimate'})`:'Price unavailable'].filter(Boolean).join(', ');
   return `<div class="swipe-shell">
     <span class="swipe-action complete" aria-hidden="true"><svg viewBox="0 0 32 32"><path d="M6 17l7 7L27 9"/></svg></span>
@@ -1006,6 +1014,8 @@ function renderEditCataloguePrices(){
         'Price unavailable';
       const date=offer.observedAt?new Date(offer.observedAt).toLocaleDateString('en-CA'):'not checked';
       const scope=offer.scope==='selected_branch'?'Store-specific price':
+        offer.scope==='city_reference'?'Peterborough reference observation · not your branch':
+        offer.scope==='province_reference'?'Ontario reference price · not Peterborough':
         'Online estimate'+(offer.retailer==='nofrills'&&offer.storeContext?
          ' · '+(offer.storeContext==='3142'?'George Street':'Lansdowne Street')+' requested':'')+
          ' · local stock and price unconfirmed';
@@ -1513,7 +1523,10 @@ function renderCatalogueComparison(){
       return '<p><strong>'+escapeHTML(store)+'</strong> · <b>'+(local?'':'≈ ')+
         currency.format(offer.priceCents/100)+'</b>'+
         '<span class="compare-product-name"> · '+escapeHTML(offer.productName)+'</span>'+
-        '<span class="compare-quote-note"> · '+escapeHTML(local?'Verified at selected store':'Online quote · branch price and stock not confirmed')+
+        '<span class="compare-quote-note"> · '+escapeHTML(local?'Verified at selected store':
+        offer.scope==='city_reference'?'Peterborough reference · branch not confirmed':
+        offer.scope==='province_reference'?'Ontario reference · not local':
+        'Online quote · branch price and stock not confirmed')+
         ' · '+escapeHTML(date)+'</span>'+link+'</p>';
     }).join('');
     const noPrices=state.enabledStoreIds.filter(store=>!byStore.has(store));
@@ -1559,6 +1572,7 @@ async function loadCatalogueComparison(itemIds=null){
     const status=await statusResponse.json();
     catalogueReady=Boolean(status.ready);
     catalogueRefreshReady=Boolean(status.refreshReady);
+    referencePriceFallbackConfigured=Boolean(status.referencePriceFallbackConfigured);
     catalogueListingCount=Number(status.listings)||0;
     catalogueProductCount=Number(status.products)||0;
     catalogueCurrentFlyerCount=Number(status.currentFlyerDiscoveries)||0;
