@@ -30,6 +30,8 @@
     // Words supplied by the user are product constraints, not hints to ignore.
     const tokens=q.split(' ').filter(t=>t.length>1||/^[0-9]$/.test(t));
     const words=p.split(' ');
+    // Plural "eggs" should never resolve to an egg-based baked good.
+    if(q==='eggs'&&!words.includes('eggs'))return false;
     const singular=t=>t.endsWith('ies')?t.slice(0,-3)+'y':t.endsWith('s')?t.slice(0,-1):t;
     if(!tokens.length||!tokens.every(t=>words.includes(t)||words.includes(singular(t))))return false;
     const cases=[
