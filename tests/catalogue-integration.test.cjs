@@ -226,3 +226,57 @@ test('same-retailer 307 redirect stays within a product URL and returns online q
   assert.equal(data.results[0].scope,'online_unverified');
  }finally{globalThis.fetch=oldFetch;}
 });
+
+
+test('item refresh bypasses old online cache while recent rechecks remain rate-limited',async()=>{
+ const {quoteSavedUrls}=await import('../catalogue-api.mjs');
+ const originalFetch=globalThis.fetch,originalCaches=globalThis.caches;
+ const url='https://www.freshco.com/products/compliments-white-eggs-large-12-count';
+ const key='freshco|online|indexed-test';
+ const row={product_url:url,product_name:'Compliments White Eggs Large 12 Count',price_scope:'online_unverified'};
+ const db={prepare:()=>({bind:()=>({first:async()=>row})})};
+ const request=()=>new Request('https://grablist.example/api/catalogue/quote',{
+   method:'POST',body:JSON.stringify({keys:[key],refresh:true})
+ });
+ const makeCache=age=>new Response(JSON.stringify({
+   status:'priced',priceCents:599,source:'public-product-page',
+   observedAt:new Date(Date.now()-age).toISOString(),
+   checkedAt:new Date(Date.now()-age).toISOString(),scope:'online_unverified'
+ }),{headers:{'Content-Type':'application/json'}});
+ let fetches=0,puts=0,age=10*60000;
+ globalThis.fetch=async()=>{fetches++;return new Response(
+   '<script type="application/ld+json">'+JSON.stringify({'@type':'Product',
+    name:'Compliments White Eggs Large 12 Count',offers:{price:'4.29',priceCurrency:'CAD'}})+'</script>',
+   {headers:{'Content-Type':'text/html'}}
+ );};
+ globalThis.caches={default:{
+   match:async()=>makeCache(age),
+   put:async()=>{puts++;}
+ }};
+ try{
+   let response=await quoteSavedUrls(db,request());
+   let result=(await response.json()).results[0];
+   assert.equal(result.priceCents,429);
+   assert.equal(fetches,1);
+   assert.equal(puts,1);
+   age=2*60000;
+   response=await quoteSavedUrls(db,request());
+   result=(await response.json()).results[0];
+   assert.equal(result.priceCents,599);
+   assert.equal(result.cached,true);
+   assert.equal(fetches,1,'recent cached price should not cause another fetch');
+ }finally{
+   globalThis.fetch=originalFetch;
+   globalThis.caches=originalCaches;
+ }
+});
+test('out of stock structured product does not fall back to old metadata price',async()=>{
+ const {extractProductPrice}=await import('../catalogue-api.mjs');
+ const html='<script type="application/ld+json">'+JSON.stringify({
+   '@type':'Product',name:'Compliments White Bread 675 g',
+   offers:{price:'3.69',priceCurrency:'CAD',availability:'https://schema.org/OutOfStock'}
+ })+'</script><meta property="product:price:amount" content="3.69">';
+ const result=extractProductPrice(html,'Compliments White Bread 675 g');
+ assert.equal(result.priceCents,null);
+ assert.match(result.reason,/out of stock/i);
+});
