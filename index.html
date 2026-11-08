@@ -583,6 +583,10 @@ function nofrillsBrowserLink(raw){
       (/^\d{4,6}$/.test(id)?'?storeId='+id:'');
   }catch{return null;}
 }
+function quoteInSelectedStoreContext(offer){
+  return offer?.retailer!=='nofrills'||
+    String(offer.storeContext||'')===String(state.catalogueBranches?.nofrills||'');
+}
 function productPageHref(offer){
   if(!offer?.url||!/^https:\/\//.test(offer.url))return null;
   if(offer.retailer==='nofrills')return nofrillsBrowserLink(offer.url);
@@ -945,7 +949,7 @@ function renderEditCataloguePrices(){
   }else{
     markup+=rows.map(offer=>{
       const selected=preferred===offer.key;
-      const price=Number.isInteger(offer.priceCents)&&offer.status==='current'?
+      const price=Number.isInteger(offer.priceCents)&&offer.status==='current'&&quoteInSelectedStoreContext(offer)?
         (offer.scope==='selected_branch'?'':'≈ ')+currency.format(offer.priceCents/100):
         'Price unavailable';
       const date=offer.observedAt?new Date(offer.observedAt).toLocaleDateString('en-CA'):'not checked';
@@ -962,7 +966,7 @@ function renderEditCataloguePrices(){
   }
   const other=state.enabledStoreIds.filter(id=>id!==store).map(id=>{
     const found=(catalogueRows.get(draft.id)||[]).filter(o=>o.retailer===id&&
-      o.status==='current'&&Number.isInteger(o.priceCents)&&
+      o.status==='current'&&quoteInSelectedStoreContext(o)&&Number.isInteger(o.priceCents)&&
       GrabListCatalogueComparison.productMatch(draft,o))
       .sort((a,b)=>a.priceCents-b.priceCents)[0];
     return '<button type="button" data-edit-switch-store="'+escapeHTML(id)+
@@ -1415,7 +1419,7 @@ function renderCatalogueComparison(){
     // grades or packages are interchangeable.
     const offers=(catalogueRows.get(item.id)||[]).filter(o=>GrabListCatalogueComparison.productMatch(item,o));
     if(offers.length)linked++;
-    const prices=offers.filter(o=>Number.isInteger(o.priceCents)&&o.priceCents>0&&o.status==='current');
+    const prices=offers.filter(o=>quoteInSelectedStoreContext(o)&&Number.isInteger(o.priceCents)&&o.priceCents>0&&o.status==='current');
     if(prices.length)pricedItems++;
     if(prices.some(o=>o.scope==='selected_branch'&&
        o.branchId===state.catalogueBranches[o.retailer]))localItems++;
