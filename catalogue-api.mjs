@@ -1,3 +1,4 @@
+import { canonicalNofrillsUrl, withNofrillsStore } from "./catalogue-nofrills.mjs";
 import { loadQuickLinks, quickLinkMatches } from "./catalogue-link-index.mjs";
 import { ensureCatalogueSchema } from "./catalogue-bootstrap.mjs";
 import { importCuratedBatch } from "./catalogue-sources.mjs";
@@ -250,6 +251,8 @@ async function getProductPagePrice(raw,expectedName=''){
       target=allowed;
       if(hop===2)return {priceCents:null,reason:'Too many retailer redirects'};
     }
+    if(response.status===403||response.status===429)
+      return {priceCents:null,reason:'Retailer blocked automated access (HTTP '+response.status+'); product link may still open in your browser'};
     if(!response.ok)return {priceCents:null,reason:'Product request returned HTTP '+response.status};
     const contentType=(response.headers.get('content-type')||'').toLowerCase();
     if(contentType&&!contentType.includes('text/html'))return {priceCents:null,reason:'Product URL did not return HTML'};
@@ -423,6 +426,8 @@ export async function quoteSavedUrls(db,request,assets){
   // Explicit per-item refresh may bypass older cache entries, never one
   // checked within the previous five minutes.
   const explicitRefresh=body.refresh===true;
+  const nofrillsStoreId=/^\d{4,6}$/.test(String(body.nofrillsStoreId||''))?
+    String(body.nofrillsStoreId):'';
   const results=[];
   // Bound concurrent connections and upstream load on a public route.
   for(let offset=0;offset<keys.length;offset+=2){
@@ -436,7 +441,11 @@ export async function quoteSavedUrls(db,request,assets){
       if(!row)return {key,status:'missing'};
       if(row.price_scope==='selected_branch')
         return {key,status:'skipped',reason:'Verified local price is not replaced'};
-      const cache=new URL('/api/catalogue/quote-cache-v2/'+encodeURIComponent(key),request.url);
+      const nofrills=canonicalNofrillsUrl(row.product_url);
+      const context=nofrills?nofrillsStoreId:'';
+      const requestUrl=nofrills?withNofrillsStore(row.product_url,context):row.product_url;
+      const cache=new URL('/api/catalogue/quote-cache-v3/'+
+        encodeURIComponent(context||'online')+'/'+encodeURIComponent(key),request.url);
       const cacheRequest=new Request(cache.href);
       try{
         const saved=await globalThis.caches?.default?.match(cacheRequest);
@@ -449,12 +458,12 @@ export async function quoteSavedUrls(db,request,assets){
       }catch{
         // Cache is optional in local tests and unsupported preview runtimes.
       }
-      const price=await getProductPagePrice(row.product_url,row.product_name);
+      const price=await getProductPagePrice(requestUrl,row.product_name);
       const checkedAt=nowIso();
       const output=price.priceCents===null?
-        {status:'unavailable',reason:price.reason||'Price unavailable',checkedAt}:
+        {status:'unavailable',reason:price.reason||'Price unavailable',checkedAt,storeContext:context}:
         {status:'priced',priceCents:price.priceCents,source:price.source,
-          observedAt:checkedAt,checkedAt,scope:'online_unverified'};
+          observedAt:checkedAt,checkedAt,storeContext:context,scope:'online_unverified'};
       try{
         const ttl=output.status==='priced'?1800:300;
         await globalThis.caches?.default?.put(cacheRequest,new Response(JSON.stringify(output),{
