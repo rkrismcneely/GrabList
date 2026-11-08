@@ -284,6 +284,53 @@ async function refresh(db,env,request){
   }
   return json({results,source:'saved_product_urls',notes:'Generic product-page prices are not verified at a selected branch.'});
 }
+
+/**
+ * Public, READ-ONLY quotes for existing allowlisted catalogue product URLs.
+ * No user-supplied URL is fetched; no DB mutations, auth secrets, or upstream
+ * credentials are exposed. Cache each listing to avoid repeated retailer hits.
+ * These prices are online_unverified and NEVER count as local shelf prices.
+ */
+async function quoteSavedUrls(db,request){
+  if(request.method!=='POST')return error('POST required',405);
+  const body=await readBody(request);
+  if(!body||!Array.isArray(body.keys)||body.keys.length>8)
+    return error('Provide up to 8 catalogue listing keys.');
+  const keys=[...new Set(body.keys.map(x=>str(x,220)).filter(Boolean))];
+  const results=[];
+  // Bound concurrent connections and upstream load on a public route.
+  for(let offset=0;offset<keys.length;offset+=2){
+    const pair=await Promise.all(keys.slice(offset,offset+2).map(async key=>{
+      const row=await db.prepare('SELECT * FROM catalogue_listings WHERE listing_key=?').bind(key).first();
+      if(!row)return {key,status:'missing'};
+      if(row.price_scope==='selected_branch')
+        return {key,status:'skipped',reason:'Verified local price is not replaced'};
+      const cache=new URL('/api/catalogue/quote-cache/'+encodeURIComponent(key),request.url);
+      const cacheRequest=new Request(cache.href);
+      try{
+        const saved=await caches?.default?.match(cacheRequest);
+        if(saved)return {key,...await saved.json(),cached:true};
+      }catch{
+        // Cache is optional in local tests and unsupported preview runtimes.
+      }
+      const price=await getProductPagePrice(row.product_url);
+      const output=price.priceCents===null?
+        {status:'unavailable',reason:price.reason||'Price unavailable'}:
+        {status:'priced',priceCents:price.priceCents,source:price.source,
+          observedAt:nowIso(),scope:'online_unverified'};
+      try{
+        const ttl=output.status==='priced'?7200:900;
+        await caches?.default?.put(cacheRequest,new Response(JSON.stringify(output),{
+          headers:{'cache-control':'public, max-age='+ttl,'content-type':'application/json'}
+        }));
+      }catch{}
+      return {key,...output};
+    }));
+    results.push(...pair);
+  }
+  return json({results,scope:'online_unverified',source:'saved_product_urls'});
+}
+
 async function importExistingUrlBatch(db,env,request){
   if(request.method!=='POST')return error('POST required',405);
   if(!env.CATALOGUE_WRITE_KEY)return error('Owner import key has not been configured.',503,'import_not_configured');
@@ -359,6 +406,7 @@ export async function handleCatalogueApi(request,env){
   if(path==='/api/catalogue/import-freshco')return importHammerUrlBatch(db,env,request,'freshco');
   if(path==='/api/catalogue/import-gt-grocery')return importHammerUrlBatch(db,env,request,'gtgrocery');
   if(path==='/api/catalogue/compare')return compare(db,request);
+  if(path==='/api/catalogue/quote')return quoteSavedUrls(db,request);
   if(path==='/api/catalogue/refresh')return refresh(db,env,request);
   return error('Unknown catalogue endpoint',404,'not_found');
 }
