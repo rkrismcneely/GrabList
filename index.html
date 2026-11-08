@@ -1256,9 +1256,9 @@ function renderCatalogueComparison(){
   $('apply-price-comparison').disabled=!plan.changes.length;
   render();
 }
-async function loadCatalogueComparison(){
+async function loadCatalogueComparison(itemIds=null){
   const root=$('comparison-summary');
-  root.textContent='Loading saved catalogue prices…';
+  if(currentSheet==='compare')root.textContent='Loading catalogue prices…';
   try{
     const statusResponse=await fetch('/api/catalogue/status',{cache:'no-store'});
     const status=await statusResponse.json();
@@ -1270,31 +1270,38 @@ async function loadCatalogueComparison(){
     if(!catalogueReady){
       comparisonPlan=null;
       $('apply-price-comparison').disabled=true;
-      root.innerHTML='<div class="compare-card"><strong>Product catalogue needs database setup</strong><p>'+
-        escapeHTML(status.reason||'The D1 catalogue has not been configured.')+
-        '</p><p>Your existing shopping list is safe. No other pricing methods are running.</p></div>';
-      return;
+      if(currentSheet==='compare')root.textContent=status.reason||'Catalogue database not configured';
+      return false;
     }
-    const items=state.items.filter(item=>!item.complete);
+    const relevant=state.items.filter(item=>!item.complete&&(!itemIds||itemIds.includes(item.id)));
     const gathered=[];
-    for(let i=0;i<items.length;i+=40){
+    for(let i=0;i<relevant.length;i+=40){
       const response=await fetch('/api/catalogue/compare',{
         method:'POST',headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({items:items.slice(i,i+40).map(({id,name,size,brand,barcode})=>({id,name,size,brand,barcode})),stores:state.enabledStoreIds})
+        body:JSON.stringify({
+          items:relevant.slice(i,i+40).map(({id,name,size,brand,barcode})=>({id,name,size,brand,barcode})),
+          stores:state.enabledStoreIds
+        })
       });
       const data=await response.json();
-      if(!response.ok)throw Error(data.error||'Catalogue query failed');
+      if(!response.ok)throw Error(typeof data.error==='string'?data.error:'Catalogue query failed');
       gathered.push(...(data.results||[]));
     }
-    catalogueRows=new Map(gathered.map(entry=>[entry.id,entry.offers||[]]));
-    catalogueFlyerRows=new Map(gathered.map(entry=>[entry.id,entry.flyerMatches||[]]));
-    catalogueCandidateRows=new Map(gathered.map(entry=>[entry.id,entry.productCandidates||[]]));
+    if(!itemIds){
+      catalogueRows=new Map();
+      catalogueFlyerRows=new Map();
+      catalogueCandidateRows=new Map();
+    }
+    for(const entry of gathered){
+      catalogueRows.set(entry.id,(entry.offers||[]).map(restoreQuote));
+      catalogueFlyerRows.set(entry.id,entry.flyerMatches||[]);
+      catalogueCandidateRows.set(entry.id,entry.productCandidates||[]);
+    }
     renderCatalogueComparison();
+    return true;
   }catch(err){
-    comparisonPlan=null;
-    $('apply-price-comparison').disabled=true;
-    root.innerHTML='<div class="compare-card"><strong>Catalogue unavailable</strong><p>'+escapeHTML(err.message||'Could not query catalogue')+
-      '</p><p>No legacy price lookup was attempted.</p></div>';
+    if(currentSheet==='compare')root.textContent='Catalogue unavailable: '+String(err.message||'Could not query catalogue');
+    return false;
   }
 }
 function matchingCataloguePriceKeys(){
