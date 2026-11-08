@@ -82,6 +82,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, .item-row:focus
 .edit-price-option button {flex:0 0 auto;border:1px solid #d8ad99;background:#fff6ee;border-radius:9px;padding:8px 9px;color:#904333;font-size:12px;font-weight:750}
 .edit-price-option button[aria-pressed="true"] {background:#d34b35;color:white;border-color:#d34b35}
 .edit-other-stores {font-size:12px;color:#6d5850;line-height:1.5}
+.store-branch-select {width:100%;padding:11px;background:white;border:1px solid #dfcabb;border-radius:10px;color:#292420;font-size:15px}
 .edit-other-store-button {margin:3px 4px 3px 0;border:1px solid #e5c6b7;border-radius:8px;
  background:#fff6ef;padding:7px 8px;font-size:12px;color:#7b4135}
 .edit-price-option a {color:#a34436}
@@ -357,6 +358,13 @@ body.sheet-open {overflow:hidden}
       <p class="sheet-help" id="postal-code-status" role="status" aria-live="polite">Add your postal code for future nearby-store price lookups.</p>
       <h3>My stores</h3>
       <p class="sheet-help">Check the stores you use. Move your favourites to the top; this order breaks price ties and orders stores in Shop mode.</p>
+      <label class="settings-label" for="nofrills-branch">No Frills location for product links</label>
+      <select id="nofrills-branch" class="store-branch-select">
+        <option value="">No store selected (online prices only)</option>
+        <option value="3142">George Street, Peterborough (3142)</option>
+        <option value="3634">Lansdowne Street West, Peterborough (3634)</option>
+      </select>
+      <p class="sheet-help" id="nofrills-branch-note">Product links can open with your selected store. The website may still block automated prices.</p>
       <div id="store-options" class="store-options"></div>
       <h3 class="legacy-price-heading">Delivery app preferences</h3>
       <p class="sheet-help legacy-price-heading">Delivery app shortcuts are temporarily hidden.</p>
@@ -549,6 +557,13 @@ function sanitizeState(raw){
 }
 function loadState(){try{return sanitizeState(JSON.parse(localStorage.getItem(STORAGE_KEY)))}catch{return blankState()}}
 let state=loadState();
+try{
+  const requestedStore=new URLSearchParams(location.search).get('nofrillsStore');
+  if(/^(3142|3634)$/.test(requestedStore||'')){
+    state.catalogueBranches.nofrills=requestedStore;
+    history.replaceState(null,'',location.pathname+location.hash);
+  }
+}catch{}
 let catalogueRows=new Map(),catalogueFlyerRows=new Map(),catalogueCandidateRows=new Map(),catalogueReady=false,catalogueRefreshReady=false,catalogueListingCount=0,catalogueProductCount=0,catalogueCurrentFlyerCount=0;
 const PRICE_CACHE_KEY='grablist-online-quotes-v1';
 const PRICE_CACHE_MAX_AGE=45*60000;
@@ -1058,12 +1073,39 @@ function renderSettings(){
      </div>`;
   }).join('');
   $('savings-input').value=state.savingsThreshold;
+  $('nofrills-branch').value=/^(3142|3634)$/.test(state.catalogueBranches?.nofrills||'')?
+    state.catalogueBranches.nofrills:'';
   $('postal-code-input').value=state.postalCode||'';
   $('postal-code-input').setAttribute('aria-invalid','false');
   $('postal-code-status').textContent=state.postalCode
     ?'Saved '+state.postalCode+'. Used to identify your preferred retailer locations.'
     :'Add a postal code to help connect your preferred store locations.';
 }
+$('nofrills-branch').addEventListener('change',()=>{
+  const selected=$('nofrills-branch').value;
+  const previous=state.catalogueBranches.nofrills||'';
+  if(selected===previous)return;
+  if(selected)state.catalogueBranches.nofrills=selected;
+  else delete state.catalogueBranches.nofrills;
+  // Never reuse a quote from another store's context.
+  for(const offers of catalogueRows.values()){
+    for(const offer of offers){
+      if(offer.retailer!=='nofrills'||offer.scope!=='online_unverified')continue;
+      offer.priceCents=null;offer.status='unavailable';offer.observedAt=null;offer.storeContext=null;
+    }
+  }
+  for(const key of Object.keys(priceCache))if(key.startsWith('nofrills|'))delete priceCache[key];
+  try{localStorage.setItem(PRICE_CACHE_KEY,JSON.stringify(priceCache));}catch{}
+  update();
+  priceStatus($('auto-price-status'),selected?
+    'No Frills store selected. Checking No Frills online quotes for that location…':
+    'No Frills store cleared. Online prices are not store-specific.');
+  void (async()=>{
+    if(await loadCatalogueComparison()){
+      await quoteCataloguePrices(null,['nofrills'],{output:$('auto-price-status'),refresh:true});
+    }
+  })();
+});
 $('settings-button').addEventListener('click',()=>{renderSettings();openSheet('settings')});
 $('postal-code-input').addEventListener('change',event=>{
   const input=event.target,raw=input.value.trim();
