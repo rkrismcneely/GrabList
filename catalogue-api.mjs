@@ -34,12 +34,40 @@ function offerPrices(offer,depth=0){
   if(depth>3||!offer||typeof offer!=='object')return [];
   if(Array.isArray(offer))return offer.flatMap(v=>offerPrices(v,depth+1));
   if(offer.priceCurrency&&String(offer.priceCurrency).toUpperCase()!=='CAD')return [];
+  // A displayed price is not a purchasable offer when the retailer's
+  // structured data marks this product unavailable.
+  if(/OutOfStock|SoldOut|Discontinued|PreOrder|BackOrder/i.test(String(offer.availability||'')))return [];
   const raw=offer.price ?? (offer.lowPrice===offer.highPrice?offer.lowPrice:null);
   const price=validPriceCents(raw);
   const specs=offer.priceSpecification?offerPrices(offer.priceSpecification,depth+1):[];
   return [...(price===null?[]:[price]),...specs];
 }
-export function extractProductPrice(html){
+
+function titleSize(name){
+  const match=String(name||'').toLowerCase().match(/(?:^|\s)(\d+(?:[.,]\d+)?)\s*(kg|g|ml|l|lb|lbs|oz|ct|count|ea)\b/i);
+  if(!match)return null;
+  const n=Number(match[1].replace(',','.'));
+  const u=match[2].toLowerCase();
+  const scale={kg:1000,g:1,l:1000,ml:1,lb:453.592,lbs:453.592,oz:28.3495,ct:1,count:1,ea:1};
+  const family=['kg','g','lb','lbs','oz'].includes(u)?'g':
+    ['l','ml'].includes(u)?'ml':'count';
+  return family+':'+Math.round(n*scale[u]);
+}
+export function productTitleCompatible(expected,actual){
+  if(!expected||!actual)return true;
+  const eSize=titleSize(expected),aSize=titleSize(actual);
+  if(eSize&&aSize&&eSize!==aSize)return false;
+  const words=value=>String(value||'').toLowerCase().normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9% ]/g,' ')
+    .split(/\s+/).filter(x=>x.length>2||x.includes('%'));
+  const e=[...new Set(words(expected).filter(x=>!/^\d+$/.test(x)))];
+  const a=new Set(words(actual));
+  if(!e.length)return true;
+  const hits=e.filter(t=>a.has(t)).length;
+  return hits>=Math.min(2,e.length)&&hits>=Math.ceil(e.length*.55);
+}
+
+export function extractProductPrice(html,expectedName=''){
   if(typeof html!=='string'||!html)return {priceCents:null,reason:'Empty product page'};
   const candidates=[];
   const scripts=html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script\s*>/gi);
@@ -47,6 +75,8 @@ export function extractProductPrice(html){
     if(!/\btype\s*=\s*["']application\/ld\+json["']/i.test(match[1]))continue;
     let data;try{data=JSON.parse(match[2].trim());}catch{continue;}
     for(const product of findStructuredProducts(data)){
+      if(typeof product.name==='string'&&!productTitleCompatible(expectedName,product.name))continue;
+      if(/OutOfStock|SoldOut|Discontinued/i.test(String(product.availability||'')))continue;
       candidates.push(...offerPrices(product.offers));
     }
   }
@@ -72,7 +102,7 @@ function permittedProductUrl(raw){
     return url.href;
   }catch{return null;}
 }
-async function readHtml(response,limit=1500000){
+async function readHtml(response,limit=3200000){
   const length=Number(response.headers.get('content-length')||0);
   if(length>limit)throw Error('Page exceeds safe HTML size limit');
   if(!response.body)return '';
@@ -95,7 +125,8 @@ async function readHtml(response,limit=1500000){
  * A variant query parameter must resolve to the SAME variant: silently taking
  * a default variant could show the price of the wrong size/package.
  */
-export function extractShopifyProductPrice(product, rawProductUrl){
+export function extractShopifyProductPrice(product, rawProductUrl,expectedName=''){
+  if(!productTitleCompatible(expectedName,product?.title))return {priceCents:null,reason:'Retailer product or package size differs from catalogue'};
   if(!product||typeof product!=='object'||!Array.isArray(product.variants)||!product.variants.length)
     return {priceCents:null,reason:'Product feed has no variants'};
   let variantId;
@@ -152,7 +183,7 @@ export function extractLoblawVisiblePrice(html,rawUrl){
     {priceCents:cents,scope:'online_unverified',source:'loblaw-product-page'};
 }
 
-async function getProductPagePrice(raw){
+async function getProductPagePrice(raw,expectedName=''){
   const url=permittedProductUrl(raw);
   if(!url)return {priceCents:null,reason:'Unapproved or unsafe product URL'};
   const target=new URL(url);
@@ -168,7 +199,7 @@ async function getProductPagePrice(raw){
       });
       if(response.ok&&(response.headers.get('content-type')||'').toLowerCase().includes('json')){
         const product=JSON.parse(await readHtml(response,650000));
-        return extractShopifyProductPrice(product,url);
+        return extractShopifyProductPrice(product,url,expectedName);
       }
     }catch{
       // Some stores or pages do not support the Ajax endpoint. Try the
@@ -181,7 +212,7 @@ async function getProductPagePrice(raw){
     const contentType=(response.headers.get('content-type')||'').toLowerCase();
     if(contentType&&!contentType.includes('text/html'))return {priceCents:null,reason:'Product URL did not return HTML'};
     const html=await readHtml(response);
-    const structured=extractProductPrice(html);
+    const structured=extractProductPrice(html,expectedName);
     if(structured.priceCents!==null)return structured;
     const visible=extractLoblawVisiblePrice(html,url);
     return visible.priceCents!==null?visible:structured;
@@ -316,7 +347,7 @@ async function refresh(db,env,request){
         .bind(attemptedAt,'Store-specific adapter required to refresh this branch',key).run();
       results.push({key,status:'skipped',reason:'Store-specific adapter required'});continue;
     }
-    const result=await getProductPagePrice(row.product_url);
+    const result=await getProductPagePrice(row.product_url,row.product_name);
     if(result.priceCents===null){
       await db.prepare('UPDATE catalogue_listings SET last_attempted_at=?,last_error=? WHERE listing_key=?')
         .bind(attemptedAt,str(result.reason,145),key).run();
@@ -355,12 +386,12 @@ export async function quoteSavedUrls(db,request,assets){
       if(!row&&assets){
         const index=await loadQuickLinks(assets,request.url);
         const indexed=index.byKey.get(key);
-        if(indexed)row={price_scope:'online_unverified',product_url:indexed.url};
+        if(indexed)row={price_scope:'online_unverified',product_url:indexed.url,product_name:indexed.productName};
       }
       if(!row)return {key,status:'missing'};
       if(row.price_scope==='selected_branch')
         return {key,status:'skipped',reason:'Verified local price is not replaced'};
-      const cache=new URL('/api/catalogue/quote-cache/'+encodeURIComponent(key),request.url);
+      const cache=new URL('/api/catalogue/quote-cache-v2/'+encodeURIComponent(key),request.url);
       const cacheRequest=new Request(cache.href);
       try{
         const saved=await globalThis.caches?.default?.match(cacheRequest);
@@ -368,13 +399,13 @@ export async function quoteSavedUrls(db,request,assets){
       }catch{
         // Cache is optional in local tests and unsupported preview runtimes.
       }
-      const price=await getProductPagePrice(row.product_url);
+      const price=await getProductPagePrice(row.product_url,row.product_name);
       const output=price.priceCents===null?
         {status:'unavailable',reason:price.reason||'Price unavailable'}:
         {status:'priced',priceCents:price.priceCents,source:price.source,
           observedAt:nowIso(),scope:'online_unverified'};
       try{
-        const ttl=output.status==='priced'?7200:900;
+        const ttl=output.status==='priced'?1800:300;
         await globalThis.caches?.default?.put(cacheRequest,new Response(JSON.stringify(output),{
           headers:{'cache-control':'public, max-age='+ttl,'content-type':'application/json'}
         }));
