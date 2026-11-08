@@ -937,9 +937,11 @@ function renderEditCataloguePrices(){
   const preferred=draft.preferredListingByStore?.[store];
   const rows=offers.sort((a,b)=>
     Number(b.key===preferred)-Number(a.key===preferred)||
-    Number(Number.isInteger(b.priceCents))-Number(Number.isInteger(a.priceCents))||
-    GrabListCatalogueComparison.productRank(draft,b)-GrabListCatalogueComparison.productRank(draft,a)||
-    (a.priceCents??Infinity)-(b.priceCents??Infinity)
+    Number(b.status==='current'&&Number.isInteger(b.priceCents))-
+      Number(a.status==='current'&&Number.isInteger(a.priceCents))||
+    ((a.status==='current'&&Number.isInteger(a.priceCents))?a.priceCents:Infinity)-
+      ((b.status==='current'&&Number.isInteger(b.priceCents))?b.priceCents:Infinity)||
+    GrabListCatalogueComparison.productRank(draft,b)-GrabListCatalogueComparison.productRank(draft,a)
   ).slice(0,8);
   let markup='<div class="edit-price-option"><div><span class="edit-product-name">Any equivalent product</span>'+
     '<small>Automatically choose the least expensive matching item available from this retailer.</small></div>'+
@@ -1528,26 +1530,15 @@ async function loadCatalogueComparison(itemIds=null){
 }
 let priceRefreshBusy=false,priceRefreshController=null,priceRefreshVersion=0;
 function matchingCataloguePriceKeys(itemIds=null,stores=state.enabledStoreIds){
-  // Fetch the explicit product for a store if the shopper selected one.
-  // Otherwise, rank up to three compatible listings per store and item.
+  // Prefer genuinely equivalent low-price options across brands and
+  // permitted variants. Do not spend every quote lookup on the same brand.
   return [...new Set(state.items.filter(item=>!item.complete&&
     (!itemIds||itemIds.includes(item.id))).flatMap(item=>{
-    const matches=(catalogueRows.get(item.id)||[]).filter(offer=>
-      offer.key&&offer.url&&offer.scope!=='selected_branch'&&
-      GrabListCatalogueComparison.productMatch(item,offer));
+    const offers=catalogueRows.get(item.id)||[];
     return stores.flatMap(store=>{
-      const perStore=matches.filter(offer=>offer.retailer===store);
       const preferred=item.preferredListingByStore?.[store];
-      if(preferred){
-        const selected=perStore.find(o=>o.key===preferred);
-        if(selected)return [selected.key];
-      }
-      return perStore.sort((a,b)=>
-        GrabListCatalogueComparison.productRank(item,b)-GrabListCatalogueComparison.productRank(item,a)||
-        Number(Boolean(a.lastError))-Number(Boolean(b.lastError))||
-        Number(!Number.isInteger(a.priceCents))-Number(!Number.isInteger(b.priceCents))||
-        a.productName.length-b.productName.length
-      ).slice(0,3).map(offer=>offer.key);
+      return GrabListCatalogueComparison.choosePriceCandidates(
+        item,offers,store,preferred,preferred?1:6).map(offer=>offer.key);
     });
   }))];
 }
