@@ -113,7 +113,7 @@ export async function reserveVynnCall(db,now=new Date()){
   const day='vynn-day-'+now.toISOString().slice(0,10);
   const month='vynn-month-'+now.toISOString().slice(0,7);
   await db.prepare('CREATE TABLE IF NOT EXISTS catalogue_provider_budget (bucket TEXT PRIMARY KEY, used INTEGER NOT NULL DEFAULT 0)').run();
-  for(const [bucket,limit] of [[month,VYNN_MONTHLY_CAP],[day,VYNN_DAILY_CAP]]){
+  for(const [bucket,limit] of [[day,VYNN_DAILY_CAP],[month,VYNN_MONTHLY_CAP]]){
     await db.prepare('INSERT OR IGNORE INTO catalogue_provider_budget (bucket,used) VALUES (?,0)').bind(bucket).run();
     const update=await db.prepare('UPDATE catalogue_provider_budget SET used=used+1 WHERE bucket=? AND used<?').bind(bucket,limit).run();
     if(!update?.meta||Number(update.meta.changes)!==1)return false;
