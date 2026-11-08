@@ -1619,7 +1619,41 @@ async function quoteCataloguePrices(itemIds=null,stores=state.enabledStoreIds,op
       const data=await response.json();
       if(!response.ok)throw Error(typeof data.error==='string'?data.error:'Retailer price request failed');
       if(version!==priceRefreshVersion)return {found,checked};
-      for(const result of data.results||[]){
+      // Compare the second No Frills location only for products with a readable
+      // first quote or a non-blocked failure. On HTTP 403/429 the source has
+      // denied automated access; repeating against another branch only wastes
+      // requests and cannot produce a reliable price.
+      const mergedResults=[...(data.results||[])];
+      const preferred=state.catalogueBranches?.nofrills||'3142';
+      if(stores.includes('nofrills')&&state.compareAlternateNofrills!==false&&
+         ['3142','3634'].includes(preferred)){
+        const alternative=preferred==='3142'?'3634':'3142';
+        const extraKeys=mergedResults.filter(r=>
+          r.key?.startsWith('nofrills|')&&
+          (r.status==='priced'||r.status==='unavailable'&&
+            !/blocked automated access|HTTP (403|429)/i.test(r.reason||'')))
+          .map(r=>r.key).slice(0,8);
+        if(extraKeys.length){
+          const altResponse=await fetch('/api/catalogue/quote',{
+            method:'POST',headers:{'Content-Type':'application/json'},
+            body:JSON.stringify({keys:extraKeys,
+              refresh:Boolean(options.refresh&&itemIds),nofrillsStoreId:alternative}),
+            signal:controller.signal
+          });
+          if(altResponse.ok){
+            const altData=await altResponse.json();
+            for(const alternativeResult of altData.results||[]){
+              const ix=mergedResults.findIndex(r=>r.key===alternativeResult.key);
+              if(ix<0||alternativeResult.status!=='priced')continue;
+              const first=mergedResults[ix];
+              if(first.status!=='priced'||alternativeResult.priceCents<first.priceCents){
+                mergedResults[ix]=alternativeResult;
+              }
+            }
+          }
+        }
+      }
+      for(const result of mergedResults){
         for(const offers of catalogueRows.values()){
           const offer=offers.find(o=>o.key===result.key&&o.scope!=='selected_branch');
           if(!offer)continue;
