@@ -1102,7 +1102,7 @@ compareSheet.setAttribute('role','dialog');
 compareSheet.setAttribute('aria-modal','true');
 compareSheet.setAttribute('aria-labelledby','compare-title');
 compareSheet.hidden=true;
-compareSheet.innerHTML='<div class="sheet-grabber"></div><div class="sheet-heading"><h2 id="compare-title">Compare prices</h2><button class="sheet-close" type="button" data-compare-close aria-label="Close">×</button></div><p class="sheet-help">Prices come only from saved retailer product URLs. Unverified online prices are shown separately; only verified local-store prices can change your shopping plan.</p><div id="comparison-summary" style="margin-top:12px"></div><button type="button" id="compare-refresh-prices" class="savvi-lookup-button">Refresh saved product prices</button><progress id="compare-progress" max="1" value="0" aria-label="Price lookup progress" hidden></progress><div id="compare-auto-results" role="status" aria-live="polite"></div><details class="price-compare-details"><summary>More: regional basket totals</summary><button type="button" id="search-online-price-button">Check Canadian reference-market totals</button><div id="online-price-results" role="status" aria-live="polite"></div></details><div class="sheet-actions"><button type="button" class="button-danger" data-compare-close>Cancel</button><button type="button" class="button-primary" id="apply-price-comparison">Apply suggestions</button></div>';
+compareSheet.innerHTML='<div class="sheet-grabber"></div><div class="sheet-heading"><h2 id="compare-title">Compare prices</h2><button class="sheet-close" type="button" data-compare-close aria-label="Close">×</button></div><p class="sheet-help">Prices come only from saved retailer product URLs. Unverified online prices are shown separately; only verified local-store prices can change your shopping plan.</p><div id="comparison-summary" style="margin-top:12px"></div><details class="price-compare-details"><summary>Advanced: update retailer links</summary><button type="button" id="compare-refresh-prices" class="savvi-lookup-button">Refresh saved product prices</button></details><progress id="compare-progress" max="1" value="0" aria-label="Price lookup progress" hidden></progress><div id="compare-auto-results" role="status" aria-live="polite"></div><details class="price-compare-details"><summary>More: regional basket totals</summary><button type="button" id="search-online-price-button">Check Canadian reference-market totals</button><div id="online-price-results" role="status" aria-live="polite"></div></details><div class="sheet-actions"><button type="button" class="button-danger" data-compare-close>Cancel</button><button type="button" class="button-primary" id="apply-price-comparison">Apply suggestions</button></div>';
 $('settings-sheet').before(compareSheet);
 compareSheet.querySelectorAll('[data-compare-close]').forEach(btn=>btn.addEventListener('click',closeSheet));
 
@@ -1205,6 +1205,70 @@ async function loadCatalogueComparison(){
       '</p><p>No legacy price lookup was attempted.</p></div>';
   }
 }
+function matchingCataloguePriceKeys(){
+  // Strict match before hitting a retailer, and at most two URL candidates per
+  // item and store. This prevents thousands of unrelated queries for e.g. milk.
+  return [...new Set(state.items.filter(item=>!item.complete).flatMap(item=>{
+    const matches=(catalogueRows.get(item.id)||[]).filter(offer=>
+      offer.key&&offer.url&&offer.scope!=='selected_branch'&&
+      GrabListCatalogueComparison.productMatch(item,offer));
+    return state.enabledStoreIds.flatMap(store=>matches.filter(offer=>offer.retailer===store)
+      .sort((a,b)=>
+        Number(Boolean(a.lastError))-Number(Boolean(b.lastError))||
+        Number(!Number.isInteger(a.priceCents))-Number(!Number.isInteger(b.priceCents))||
+        a.productName.length-b.productName.length)
+      .slice(0,2).map(offer=>offer.key));
+  }))];
+}
+async function quoteCataloguePrices(){
+  const output=$('compare-auto-results'),progress=$('compare-progress');
+  if(!catalogueReady)return;
+  const keys=matchingCataloguePriceKeys();
+  if(!keys.length){
+    output.textContent='No retailer product URLs match this shopping list yet. Catalogue links must be imported first.';
+    return;
+  }
+  let found=0,unavailable=0;
+  progress.hidden=false;progress.max=keys.length;progress.value=0;
+  output.textContent='Checking online prices · 0 of '+keys.length+' links…';
+  try{
+    for(let i=0;i<keys.length;i+=8){
+      const batch=keys.slice(i,i+8);
+      const response=await fetch('/api/catalogue/quote',{
+        method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({keys:batch})
+      });
+      const data=await response.json();
+      if(!response.ok)throw Error(data.error||'Online prices could not be checked');
+      for(const result of data.results||[]){
+        if(result.status==='priced'){
+          found++;
+          for(const offers of catalogueRows.values()){
+            const offer=offers.find(o=>o.key===result.key);
+            if(offer&&offer.scope!=='selected_branch'){
+              offer.priceCents=result.priceCents;
+              offer.source=result.source;
+              offer.scope='online_unverified';
+              offer.status='current';
+              offer.observedAt=result.observedAt;
+              offer.lastError=null;
+            }
+          }
+        }else if(result.status==='unavailable')unavailable++;
+      }
+      progress.value=Math.min(i+batch.length,keys.length);
+      renderCatalogueComparison();
+      output.textContent='Online prices found: '+found+' · Checked '+
+        progress.value+' of '+keys.length+' URLs';
+    }
+    output.textContent='Found '+found+' online product prices · '+unavailable+
+      ' unavailable. Online prices may differ at your selected store.';
+  }catch(error){
+    output.textContent='Some online price checks failed: '+String(error.message||error)+
+      '. Prices already found remain visible.';
+  }finally{progress.hidden=true;}
+}
+
 async function refreshCataloguePrices(){
   const output=$('compare-auto-results'),button=$('compare-refresh-prices');
   if(!catalogueReady){await loadCatalogueComparison();if(!catalogueReady)return;}
@@ -1569,21 +1633,7 @@ async function refreshCataloguePrices(){
         await loadCatalogueComparison();
       }
     }
-    // Only fetch retailer URLs that actually match a requested product and size.
-    // The previous broad SQL search could return 180 links PER item, including
-    // unrelated brands/categories. Checking all of them made comparisons slow.
-    // Two candidates per store give a fallback when a listing is unavailable.
-    const keys=[...new Set(state.items.filter(item=>!item.complete).flatMap(item=>{
-      const matches=(catalogueRows.get(item.id)||[]).filter(offer=>
-        offer.key&&offer.url&&offer.scope!=='selected_branch'&&
-        GrabListCatalogueComparison.productMatch(item,offer));
-      return state.enabledStoreIds.flatMap(store=>matches.filter(offer=>offer.retailer===store)
-        .sort((a,b)=>
-          Number(Boolean(a.lastError))-Number(Boolean(b.lastError))||
-          Number(!Number.isInteger(a.priceCents))-Number(!Number.isInteger(b.priceCents))||
-          a.productName.length-b.productName.length)
-        .slice(0,2).map(offer=>offer.key));
-    }))];
+    const keys=matchingCataloguePriceKeys();
     if(!keys.length){
       output.textContent=(imported?'Imported '+imported+' saved product links. ':'')+
         'No matching saved URLs for the items on your list yet. Missing links will stay unknown.';
@@ -1630,16 +1680,15 @@ async function showPriceComparison(){
   openSheet('compare');
   $('compare-auto-results').textContent='';
   await loadCatalogueComparison();
-  // One user action should both compare and refresh when this browser tab
-  // already holds the owner's key. Never prompt during the main action.
-  // If no key is available, the cached catalogue still renders immediately.
+  // Price retrieval is read-only and uses server-saved retailer URLs, so it
+  // never needs a user-supplied key. It updates the comparison as prices arrive.
+  if(catalogueReady)void quoteCataloguePrices();
+  // The owner-only URL importer can still continue on the same click if this
+  // tab is already authorized. It must not prompt in the comparison flow.
   let hasRefreshKey=false;
   try{hasRefreshKey=Boolean(sessionStorage.getItem(CATALOGUE_KEY_STORAGE));}catch{}
-  if(catalogueReady&&catalogueRefreshReady&&hasRefreshKey){
+  if(catalogueReady&&catalogueRefreshReady&&hasRefreshKey)
     void refreshCataloguePrices();
-  }else if(catalogueReady&&catalogueRefreshReady){
-    $('compare-auto-results').textContent='Showing saved prices. Live refresh requires the owner key in this browser session; the catalogue has not checked retailer prices on this click.';
-  }
 }
 $('list-footer').addEventListener('click',event=>{
   if(event.target.closest('#compare-price-button'))showPriceComparison();
