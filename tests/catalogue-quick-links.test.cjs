@@ -103,3 +103,32 @@ test('bundled FreshCo data excludes specialty milk and finds standard grocery eq
  const bread=matching({name:'Bread',size:'1 loaf'});
  assert.ok(bread.some(row=>/\bsandwich\b/i.test(row[3])));
 });
+
+
+test('main Compare button updates list directly; Edit can refresh, switch store and pin exact product',()=>{
+ const html=fs.readFileSync('index.html','utf8');
+ const handler=html.slice(html.indexOf('function showPriceComparison(){'),
+  html.indexOf("\$('list-footer').addEventListener",html.indexOf('function showPriceComparison(){')));
+ assert.match(handler,/void refreshAllCataloguePrices\(\)/);
+ assert.doesNotMatch(handler,/openSheet\(/);
+ assert.match(html,/id="edit-refresh-price"/);
+ assert.match(html,/id="edit-price-options"/);
+ assert.match(html,/data-select-product/);
+ assert.match(html,/data-edit-switch-store/);
+ assert.match(html,/preferredListingByStore/);
+ assert.match(html,/keepQuote\(offer\)/);
+ assert.match(html,/restoreQuote/);
+ assert.match(html,/loadCatalogueComparison\(\[saved\.item\.id\]\)/);
+ assert.match(html,/priceRefreshBusy\?'disabled'/);
+});
+test('refreshing a changed item updates its selected store without saving unwanted stale quote',()=>{
+ const html=fs.readFileSync('index.html','utf8');
+ const start=html.indexOf('async function quoteCataloguePrices(');
+ const stop=html.indexOf('async function refreshAllCataloguePrices()',start);
+ const block=html.slice(start,stop);
+ assert.match(block,/offer.status='unavailable'/);
+ assert.match(block,/offer.priceCents=null/);
+ assert.match(block,/delete priceCache\[result.key\]/);
+ assert.match(block,/refresh:Boolean\(options.refresh&&itemIds\)/);
+ assert.match(html,/item.preferredListingByStore\[store\]=key/);
+});
