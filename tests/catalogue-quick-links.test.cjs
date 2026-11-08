@@ -227,7 +227,7 @@ test('Shop pricing still has no modal and preserves user local store preferences
  assert.match(html,/id="nofrills-alt-store"/);
  assert.match(html,/choosePriceCandidates\(/);
  assert.match(html,/function cheaperOnlineSuggestion\(/);
- assert.match(html,/Possible cheaper:/);
+ assert.match(html,/\(matchedOffer\?'Possible cheaper':'Lowest found'\)/);
  assert.match(html,/nofrillsStoreId:alternative/);
  assert.match(html,/allowedNofrillsQuoteContext\(/);
  assert.match(html,/HTTP \(403\|429\)/);
