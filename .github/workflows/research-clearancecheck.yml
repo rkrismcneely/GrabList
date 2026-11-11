@@ -1,0 +1,19 @@
+name: Read-only ClearanceCheck source research
+on:
+  push:
+    branches:
+      - research/clearancecheck-pricecheck-source
+  workflow_dispatch:
+jobs:
+  public-source-inspection:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Inspect public HTML and JS (no private APIs invoked)
+        run: node scripts/inspect-clearancecheck-public.mjs
