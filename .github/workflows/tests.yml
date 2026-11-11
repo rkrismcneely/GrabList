@@ -14,6 +14,9 @@ jobs:
           node-version: '22'
       # Older provider/worker suites remain in tests/ but assert deliberately disabled routes.
       # They can be re-enabled if that system is ever restored.
+      - name: Inspect public ClearanceCheck Price Check scripts (research only)
+        if: github.event_name == 'pull_request'
+        run: node scripts/inspect-clearancecheck-public.mjs
       - name: Validate active catalogue and core list utilities
         run: node --test tests/catalogue.test.cjs tests/catalogue-integration.test.cjs tests/catalogue-quick-links.test.cjs tests/catalogue-reference-fallback.test.cjs tests/catalogue-isolation.test.cjs tests/catalogue-bootstrap.test.cjs tests/catalogue-sources.test.cjs tests/catalogue-hammer.test.cjs tests/catalogue-gianttiger.test.cjs tests/catalogue-costco.test.cjs tests/catalogue-remaining-retailers.test.cjs tests/catalogue-grocery.test.cjs tests/delivery.test.cjs tests/intelligence.test.cjs tests/location.test.cjs
       - name: Validate catalogue SQL migration and unpriced starter catalogue
